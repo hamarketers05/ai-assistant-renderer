@@ -92,7 +92,7 @@ jobs:
       - name: Upload video to Supabase
         run: |
           curl -fL \
-            -X POST \
+            -X PUT \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: video/mp4" \
