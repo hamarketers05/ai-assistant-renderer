@@ -1,0 +1,41 @@
+name: AI Assistant Renderer
+
+on:
+  workflow_dispatch:
+    inputs:
+      content_id:
+        description: "Content ID to render"
+        required: true
+        type: string
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Check FFmpeg
+        run: |
+          ffmpeg -version
+
+      - name: Render test video
+        run: |
+          ffmpeg \
+            -f lavfi \
+            -i color=c=black:s=1280x720:r=30 \
+            -f lavfi \
+            -i anullsrc=r=48000:cl=stereo \
+            -t 5 \
+            -c:v libx264 \
+            -pix_fmt yuv420p \
+            -c:a aac \
+            -shortest \
+            output.mp4
+
+      - name: Show result
+        run: |
+          ls -lh output.mp4
