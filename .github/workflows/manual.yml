@@ -26,7 +26,7 @@ jobs:
           mkdir -p work
           mkdir -p output
 
-            - name: Download voice
+                  - name: Download voice
         if: ${{ inputs.audio_url != '' }}
         run: |
           curl -L "${{ inputs.audio_url }}" -o voice.mp3
