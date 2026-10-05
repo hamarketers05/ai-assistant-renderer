@@ -88,3 +88,15 @@ jobs:
         with:
           name: rendered-video-${{ inputs.content_id }}
           path: output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
+
+      - name: Upload video to Supabase
+        run: |
+          curl -fL \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: video/mp4" \
+            --data-binary "@output/AI_TECH_LAB_${{ inputs.content_id }}.mp4" \
+            "${{ secrets.SUPABASE_URL }}/storage/v1/object/ai-assistant-audio/videos/AI_TECH_LAB/${{ inputs.content_id }}/video.mp4"
+
+          echo "Video uploaded to Supabase successfully."
