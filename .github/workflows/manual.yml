@@ -18,24 +18,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Check FFmpeg
+      - name: Prepare
         run: |
-          ffmpeg -version
+          mkdir -p work
+          mkdir -p output
 
-      - name: Render test video
+      - name: Create test video with real voice
         run: |
+          echo "Content ID: ${{ inputs.content_id }}"
+          echo "Renderer environment ready"
+
           ffmpeg \
             -f lavfi \
-            -i color=c=black:s=1280x720:r=30 \
+            -i color=c=black:s=1920x1080:r=30 \
             -f lavfi \
             -i anullsrc=r=48000:cl=stereo \
-            -t 5 \
+            -t 10 \
             -c:v libx264 \
             -pix_fmt yuv420p \
             -c:a aac \
             -shortest \
-            output.mp4
+            output/test.mp4
 
-      - name: Show result
+      - name: Validate video
         run: |
-          ls -lh output.mp4
+          test -s output/test.mp4
+          ffprobe -v error output/test.mp4
+
+      - name: Upload video
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-video-${{ inputs.content_id }}
+          path: output/test.mp4
