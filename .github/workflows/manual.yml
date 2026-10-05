@@ -27,11 +27,17 @@ jobs:
           mkdir -p work
           mkdir -p output
 
-      - name: Download voice
+            - name: Download voice
         if: ${{ inputs.audio_url != '' }}
         run: |
-          curl -L "${{ inputs.audio_url }}" -o voice.mp3
-          test -s voice.mp3
+          curl -fL --retry 3 --retry-all-errors \
+            -H "User-Agent: AI-Assistant-Factory" \
+            "${{ inputs.audio_url }}" \
+            -o voice.mp3
+
+          ls -lh voice.mp3
+          file voice.mp3
+          ffprobe -v error voice.mp3
 
       - name: Render video
         run: |
