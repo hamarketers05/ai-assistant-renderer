@@ -7,10 +7,11 @@ on:
         description: "Content ID to render"
         required: true
         type: string
-    audio_url:
-      description: "Temporary audio URL"
-      required: false
-      type: string
+      audio_url:
+        description: "Temporary audio URL"
+        required: false
+        type: string
+
 jobs:
   render:
     runs-on: ubuntu-latest
@@ -26,13 +27,13 @@ jobs:
           mkdir -p work
           mkdir -p output
 
-                  - name: Download voice
+      - name: Download voice
         if: ${{ inputs.audio_url != '' }}
         run: |
           curl -L "${{ inputs.audio_url }}" -o voice.mp3
           test -s voice.mp3
 
-      - name: Render video with voice
+      - name: Render video
         run: |
           if [ -f voice.mp3 ]; then
             ffmpeg \
@@ -57,7 +58,6 @@ jobs:
               -shortest \
               output/test.mp4
           fi
-      
 
       - name: Validate video
         run: |
