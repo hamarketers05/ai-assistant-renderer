@@ -88,7 +88,141 @@ jobs:
         with:
           name: rendered-video-${{ inputs.content_id }}
           path: output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
+          
+      - name: Upload and schedule video on YouTube
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          echo "Getting YouTube access token..."
 
+          TOKEN_RESPONSE=$(curl -sS \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "client_id=$YOUTUBE_CLIENT_ID" \
+            --data-urlencode "client_secret=$YOUTUBE_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$YOUTUBE_REFRESH_TOKEN" \
+            --data-urlencode "grant_type=refresh_token" \
+            https://oauth2.googleapis.com/token)
+
+          ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+
+          if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
+            echo "YouTube access token generation failed."
+            echo "$TOKEN_RESPONSE"
+            exit 1
+          fi
+
+          echo "Access token received."
+
+          VIDEO_FILE="output/AI_TECH_LAB_${{ inputs.content_id }}.mp4"
+
+          if [ ! -s "$VIDEO_FILE" ]; then
+            echo "Video file not found."
+            exit 1
+          fi
+
+          echo "Calculating USA publish time..."
+
+          PUBLISH_AT=$(node -e '
+            const now = new Date();
+
+            const parts = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false
+            }).formatToParts(now);
+
+            const get = (type) => parts.find(p => p.type === type).value;
+
+            let year = Number(get("year"));
+            let month = Number(get("month"));
+            let day = Number(get("day"));
+            let hour = Number(get("hour"));
+
+            if (hour === 24) hour = 0;
+
+            const extraMinutes = Math.floor(Math.random() * 31);
+
+            let target = new Date(
+              Date.UTC(year, month - 1, day, 18, extraMinutes, 0)
+            );
+
+            if (target.getTime() <= now.getTime()) {
+              target.setUTCDate(target.getUTCDate() + 1);
+            }
+
+            console.log(target.toISOString());
+          ')
+
+          echo "Scheduled publish time: $PUBLISH_AT"
+
+          cat > youtube_metadata.json <<EOF
+          {
+            "snippet": {
+              "title": "AI Tech Lab - AI & Future Technology - Content ${{ inputs.content_id }}",
+              "description": "AI, artificial intelligence, future technology, latest AI trends and technology insights from AI Tech Lab.",
+              "categoryId": "28"
+            },
+            "status": {
+              "privacyStatus": "private",
+              "publishAt": "$PUBLISH_AT",
+              "selfDeclaredMadeForKids": false
+            }
+          }
+          EOF
+
+          echo "Starting YouTube resumable upload..."
+
+          HEADERS_FILE="youtube_headers.txt"
+
+          curl -sS -D "$HEADERS_FILE" \
+            -o /dev/null \
+            -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/json; charset=UTF-8" \
+            -H "X-Upload-Content-Type: video/mp4" \
+            -H "X-Upload-Content-Length: $(stat -c%s "$VIDEO_FILE")" \
+            --data-binary @youtube_metadata.json \
+            "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
+
+          UPLOAD_URL=$(grep -i "^location:" "$HEADERS_FILE" | cut -d' ' -f2- | tr -d '\r')
+
+          if [ -z "$UPLOAD_URL" ]; then
+            echo "YouTube upload URL was not received."
+            cat "$HEADERS_FILE"
+            exit 1
+          fi
+
+          echo "Uploading video file..."
+
+          UPLOAD_RESPONSE=$(curl -sS \
+            -X PUT \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: video/mp4" \
+            --data-binary "@$VIDEO_FILE" \
+            "$UPLOAD_URL")
+
+          echo "$UPLOAD_RESPONSE" > youtube_upload_response.json
+
+          VIDEO_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.id')
+
+          if [ -z "$VIDEO_ID" ] || [ "$VIDEO_ID" = "null" ]; then
+            echo "YouTube upload failed."
+            cat youtube_upload_response.json
+            exit 1
+          fi
+
+          echo "YouTube video uploaded successfully."
+          echo "Video ID: $VIDEO_ID"
+          echo "Privacy: PRIVATE"
+          echo "Scheduled publish time: $PUBLISH_AT"
+          
       - name: Upload video to Supabase
         run: |
           curl -sS \
