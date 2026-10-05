@@ -26,22 +26,38 @@ jobs:
           mkdir -p work
           mkdir -p output
 
-      - name: Create test video with real voice
+            - name: Download voice
+        if: ${{ inputs.audio_url != '' }}
         run: |
-          echo "Content ID: ${{ inputs.content_id }}"
-          echo "Renderer environment ready"
+          curl -L "${{ inputs.audio_url }}" -o voice.mp3
+          test -s voice.mp3
 
-          ffmpeg \
-            -f lavfi \
-            -i color=c=black:s=1920x1080:r=30 \
-            -f lavfi \
-            -i anullsrc=r=48000:cl=stereo \
-            -t 10 \
-            -c:v libx264 \
-            -pix_fmt yuv420p \
-            -c:a aac \
-            -shortest \
-            output/test.mp4
+      - name: Render video with voice
+        run: |
+          if [ -f voice.mp3 ]; then
+            ffmpeg \
+              -f lavfi \
+              -i color=c=black:s=1920x1080:r=30 \
+              -i voice.mp3 \
+              -c:v libx264 \
+              -pix_fmt yuv420p \
+              -c:a aac \
+              -shortest \
+              output/test.mp4
+          else
+            ffmpeg \
+              -f lavfi \
+              -i color=c=black:s=1920x1080:r=30 \
+              -f lavfi \
+              -i anullsrc=r=48000:cl=stereo \
+              -t 10 \
+              -c:v libx264 \
+              -pix_fmt yuv420p \
+              -c:a aac \
+              -shortest \
+              output/test.mp4
+          fi
+      
 
       - name: Validate video
         run: |
