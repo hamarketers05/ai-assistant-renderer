@@ -27,7 +27,7 @@ jobs:
           mkdir -p work
           mkdir -p output
 
-            - name: Download voice
+      - name: Download voice
         if: ${{ inputs.audio_url != '' }}
         run: |
           curl -fL --retry 3 --retry-all-errors \
