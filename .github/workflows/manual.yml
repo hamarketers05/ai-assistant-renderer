@@ -17,6 +17,11 @@ on:
         required: false
         type: string
 
+      script:
+        description: "Content script"
+        required: false
+        type: string
+        
       description:
         description: "YouTube SEO description"
         required: false
