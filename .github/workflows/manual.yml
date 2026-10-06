@@ -7,11 +7,12 @@ on:
         description: "Content ID to render"
         required: true
         type: string
+
       audio_url:
         description: "Temporary audio URL"
         required: false
         type: string
-        
+
       title:
         description: "YouTube SEO title"
         required: false
@@ -21,7 +22,7 @@ on:
         description: "Content script"
         required: false
         type: string
-        
+
       description:
         description: "YouTube SEO description"
         required: false
@@ -31,117 +32,475 @@ on:
         description: "YouTube SEO tags"
         required: false
         type: string
-        
+
 jobs:
   render:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install FFmpeg
+
+      - name: Install FFmpeg and tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg jq imagemagick python3
 
       - name: Prepare
         run: |
           mkdir -p work
           mkdir -p output
+          mkdir -p scenes
+          mkdir -p assets
+
+      - name: Validate required inputs
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+          SCRIPT: ${{ inputs.script }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          if [ -z "$CONTENT_ID" ]; then
+            echo "ERROR: content_id is missing."
+            exit 1
+          fi
+
+          if [ -z "$SCRIPT" ]; then
+            echo "ERROR: script is missing."
+            exit 1
+          fi
+
+          SCRIPT_LENGTH=${#SCRIPT}
+
+          echo "Content ID: $CONTENT_ID"
+          echo "Title: $TITLE"
+          echo "Script length: $SCRIPT_LENGTH characters"
+
+          if [ "$SCRIPT_LENGTH" -lt 300 ]; then
+            echo "ERROR: Script is too short for production."
+            exit 1
+          fi
+
+      - name: Call AI Production Worker
+        env:
+          PRODUCTION_WORKER_URL: ${{ vars.NEW_PRODUCTION_WORKER_URL }}
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          CONTENT_ID: ${{ inputs.content_id }}
+          TITLE: ${{ inputs.title }}
+          SCRIPT: ${{ inputs.script }}
+          AUDIO_URL: ${{ inputs.audio_url }}
+        run: |
+          if [ -z "$PRODUCTION_WORKER_URL" ]; then
+            echo "ERROR: NEW_PRODUCTION_WORKER_URL variable is missing."
+            exit 1
+          fi
+
+          if [ -z "$WORKER_AUTH_TOKEN" ]; then
+            echo "ERROR: WORKER_AUTH_TOKEN secret is missing."
+            exit 1
+          fi
+
+          jq -n \
+            --arg content_id "$CONTENT_ID" \
+            --arg brand_id "AI_TECH_LAB" \
+            --arg platform "YouTube" \
+            --arg language "english" \
+            --arg title "$TITLE" \
+            --arg script "$SCRIPT" \
+            --arg audio_url "$AUDIO_URL" \
+            '{
+              content_id: $content_id,
+              brand_id: $brand_id,
+              platform: $platform,
+              language: $language,
+              title: $title,
+              script: $script,
+              audio_url: $audio_url
+            }' > production_request.json
+
+          echo "Calling AI Production Worker..."
+
+          HTTP_CODE=$(curl -sS \
+            -o production_response.json \
+            -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @production_request.json \
+            "$PRODUCTION_WORKER_URL/produce")
+
+          echo "Production Worker HTTP status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Production Worker failed:"
+            cat production_response.json
+            exit 1
+          fi
+
+          PRODUCTION_STATUS=$(jq -r '.status // empty' production_response.json)
+
+          if [ "$PRODUCTION_STATUS" != "production_ready" ]; then
+            echo "Production Worker did not return production_ready."
+            cat production_response.json
+            exit 1
+          fi
+
+          echo "Production Worker completed successfully."
+
+          jq '.production' production_response.json > production_manifest.json
+
+          test -s production_manifest.json
+
+      - name: Extract production data
+        env:
+          INPUT_TITLE: ${{ inputs.title }}
+          INPUT_DESCRIPTION: ${{ inputs.description }}
+          INPUT_TAGS: ${{ inputs.tags }}
+          INPUT_SCRIPT: ${{ inputs.script }}
+        run: |
+          MANIFEST_TITLE=$(jq -r '.seo.title // empty' production_manifest.json)
+          MANIFEST_DESCRIPTION=$(jq -r '.seo.description // empty' production_manifest.json)
+
+          if [ -n "$MANIFEST_TITLE" ]; then
+            echo "$MANIFEST_TITLE" > work/title.txt
+          else
+            echo "$INPUT_TITLE" > work/title.txt
+          fi
+
+          if [ -n "$MANIFEST_DESCRIPTION" ]; then
+            echo "$MANIFEST_DESCRIPTION" > work/description.txt
+          else
+            echo "$INPUT_DESCRIPTION" > work/description.txt
+          fi
+
+          if [ -n "$INPUT_TAGS" ]; then
+            echo "$INPUT_TAGS" > work/tags.txt
+          else
+            jq -r '.seo.tags // [] | join(",")' production_manifest.json > work/tags.txt
+          fi
+
+          printf '%s' "$INPUT_SCRIPT" > work/script.txt
+
+          echo "Production title:"
+          cat work/title.txt
+
+          echo ""
+          echo "Production tags:"
+          cat work/tags.txt
 
       - name: Download voice
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          VOICE_PATH="voices/AI_TECH_LAB/${{ inputs.content_id }}/chunk_1.mp3"
+          VOICE_PATH="voices/AI_TECH_LAB/${CONTENT_ID}/chunk_1.mp3"
 
           SIGN_RESPONSE=$(curl -sS -X POST \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             --data '{"expiresIn":86400}' \
-            "${{ secrets.SUPABASE_URL }}/storage/v1/object/sign/ai-assistant-audio/${VOICE_PATH}")
+            "$SUPABASE_URL/storage/v1/object/sign/ai-assistant-audio/$VOICE_PATH")
 
-          echo "Supabase signed URL response:"
-          echo "$SIGN_RESPONSE" | sed 's/token=[^"]*/token=HIDDEN/g'
+          echo "Supabase signed URL response received."
 
           SIGNED_PATH=$(echo "$SIGN_RESPONSE" | jq -r '.signedURL // empty')
 
           if [ -z "$SIGNED_PATH" ]; then
             echo "ERROR: Supabase did not return a signed URL."
+            echo "$SIGN_RESPONSE"
             exit 1
           fi
 
           if [[ "$SIGNED_PATH" == /* ]]; then
-            AUDIO_URL="${{ secrets.SUPABASE_URL }}/storage/v1${SIGNED_PATH}"
+            AUDIO_URL="$SUPABASE_URL/storage/v1${SIGNED_PATH}"
           else
             AUDIO_URL="$SIGNED_PATH"
           fi
 
           echo "Downloading voice..."
 
-          curl -fL --retry 3 --retry-all-errors \
+          curl -fL \
+            --retry 3 \
+            --retry-all-errors \
             -H "User-Agent: AI-Assistant-Factory" \
             "$AUDIO_URL" \
             -o voice.mp3
 
           test -s voice.mp3
 
+          echo "Voice downloaded:"
           ls -lh voice.mp3
-          file voice.mp3
+
           ffprobe -v error voice.mp3
 
-      - name: Render video
+      - name: Create scene plan
         run: |
-          if [ -f voice.mp3 ]; then
+          jq -r '
+            .scenes[] |
+            [
+              .scene,
+              .start,
+              .end,
+              .duration,
+              .visual.type,
+              .narration,
+              .overlay.text
+            ] |
+            @tsv
+          ' production_manifest.json > work/scenes.tsv
+
+          echo "Scene plan created."
+
+          SCENE_COUNT=$(wc -l < work/scenes.tsv)
+
+          echo "Scene count: $SCENE_COUNT"
+
+          if [ "$SCENE_COUNT" -lt 1 ]; then
+            echo "ERROR: No scenes found."
+            exit 1
+          fi
+
+      - name: Generate topic visual scenes
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+        run: |
+          rm -f scenes/*.mp4
+
+          while IFS=$'\t' read -r SCENE START END DURATION VISUAL NARRATION OVERLAY
+          do
+
+            SAFE_OVERLAY=$(printf '%s' "$OVERLAY" | cut -c1-55)
+
+            SAFE_OVERLAY=$(printf '%s' "$SAFE_OVERLAY" | \
+              sed 's/\\/\\\\/g; s/:/\\:/g; s/'"'"'/\\'"'"'/g')
+
+            SCENE_FILE="scenes/scene_${SCENE}.mp4"
+
             ffmpeg \
+              -y \
               -f lavfi \
               -i "color=c=0x050914:s=1920x1080:r=30" \
-              -i voice.mp3 \
-              -filter_complex "
+              -t "$DURATION" \
+              -vf "
               drawbox=x=0:y=0:w=1920:h=1080:color=0x07152f@1:t=fill,
-              drawbox=x='mod(t*80,2200)-200':y=120:w=420:h=4:color=0x00d9ff@0.65:t=fill,
-              drawbox=x='mod(t*55,2300)-300':y=850:w=520:h=3:color=0x7c3aed@0.55:t=fill,
-              drawbox=x=120:y=180:w=1680:h=720:color=0x00d9ff@0.16:t=3,
-              drawbox=x=180:y=240:w=1560:h=600:color=0x7c3aed@0.10:t=2,
-              drawtext=text='AI TECH LAB':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=92:fontcolor=white:x=(w-text_w)/2:y=390,
-              drawtext=text='AI • FUTURE TECHNOLOGY • INNOVATION':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=32:fontcolor=0x9be7ff:x=(w-text_w)/2:y=510,
-              drawtext=text='CONTENT ID ${{ inputs.content_id }}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=24:fontcolor=0x7c3aed:x=80:y=100,
-              drawtext=text='AI ASSISTANT FACTORY':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=22:fontcolor=0x00d9ff:x=80:y=1010
+              drawbox=x='mod(t*90+${SCENE}*140,2200)-300':y=150:w=500:h=5:color=0x00d9ff@0.75:t=fill,
+              drawbox=x='mod(t*65+${SCENE}*190,2300)-400':y=860:w=600:h=4:color=0x7c3aed@0.65:t=fill,
+              drawbox=x=100:y=120:w=1720:h=840:color=0x00d9ff@0.10:t=3,
+              drawbox=x=150:y=170:w=1620:h=740:color=0x7c3aed@0.08:t=2,
+              drawtext=text='AI TECH LAB':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=72:fontcolor=white:x=110:y=90,
+              drawtext=text='SCENE ${SCENE}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=25:fontcolor=0x00d9ff:x=1650:y=95,
+              drawtext=text='${SAFE_OVERLAY}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=58:fontcolor=white:x=(w-text_w)/2:y=470,
+              drawtext=text='${VISUAL}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=25:fontcolor=0x9be7ff:x=(w-text_w)/2:y=560
               " \
               -c:v libx264 \
               -preset veryfast \
               -crf 23 \
               -pix_fmt yuv420p \
-              -c:a aac \
-              -b:a 192k \
-              -shortest \
-              output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
-          else
-            ffmpeg \
-              -f lavfi \
-              -i "color=c=0x050914:s=1920x1080:r=30" \
-              -f lavfi \
-              -i anullsrc=r=48000:cl=stereo \
-              -t 10 \
-              -c:v libx264 \
-              -pix_fmt yuv420p \
-              -c:a aac \
-              output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
-          fi
+              -an \
+              "$SCENE_FILE"
 
-      - name: Validate video
+            test -s "$SCENE_FILE"
+
+          done < work/scenes.tsv
+
+          echo "All visual scenes generated."
+
+      - name: Create scene concat list
         run: |
-          test -s output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
-          ffprobe -v error output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
+          rm -f work/concat.txt
 
-      - name: Upload video
+          for FILE in scenes/scene_*.mp4
+          do
+            echo "file '$PWD/$FILE'" >> work/concat.txt
+          done
+
+          test -s work/concat.txt
+
+      - name: Combine visual scenes
+        run: |
+          ffmpeg \
+            -y \
+            -f concat \
+            -safe 0 \
+            -i work/concat.txt \
+            -c copy \
+            work/visual_track.mp4
+
+          test -s work/visual_track.mp4
+
+      - name: Create captions
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          script = Path("work/script.txt").read_text(errors="ignore").strip()
+          words = script.split()
+
+          if not words:
+              raise SystemExit("No script available for captions.")
+
+          # Approximate timing from narration.
+          # Final video timing remains controlled by the uploaded voice.
+          words_per_caption = 8
+          total_words = len(words)
+
+          audio_info = __import__("subprocess").check_output(
+              [
+                  "ffprobe",
+                  "-v",
+                  "error",
+                  "-show_entries",
+                  "format=duration",
+                  "-of",
+                  "default=noprint_wrappers=1:nokey=1",
+                  "voice.mp3"
+              ],
+              text=True
+          ).strip()
+
+          duration = float(audio_info)
+
+          def timestamp(seconds):
+              ms = int((seconds - int(seconds)) * 1000)
+              total = int(seconds)
+              h = total // 3600
+              m = (total % 3600) // 60
+              s = total % 60
+              return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+          lines = []
+
+          caption_no = 1
+
+          for i in range(0, total_words, words_per_caption):
+              chunk = words[i:i + words_per_caption]
+
+              start_ratio = i / total_words
+              end_ratio = min(i + len(chunk), total_words) / total_words
+
+              start = duration * start_ratio
+              end = duration * end_ratio
+
+              lines.append(str(caption_no))
+              lines.append(
+                  f"{timestamp(start)} --> {timestamp(end)}"
+              )
+              lines.append(" ".join(chunk))
+              lines.append("")
+
+              caption_no += 1
+
+          Path("work/captions.srt").write_text(
+              "\n".join(lines),
+              encoding="utf-8"
+          )
+          PY
+
+          test -s work/captions.srt
+
+          echo "Captions created."
+
+      - name: Render final video
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+        run: |
+          AUDIO_DURATION=$(ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            voice.mp3)
+
+          echo "Voice duration: $AUDIO_DURATION seconds"
+
+          ffmpeg \
+            -y \
+            -i work/visual_track.mp4 \
+            -i voice.mp3 \
+            -filter_complex "
+              [0:v]subtitles=work/captions.srt:
+              force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55'[v]
+            " \
+            -map "[v]" \
+            -map 1:a \
+            -t "$AUDIO_DURATION" \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 22 \
+            -pix_fmt yuv420p \
+            -c:a aac \
+            -b:a 192k \
+            -movflags +faststart \
+            "output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+
+          test -s "output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+
+          echo "Final video rendered."
+
+      - name: Generate thumbnail
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          SAFE_TITLE=$(printf '%s' "$TITLE" | cut -c1-55)
+
+          SAFE_TITLE=$(printf '%s' "$SAFE_TITLE" | \
+            sed 's/\\/\\\\/g; s/:/\\:/g; s/'"'"'/\\'"'"'/g')
+
+          convert \
+            -size 1280x720 \
+            gradient:'#050914-#151a3d' \
+            -gravity center \
+            -font DejaVu-Sans-Bold \
+            -pointsize 58 \
+            -fill white \
+            -stroke '#00d9ff' \
+            -strokewidth 1 \
+            -annotate +0+0 "$SAFE_TITLE" \
+            -gravity south \
+            -pointsize 30 \
+            -fill '#9be7ff' \
+            -stroke none \
+            -annotate +0+45 "AI TECH LAB" \
+            "output/thumbnail_${CONTENT_ID}.jpg"
+
+          test -s "output/thumbnail_${CONTENT_ID}.jpg"
+
+          echo "Thumbnail generated."
+
+      - name: Validate final production
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+        run: |
+          VIDEO_FILE="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          THUMBNAIL_FILE="output/thumbnail_${CONTENT_ID}.jpg"
+
+          test -s "$VIDEO_FILE"
+          test -s "$THUMBNAIL_FILE"
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -show_entries stream=codec_name,width,height \
+            "$VIDEO_FILE"
+
+          echo "Production QA passed."
+
+      - name: Upload rendered video artifact
         uses: actions/upload-artifact@v4
         with:
           name: rendered-video-${{ inputs.content_id }}
-          path: output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
-          
+          path: |
+            output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
+            output/thumbnail_${{ inputs.content_id }}.jpg
+            production_manifest.json
+            work/captions.srt
+
       - name: Upload and schedule video on YouTube
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          CONTENT_ID: ${{ inputs.content_id }}
         run: |
           echo "Getting YouTube access token..."
 
@@ -162,14 +521,11 @@ jobs:
             exit 1
           fi
 
-          echo "Access token received."
+          VIDEO_FILE="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          THUMBNAIL_FILE="output/thumbnail_${CONTENT_ID}.jpg"
 
-          VIDEO_FILE="output/AI_TECH_LAB_${{ inputs.content_id }}.mp4"
-
-          if [ ! -s "$VIDEO_FILE" ]; then
-            echo "Video file not found."
-            exit 1
-          fi
+          test -s "$VIDEO_FILE"
+          test -s "$THUMBNAIL_FILE"
 
           echo "Calculating USA publish time..."
 
@@ -191,14 +547,22 @@ jobs:
             let year = Number(get("year"));
             let month = Number(get("month"));
             let day = Number(get("day"));
-            let hour = Number(get("hour"));
 
-            if (hour === 24) hour = 0;
+            if (get("hour") === "24") {
+              year = year;
+            }
 
             const extraMinutes = Math.floor(Math.random() * 31);
 
-            let target = new Date(
-              Date.UTC(year, month - 1, day, 18, extraMinutes, 0)
+            const target = new Date(
+              Date.UTC(
+                year,
+                month - 1,
+                day,
+                18,
+                extraMinutes,
+                0
+              )
             );
 
             if (target.getTime() <= now.getTime()) {
@@ -210,26 +574,34 @@ jobs:
 
           echo "Scheduled publish time: $PUBLISH_AT"
 
-          cat > youtube_metadata.json <<EOF
-          {
-            "snippet": {
-              "title": "${{ inputs.title }}",
-              "description": "${{ inputs.description }}",
-              "categoryId": "28"
-            },
-            "status": {
-              "privacyStatus": "private",
-              "publishAt": "$PUBLISH_AT",
-              "selfDeclaredMadeForKids": false
-            }
-          }
-          EOF
+          TITLE=$(cat work/title.txt)
+          DESCRIPTION=$(cat work/description.txt)
+
+          jq -n \
+            --arg title "$TITLE" \
+            --arg description "$DESCRIPTION" \
+            --arg publishAt "$PUBLISH_AT" \
+            --arg tags "$(cat work/tags.txt)" \
+            '{
+              snippet: {
+                title: $title,
+                description: $description,
+                categoryId: "28",
+                tags: ($tags | split(",") | map(select(length > 0)))
+              },
+              status: {
+                privacyStatus: "private",
+                publishAt: $publishAt,
+                selfDeclaredMadeForKids: false
+              }
+            }' > youtube_metadata.json
 
           echo "Starting YouTube resumable upload..."
 
           HEADERS_FILE="youtube_headers.txt"
 
-          curl -sS -D "$HEADERS_FILE" \
+          curl -sS \
+            -D "$HEADERS_FILE" \
             -o /dev/null \
             -X POST \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -239,7 +611,8 @@ jobs:
             --data-binary @youtube_metadata.json \
             "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
 
-          UPLOAD_URL=$(grep -i "^location:" "$HEADERS_FILE" | cut -d' ' -f2- | tr -d '\r')
+          UPLOAD_URL=$(grep -i "^location:" "$HEADERS_FILE" | \
+            cut -d' ' -f2- | tr -d '\r')
 
           if [ -z "$UPLOAD_URL" ]; then
             echo "YouTube upload URL was not received."
@@ -271,15 +644,58 @@ jobs:
           echo "Video ID: $VIDEO_ID"
           echo "Privacy: PRIVATE"
           echo "Scheduled publish time: $PUBLISH_AT"
-          
-      - name: Upload video to Supabase
-        run: |
-          curl -sS \
-            -X PUT \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -H "Content-Type: video/mp4" \
-            --data-binary "@output/AI_TECH_LAB_${{ inputs.content_id }}.mp4" \
-            "${{ secrets.SUPABASE_URL }}/storage/v1/object/ai-assistant-audio/videos/AI_TECH_LAB/${{ inputs.content_id }}/video.mp4"
 
-          echo "Video uploaded to Supabase successfully."
+          echo "Uploading thumbnail..."
+
+          THUMBNAIL_RESPONSE=$(curl -sS \
+            -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: image/jpeg" \
+            --data-binary "@$THUMBNAIL_FILE" \
+            "https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=$VIDEO_ID")
+
+          THUMBNAIL_STATUS=$(echo "$THUMBNAIL_RESPONSE" | jq -r '.kind // empty')
+
+          if [ -z "$THUMBNAIL_STATUS" ]; then
+            echo "Thumbnail upload failed."
+            echo "$THUMBNAIL_RESPONSE"
+            exit 1
+          fi
+
+          echo "Thumbnail uploaded successfully."
+
+      - name: Upload final video to Supabase
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          VIDEO_FILE="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+
+          curl -fS \
+            -X PUT \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: video/mp4" \
+            --data-binary "@$VIDEO_FILE" \
+            "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/videos/AI_TECH_LAB/${CONTENT_ID}/video.mp4"
+
+          echo "Final video uploaded to Supabase successfully."
+
+      - name: Production complete
+        env:
+          CONTENT_ID: ${{ inputs.content_id }}
+        run: |
+          echo "======================================"
+          echo "AI ASSISTANT FACTORY"
+          echo "PRODUCTION COMPLETE"
+          echo "Content ID: $CONTENT_ID"
+          echo "Video: rendered"
+          echo "Voice: synchronized"
+          echo "Captions: generated"
+          echo "Thumbnail: generated"
+          echo "SEO: applied"
+          echo "YouTube: uploaded"
+          echo "YouTube: scheduled"
+          echo "Supabase backup: uploaded"
+          echo "======================================"
