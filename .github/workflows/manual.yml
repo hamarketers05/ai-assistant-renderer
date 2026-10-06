@@ -213,8 +213,8 @@ jobs:
           cat > youtube_metadata.json <<EOF
           {
             "snippet": {
-              "title": "AI Tech Lab - AI & Future Technology - Content ${{ inputs.content_id }}",
-              "description": "AI, artificial intelligence, future technology, latest AI trends and technology insights from AI Tech Lab.",
+              "title": "${{ inputs.title }}",
+              "description": "${{ inputs.description }}",
               "categoryId": "28"
             },
             "status": {
