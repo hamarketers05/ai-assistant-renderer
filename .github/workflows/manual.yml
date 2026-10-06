@@ -31,11 +31,33 @@ jobs:
         run: |
           VOICE_PATH="voices/AI_TECH_LAB/${{ inputs.content_id }}/chunk_1.mp3"
 
-          curl -fL --retry 3 --retry-all-errors \
+          RESPONSE=$(curl -sS \
+            -X POST \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            --data '{"expiresIn":86400}' \
+            "${{ secrets.SUPABASE_URL }}/storage/v1/object/sign/ai-assistant-audio/${VOICE_PATH}")
+
+          echo "Supabase signed URL response:"
+          echo "$RESPONSE"
+
+          SIGNED_PATH=$(echo "$RESPONSE" | jq -r '.signedURL // empty')
+
+          if [ -z "$SIGNED_PATH" ]; then
+            echo "ERROR: Supabase did not return a signed URL."
+            exit 1
+          fi
+
+          if [[ "$SIGNED_PATH" == /* ]]; then
+            AUDIO_URL="${{ secrets.SUPABASE_URL }}${SIGNED_PATH}"
+          else
+            AUDIO_URL="$SIGNED_PATH"
+          fi
+
+          curl -fL --retry 3 --retry-all-errors \
             -H "User-Agent: AI-Assistant-Factory" \
-            "${{ secrets.SUPABASE_URL }}/storage/v1/object/authenticated/ai-assistant-audio/${VOICE_PATH}" \
+            "$AUDIO_URL" \
             -o voice.mp3
 
           test -s voice.mp3
