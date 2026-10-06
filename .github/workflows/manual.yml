@@ -233,6 +233,7 @@ jobs:
             -X PUT \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Content-Type: video/mp4" \
+            -H "Content-Length: $(stat -c%s "$VIDEO_FILE")" \
             --data-binary "@$VIDEO_FILE" \
             "$UPLOAD_URL")
 
