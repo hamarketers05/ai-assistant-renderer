@@ -28,11 +28,14 @@ jobs:
           mkdir -p output
 
       - name: Download voice
-        if: ${{ inputs.audio_url != '' }}
         run: |
+          VOICE_PATH="voices/AI_TECH_LAB/${{ inputs.content_id }}/chunk_1.mp3"
+
           curl -fL --retry 3 --retry-all-errors \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "User-Agent: AI-Assistant-Factory" \
-            "${{ inputs.audio_url }}" \
+            "${{ secrets.SUPABASE_URL }}/storage/v1/object/ai-assistant-audio/${VOICE_PATH}" \
             -o voice.mp3
 
           ls -lh voice.mp3
