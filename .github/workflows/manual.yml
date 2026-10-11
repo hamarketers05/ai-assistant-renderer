@@ -300,14 +300,19 @@ jobs:
               rows = [line.rstrip("\n").split("\t") for line in source]
 
           downloaded = 0
+          search_calls = 0
           download_calls = 0
+          max_search_calls = 10
           max_downloads = 6
           max_download_calls = 6
           seen_queries = set()
 
           for row in rows:
-              if len(row) < 7 or downloaded >= max_downloads:
+              if len(row) < 7:
                   continue
+              if (downloaded >= max_downloads or download_calls >= max_download_calls
+                      or search_calls >= max_search_calls):
+                  break
 
               scene, start, end, duration, kind, query, overlay = row[:7]
               scene = re.sub(r"[^a-zA-Z0-9_-]", "_", scene)[:80]
@@ -325,6 +330,7 @@ jobs:
               })
 
               try:
+                  search_calls += 1
                   results = resource_list(api_get(search_url))
               except Exception as exc:
                   print(f"Vecteezy search failed for {scene}: {str(exc)[:120]}")
@@ -387,7 +393,7 @@ jobs:
                           "query": query,
                           "creator": creator,
                           "source_url": source_url,
-                          "license_label": license_label or "Free-tier resource; individual license must be checked",
+                          "license_label": license_label or "License label not supplied by API; review linked source",
                           "license_reference": "https://www.vecteezy.com/licensing-agreement"
                       }
                       with open("work/asset_sources.jsonl", "a", encoding="utf-8") as log:
