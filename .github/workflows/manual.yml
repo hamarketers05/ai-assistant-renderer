@@ -714,24 +714,47 @@ jobs:
             -movflags +faststart \
             "$VIDEO"
 
-          SAFE_TITLE=$(cat work/title.txt | cut -c1-55)
-
+          # Premium AI Tech Lab thumbnail: high-contrast typography and custom neural circuit art.
           convert \
             -size 1280x720 \
-            gradient:'#050914-#151a3d' \
-            -gravity center \
-            -font DejaVu-Sans-Bold \
-            -pointsize 56 \
-            -fill white \
-            -stroke '#00d9ff' \
-            -strokewidth 1 \
-            -annotate +0+0 "$SAFE_TITLE" \
-            -gravity south \
-            -pointsize 30 \
-            -fill '#9be7ff' \
-            -stroke none \
-            -annotate +0+45 "AI TECH LAB" \
-            "$THUMBNAIL"
+            gradient:"#030713-#10234a" \
+            -fill "#07142c" -draw "polygon 665,0 1280,0 1280,720 760,720 905,360" \
+            -stroke "#00d9ff" -strokewidth 5 -fill none \
+            -draw "line 790,240 895,180" \
+            -draw "line 895,180 1010,238" \
+            -draw "line 1010,238 1125,180" \
+            -draw "line 1125,180 1200,280" \
+            -draw "line 790,240 850,360" \
+            -draw "line 850,360 970,420" \
+            -draw "line 970,420 1110,390" \
+            -draw "line 1110,390 1200,280" \
+            -draw "line 895,180 970,300" \
+            -draw "line 970,300 1110,390" \
+            -draw "line 1010,238 970,300" \
+            -draw "line 970,300 850,360" \
+            -draw "line 970,300 1090,285" \
+            -stroke "#63f4ff" -strokewidth 3 -fill "#092343" \
+            -draw "circle 790,240 790,222" \
+            -draw "circle 895,180 895,160" \
+            -draw "circle 1010,238 1010,218" \
+            -draw "circle 1125,180 1125,160" \
+            -draw "circle 1200,280 1200,258" \
+            -draw "circle 850,360 850,340" \
+            -draw "circle 970,420 970,397" \
+            -draw "circle 1110,390 1110,370" \
+            -draw "circle 970,300 970,260" \
+            -stroke "#00d9ff" -strokewidth 7 -fill none -draw "circle 970,300 970,235" \
+            -fill "#00d9ff" -stroke none -draw "circle 970,300 970,286" \
+            -font /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf \
+            -pointsize 37 -fill "#6df2ff" -stroke none -gravity NorthWest \
+            -annotate +72+68 "AI TECH LAB  •  2026" \
+            -pointsize 72 -fill white -annotate +70+195 "BEYOND" \
+            -pointsize 103 -fill "#ffd84d" -annotate +68+285 "CHATBOTS" \
+            -pointsize 31 -fill "#e5efff" -annotate +76+430 "AI AGENTS ARE TAKING ACTION" \
+            -fill "#00d9ff" -draw "roundrectangle 70,515 500,585 18,18" \
+            -pointsize 25 -fill "#041021" -annotate +95+559 "WHAT CHANGES IN 2026" \
+            -pointsize 22 -fill "#b8cce8" -gravity SouthEast -annotate +35+28 "AI  •  FUTURE  •  AUTOMATION" \
+            -quality 93 "$THUMBNAIL"
 
           test -s "$VIDEO"
           test -s "$THUMBNAIL"
