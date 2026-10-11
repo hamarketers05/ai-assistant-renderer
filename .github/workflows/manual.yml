@@ -11,6 +11,14 @@ on:
         description: "Optional direct audio URL"
         required: false
         type: string
+      content_format:
+        description: "AI Tech Lab video format"
+        required: true
+        type: choice
+        options:
+          - LONG_VIDEO
+          - SHORT
+        default: LONG_VIDEO
       title:
         description: "Video title"
         required: true
@@ -47,6 +55,7 @@ jobs:
 
     env:
       CONTENT_ID: ${{ inputs.content_id }}
+      CONTENT_FORMAT: ${{ inputs.content_format }}
       INPUT_TITLE: ${{ inputs.title }}
       INPUT_SCRIPT: ${{ inputs.script }}
       INPUT_DESCRIPTION: ${{ inputs.description }}
@@ -62,9 +71,14 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y ffmpeg jq imagemagick python3 python3-venv fonts-dejavu-core
+          if sudo apt-get install -y rubberband-cli; then
+            echo "Rubber Band is available for optional pitch shaping."
+          else
+            echo "Rubber Band unavailable; safely skipping optional pitch shaping."
+          fi
           python3 -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install pillow matplotlib opencv-python-headless pydub faster-whisper
+          .venv/bin/pip install numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper
           mkdir -p work output scenes assets
 
       - name: Validate configuration
@@ -76,6 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$CONTENT_ID" =~ ^[0-9]+$ ]] || { echo "Content ID must be numeric."; exit 1; }
+          [[ "$CONTENT_FORMAT" == "LONG_VIDEO" || "$CONTENT_FORMAT" == "SHORT" ]] || { echo "Unsupported video format."; exit 1; }
           test -n "$INPUT_TITLE"
           test "${#INPUT_SCRIPT}" -ge 300
           test -n "$WORKER_URL"
@@ -101,7 +116,8 @@ jobs:
             --arg title "$INPUT_TITLE" \
             --arg script "$INPUT_SCRIPT" \
             --arg audio_url "$AUDIO_URL" \
-            '{content_id:$content_id,brand_id:$brand_id,platform:$platform,language:$language,title:$title,script:$script,audio_url:$audio_url}' \
+            --arg content_format "$CONTENT_FORMAT" \
+            '{content_id:$content_id,brand_id:$brand_id,platform:$platform,language:$language,title:$title,script:$script,audio_url:$audio_url,content_format:$content_format}' \
             > work/production_request.json
 
           CODE=$(curl -sS --max-time 180 -o work/production_response.json -w "%{http_code}" \
@@ -369,9 +385,10 @@ jobs:
                       license_label = find_value(combined, {
                           "license_name", "license_type", "licence_name", "licence_type", "license", "licence"
                       })
-                      license_lower = (license_label or "").lower()
-                      if "editorial" in license_lower or "pro standard" in license_lower or "premium" in license_lower:
-                          print(f"Skipping {rid}: license is editorial or not suitable for the free pipeline.")
+                      license_lower = (license_label or "").strip().lower()
+                      explicitly_free = bool(re.search(r"\\bfree(?:\\s+license)?\\b", license_lower))
+                      if not explicitly_free or any(term in license_lower for term in ("editorial", "pro", "premium", "paid")):
+                          print(f"Skipping {rid}: an explicit Free License was not verified; using original generated visuals.")
                           continue
 
                       req = urllib.request.Request(
@@ -476,8 +493,8 @@ jobs:
 
           fig, ax = plt.subplots(figsize=(12, 6))
           ax.plot(["Research", "Plan", "Act", "Review"], [1, 2, 3, 4], marker="o", linewidth=3)
-          ax.set_title("How an AI Agent Workflow Operates")
-          ax.set_ylabel("Workflow stage — illustrative")
+          ax.set_title("Illustrative AI Agent Workflow (Not a Statistical Dataset)")
+          ax.set_ylabel("Illustrative stage — not measured data")
           ax.grid(True, alpha=0.25)
           fig.tight_layout()
           fig.savefig("assets/agent_workflow.png", dpi=150)
@@ -494,7 +511,7 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
-          import csv, re, subprocess
+          import csv, os, re, subprocess
           from pathlib import Path
 
           def run(args):
@@ -502,6 +519,10 @@ jobs:
 
           def safe(value):
               return re.sub(r"[^a-zA-Z0-9_-]", "_", str(value))[:80]
+
+          is_short = os.getenv("CONTENT_FORMAT", "LONG_VIDEO").upper() == "SHORT"
+          width, height = (1080, 1920) if is_short else (1920, 1080)
+          resize = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1"
 
           with open("work/scenes.tsv", encoding="utf-8") as f:
               rows = list(csv.reader(f, delimiter="\t"))
@@ -521,12 +542,15 @@ jobs:
               stock = Path(f"assets/scene_{scene}.mp4")
               target = Path(f"scenes/scene_{scene}.mp4")
               graphic = Path(f"assets/generated_{(i % 6) + 1}.png")
+              chart = Path(f"assets/evidence_chart_{(i % 4) + 1}.png")
+              if chart.exists() and any(token in (row[4] + " " + row[5]).lower() for token in ("chart", "graph", "statistic", "data visualization", "evidence chart")):
+                  graphic = chart
 
               if stock.exists() and stock.stat().st_size > 10000:
                   run([
                       "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
                       "-t", str(duration), "-vf",
-                      "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,eq=contrast=1.08:saturation=1.08",
+                      f"{resize},eq=contrast=1.08:saturation=1.08",
                       "-an", "-c:v", "libx264", "-preset", "veryfast",
                       "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                   ])
@@ -534,7 +558,7 @@ jobs:
                   run([
                       "ffmpeg", "-y", "-loop", "1", "-i", str(graphic),
                       "-t", str(duration), "-vf",
-                      "scale=1920:1080,zoompan=z='min(zoom+0.0005,1.08)':d=1:s=1920x1080:fps=30",
+                      f"{resize},zoompan=z='min(zoom+0.0005,1.08)':d=1:s={width}x{height}:fps=30",
                       "-an", "-c:v", "libx264", "-preset", "veryfast",
                       "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                   ])
@@ -565,6 +589,52 @@ jobs:
           test -s work/voice_edit_report.json
           cat work/voice_edit_report.json
 
+      - name: Apply optional topic-aware Rubber Band pitch shaping
+        run: |
+          set -euo pipefail
+          if command -v rubberband >/dev/null 2>&1; then
+            LOWER_TITLE=$(printf '%s %s' "$INPUT_TITLE" "$INPUT_SCRIPT" | tr '[:upper:]' '[:lower:]')
+            if [[ "$LOWER_TITLE" =~ (security|risk|privacy|serious|safety) ]]; then
+              PITCH="-0.12"
+            elif [[ "$LOWER_TITLE" =~ (tool|launch|breakthrough|exciting|agent) ]]; then
+              PITCH="0.12"
+            else
+              PITCH="0.05"
+            fi
+            if rubberband --pitch "$PITCH" work/voice_edited.wav work/voice_pitch.wav; then
+              ORIGINAL_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
+              PITCHED_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_pitch.wav)
+              .venv/bin/python - "$ORIGINAL_SECONDS" "$PITCHED_SECONDS" <<'PY'
+          import sys
+          a,b=map(float,sys.argv[1:])
+          if abs(a-b)>0.5:
+              raise SystemExit("Pitch stage changed narration duration unexpectedly.")
+          PY
+              mv work/voice_pitch.wav work/voice_edited.wav
+              echo "Validated subtle topic-aware pitch shaping."
+            else
+              rm -f work/voice_pitch.wav
+              echo "Rubber Band failed; retaining clean narration."
+            fi
+          else
+            echo "Rubber Band unavailable; retaining clean narration."
+          fi
+
+      - name: Generate original topic-aware background score
+        run: |
+          set -euo pipefail
+          VOICE_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
+          .venv/bin/python tools/generate_music.py --duration "$VOICE_SECONDS" --topic "$INPUT_TITLE $INPUT_SCRIPT" --output work/music.wav
+          test -s work/music.wav
+          test -s work/music_report.json
+
+      - name: Generate only evidence-supported data charts
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/make_evidence_charts.py
+          test -s work/evidence_charts_report.json
+          cat work/evidence_charts_report.json
+
       - name: Assemble final video and thumbnail
         run: |
           set -euo pipefail
@@ -574,14 +644,18 @@ jobs:
 
           AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 work/voice_edited.wav)
-
           VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
           THUMBNAIL="output/thumbnail_${CONTENT_ID}.jpg"
 
-          ffmpeg -y -stream_loop -1 -i work/visual_track.mp4 -i work/voice_edited.wav \
-            -filter_complex \
-            "[0:v]fps=30,scale=1920:1080,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55'[v]" \
-            -map "[v]" -map 1:a -t "$AUDIO_DURATION" \
+          if [[ "$CONTENT_FORMAT" == "SHORT" ]]; then
+            VF="fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=36,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=190'"
+          else
+            VF="fps=30,scale=1920:1080:setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55'"
+          fi
+
+          ffmpeg -y -stream_loop -1 -i work/visual_track.mp4 -i work/voice_edited.wav -i work/music.wav \
+            -filter_complex "[0:v]${VF}[v];[2:a]volume=0.32[music];[music][1:a]sidechaincompress=threshold=0.025:ratio=10:attack=20:release=420[ducked];[1:a][ducked]amix=inputs=2:duration=first:dropout_transition=0,loudnorm=I=-14:TP=-1.0:LRA=11[a]" \
+            -map "[v]" -map "[a]" -t "$AUDIO_DURATION" \
             -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p \
             -c:a aac -b:a 192k -movflags +faststart "$VIDEO"
 
@@ -593,31 +667,28 @@ jobs:
           W, H = 1280, 720
           image = Image.new("RGB", (W, H))
           pixels = image.load()
-          for y in range(H):
-              t = y / max(1, H - 1)
+          for yy in range(H):
+              t = yy / max(1, H - 1)
               color = (int(3 + 7*t), int(10 + 20*t), int(28 + 45*t))
-              for x in range(W):
-                  pixels[x, y] = color
-
+              for xx in range(W):
+                  pixels[xx, yy] = color
           draw = ImageDraw.Draw(image)
           cyan, gold, white = (70, 235, 255), (255, 211, 73), (246, 250, 255)
           draw.polygon([(860, 0), (1280, 0), (1280, 720), (700, 720), (960, 330)], fill=(9, 35, 72))
-          for x in range(850, 1260, 75):
-              draw.line((x, 20, x-120, 720), fill=(13, 74, 112), width=2)
+          for xx in range(850, 1260, 75):
+              draw.line((xx, 20, xx-120, 720), fill=(13, 74, 112), width=2)
           draw.rounded_rectangle((32, 30, 1248, 690), radius=28, outline=(20, 165, 205), width=3)
           bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
           regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
           draw.text((70, 62), "AI TECH LAB  |  2026", font=ImageFont.truetype(bold, 32), fill=cyan)
-
           raw = Path("work/title.txt").read_text(encoding="utf-8").strip()
           raw = re.sub(r"(?i)^AI Tech Lab\s*[:|—-]?\s*", "", raw)
           raw = re.sub(r"\s+", " ", raw).strip() or "Future Technology"
           lines = textwrap.wrap(raw.upper(), width=20, break_long_words=True, break_on_hyphens=False)[:3]
           title_font = ImageFont.truetype(bold, 66 if len(lines) <= 2 else 54)
-          y0 = 175
           for i, line in enumerate(lines):
-              draw.text((70, y0 + i*92), line, font=title_font,
-                        fill=gold if i == len(lines)-1 else white, stroke_width=1, stroke_fill=(0, 0, 0))
+              draw.text((70, 175 + i*92), line, font=title_font, fill=gold if i == len(lines)-1 else white,
+                        stroke_width=1, stroke_fill=(0, 0, 0))
           draw.rounded_rectangle((70, 520, 670, 592), radius=16, fill=cyan)
           draw.text((96, 538), "THE NEXT AI SHIFT", font=ImageFont.truetype(bold, 28), fill=(3, 15, 33))
           draw.text((72, 630), "ORIGINAL EXPLAINERS • RESEARCH • TECHNOLOGY",
@@ -625,8 +696,8 @@ jobs:
           image.save(f"output/thumbnail_{os.environ['CONTENT_ID']}.jpg", quality=93, optimize=True)
           PY
 
-
-
+          convert "$THUMBNAIL" -sharpen 0x0.7 -quality 94 "output/thumbnail_${CONTENT_ID}.processed.jpg"
+          mv "output/thumbnail_${CONTENT_ID}.processed.jpg" "$THUMBNAIL"
           test -s "$VIDEO"
           test -s "$THUMBNAIL"
 
@@ -634,24 +705,43 @@ jobs:
         run: |
           set -euo pipefail
           VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          THUMBNAIL="output/thumbnail_${CONTENT_ID}.jpg"
           ffprobe -v error "$VIDEO"
-          DURATION=$(ffprobe -v error -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 "$VIDEO")
+          DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDEO")
           SIZE=$(stat -c%s "$VIDEO")
-          AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 work/voice_edited.wav)
-          .venv/bin/python - "$DURATION" "$SIZE" "$AUDIO_DURATION" <<'PY'
+          AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
+          .venv/bin/python - "$CONTENT_FORMAT" "$DURATION" "$SIZE" "$AUDIO_DURATION" "$VIDEO" "$THUMBNAIL" <<'PY'
           import sys
-          duration, size, audio_duration = float(sys.argv[1]), int(sys.argv[2]), float(sys.argv[3])
-          if duration < 30:
-              raise SystemExit("QA failed: video is too short.")
+          import cv2
+          from PIL import Image
+
+          fmt = sys.argv[1].upper()
+          duration, size, audio_duration = float(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
+          video_path, thumb_path = sys.argv[5], sys.argv[6]
+          if fmt == "SHORT":
+              if not 20 <= duration <= 60:
+                  raise SystemExit(f"Short QA failed: duration {duration:.2f}s is outside 20-60 seconds.")
+          elif not 240 <= duration <= 360:
+              raise SystemExit(f"Long QA failed: duration {duration:.2f}s is outside 4-6 minutes.")
           if size < 100000:
-              raise SystemExit("QA failed: output file is too small.")
-          if abs(duration - audio_duration) > 2.0:
-              raise SystemExit(
-                  f"QA failed: video/audio duration mismatch ({duration:.2f}s vs {audio_duration:.2f}s)."
-              )
-          print(f"QA passed: video {duration:.1f}s; narration {audio_duration:.1f}s; {size} bytes")
+              raise SystemExit("QA failed: output video is too small.")
+          if abs(duration - audio_duration) > 1.5:
+              raise SystemExit(f"QA failed: video/audio mismatch ({duration:.2f}s vs {audio_duration:.2f}s).")
+          cap = cv2.VideoCapture(video_path)
+          ok, frame = cap.read()
+          width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+          height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+          cap.release()
+          if not ok or frame is None or width < 720 or height < 720:
+              raise SystemExit(f"OpenCV frame/dimensions QA failed: {width}x{height}.")
+          if fmt == "SHORT" and height <= width:
+              raise SystemExit(f"Short must be vertical, got {width}x{height}.")
+          if fmt != "SHORT" and width <= height:
+              raise SystemExit(f"Long video must be landscape, got {width}x{height}.")
+          with Image.open(thumb_path) as im:
+              if im.size != (1280, 720):
+                  raise SystemExit(f"Thumbnail dimensions wrong: {im.size}.")
+          print(f"QA passed: {fmt}; {width}x{height}; video={duration:.1f}s; narration={audio_duration:.1f}s; bytes={size}.")
           PY
 
       - name: Save video artifacts
@@ -664,6 +754,8 @@ jobs:
             work/asset_sources.jsonl
             work/voice_edit_report.json
             work/captions.srt
+            work/music_report.json
+            work/evidence_charts_report.json
             work/title.txt
             work/description.txt
             work/tags.txt
@@ -817,7 +909,7 @@ jobs:
           fi
 
       - name: Set custom thumbnail
-        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format != 'SHORT'
         run: |
           set -euo pipefail
           VIDEO_ID="${{ steps.youtube_upload.outputs.video_id }}"
