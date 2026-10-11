@@ -4,27 +4,27 @@ on:
   workflow_dispatch:
     inputs:
       content_id:
-        description: "Content ID to render"
+        description: "Content ID"
         required: true
         type: string
       audio_url:
-        description: "Optional temporary audio URL"
+        description: "Optional audio URL"
         required: false
         type: string
       title:
-        description: "SEO title"
-        required: false
+        description: "Video title"
+        required: true
         type: string
       script:
-        description: "Content script"
+        description: "Complete English video script"
         required: true
         type: string
       description:
-        description: "SEO description"
+        description: "YouTube description"
         required: false
         type: string
       tags:
-        description: "Comma-separated SEO tags"
+        description: "Comma-separated YouTube tags"
         required: false
         type: string
 
@@ -37,6 +37,7 @@ concurrency:
 
 jobs:
   render:
+    name: Render AI Tech Lab Video
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -48,52 +49,76 @@ jobs:
       INPUT_TAGS: ${{ inputs.tags }}
 
     steps:
-      - name: Install production tools
+      - name: Install rendering tools
         run: |
+          set -euo pipefail
+
           sudo apt-get update
-          sudo apt-get install -y ffmpeg jq imagemagick python3 python3-pip
+          sudo apt-get install -y \
+            ffmpeg \
+            jq \
+            imagemagick \
+            python3
+
           mkdir -p work output scenes assets
 
-      - name: Validate inputs and configuration
+      - name: Validate configuration
         env:
           WORKER_URL: ${{ vars.NEW_PRODUCTION_WORKER_URL }}
           WORKER_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
 
           test -n "$CONTENT_ID" || {
-            echo "Missing content_id"
-            exit 1
-          }
-
-          test -n "$INPUT_SCRIPT" || {
-            echo "Missing script"
-            exit 1
-          }
-
-          test "${#INPUT_SCRIPT}" -ge 300 || {
-            echo "Script must contain at least 300 characters"
-            exit 1
-          }
-
-          test -n "$WORKER_URL" || {
-            echo "NEW_PRODUCTION_WORKER_URL is missing"
-            exit 1
-          }
-
-          test -n "$WORKER_TOKEN" || {
-            echo "WORKER_AUTH_TOKEN is missing"
+            echo "ERROR: Content ID is missing."
             exit 1
           }
 
           case "$CONTENT_ID" in
             *[!a-zA-Z0-9_-]*)
-              echo "Invalid content_id characters"
+              echo "ERROR: Content ID contains invalid characters."
               exit 1
               ;;
           esac
 
-          echo "Input validation passed."
+          test -n "$INPUT_TITLE" || {
+            echo "ERROR: Video title is missing."
+            exit 1
+          }
+
+          test -n "$INPUT_SCRIPT" || {
+            echo "ERROR: Video script is missing."
+            exit 1
+          }
+
+          test "${#INPUT_SCRIPT}" -ge 300 || {
+            echo "ERROR: Script must contain at least 300 characters."
+            exit 1
+          }
+
+          test -n "$WORKER_URL" || {
+            echo "ERROR: NEW_PRODUCTION_WORKER_URL is missing."
+            exit 1
+          }
+
+          test -n "$WORKER_TOKEN" || {
+            echo "ERROR: WORKER_AUTH_TOKEN is missing."
+            exit 1
+          }
+
+          test -n "$SUPABASE_URL" || {
+            echo "ERROR: SUPABASE_URL is missing."
+            exit 1
+          }
+
+          test -n "$SUPABASE_KEY" || {
+            echo "ERROR: SUPABASE_SERVICE_ROLE_KEY is missing."
+            exit 1
+          }
+
+          echo "Configuration validation passed."
 
       - name: Request production manifest
         env:
@@ -119,45 +144,54 @@ jobs:
               title: $title,
               script: $script,
               audio_url: $audio_url
-            }' > production_request.json
+            }' > work/production_request.json
 
           CODE=$(curl -sS --max-time 180 \
-            -o production_response.json \
+            -o work/production_response.json \
             -w "%{http_code}" \
             -X POST \
             -H "Authorization: Bearer $WORKER_TOKEN" \
             -H "Content-Type: application/json" \
-            --data-binary @production_request.json \
+            --data-binary @work/production_request.json \
             "${WORKER_URL%/}/produce")
 
           if [ "$CODE" != "200" ]; then
             echo "Production Worker returned HTTP $CODE"
-            jq '{error, message, status}' production_response.json || true
+            jq '{error, message, status}' \
+              work/production_response.json || true
             exit 1
           fi
 
-          jq -e '.status == "production_ready" and (.production | type == "object")' \
-            production_response.json >/dev/null || {
-              echo "Production Worker response does not match the expected schema."
+          jq -e \
+            '.status == "production_ready" and
+             (.production | type == "object")' \
+            work/production_response.json >/dev/null || {
+              echo "Unexpected production manifest response."
               exit 1
             }
 
-          jq '.production' production_response.json > production_manifest.json
+          jq '.production' \
+            work/production_response.json \
+            > work/production_manifest.json
 
-          jq -e '.scenes | type == "array" and length > 0' \
-            production_manifest.json >/dev/null || {
+          jq -e \
+            '.scenes | type == "array" and length > 0' \
+            work/production_manifest.json >/dev/null || {
               echo "Manifest contains no scenes."
               exit 1
             }
 
           echo "Production manifest received."
 
-      - name: Prepare SEO metadata and scene plan
+      - name: Prepare video metadata and scene plan
         run: |
           set -euo pipefail
 
-          jq -r '.seo.title // empty' production_manifest.json > work/manifest_title.txt
-          jq -r '.seo.description // empty' production_manifest.json > work/manifest_description.txt
+          jq -r '.seo.title // empty' \
+            work/production_manifest.json > work/manifest_title.txt
+
+          jq -r '.seo.description // empty' \
+            work/production_manifest.json > work/manifest_description.txt
 
           TITLE=$(cat work/manifest_title.txt)
           DESCRIPTION=$(cat work/manifest_description.txt)
@@ -172,7 +206,8 @@ jobs:
           if [ -n "$INPUT_TAGS" ]; then
             printf '%s' "$INPUT_TAGS" > work/tags.txt
           else
-            jq -r '.seo.tags // [] | join(",")' production_manifest.json > work/tags.txt
+            jq -r '.seo.tags // [] | join(",")' \
+              work/production_manifest.json > work/tags.txt
           fi
 
           jq -r '
@@ -186,178 +221,274 @@ jobs:
               (.visual.query // .visual.description // .narration // ""),
               (.overlay.text // "")
             ] | @tsv
-          ' production_manifest.json > work/scenes.tsv
+          ' work/production_manifest.json > work/scenes.tsv
 
           test -s work/scenes.tsv
-          echo "Scene plan prepared."
 
-      - name: Download narration from Supabase
+          echo "Video metadata and scene plan prepared."
+
+      - name: Download voice-over from Supabase
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUDIO_URL: ${{ inputs.audio_url }}
         run: |
           set -euo pipefail
 
-          test -n "$SUPABASE_URL"
-          test -n "$SUPABASE_KEY"
+          if [ -n "$AUDIO_URL" ]; then
+            echo "Downloading supplied audio URL."
 
-          VOICE_PATH="voices/AI_TECH_LAB/${CONTENT_ID}/chunk_1.mp3"
+            curl -fLsS --retry 3 --retry-all-errors \
+              --max-time 180 "$AUDIO_URL" -o voice.mp3
+          else
+            VOICE_PATH="voices/AI_TECH_LAB/${CONTENT_ID}/chunk_1.mp3"
 
-          jq -n --arg path "$VOICE_PATH" '{path: $path}' > work/voice_request.json
+            SIGN_RESPONSE=$(curl -sS --max-time 60 \
+              -X POST \
+              -H "Authorization: Bearer $SUPABASE_KEY" \
+              -H "apikey: $SUPABASE_KEY" \
+              -H "Content-Type: application/json" \
+              --data '{"expiresIn":3600}' \
+              "${SUPABASE_URL%/}/storage/v1/object/sign/ai-assistant-audio/${VOICE_PATH}")
 
-          SIGN_RESPONSE=$(curl -sS --max-time 60 \
-            -X POST \
-            -H "Authorization: Bearer $SUPABASE_KEY" \
-            -H "apikey: $SUPABASE_KEY" \
-            -H "Content-Type: application/json" \
-            --data '{"expiresIn":3600}' \
-            "${SUPABASE_URL%/}/storage/v1/object/sign/ai-assistant-audio/$VOICE_PATH")
+            SIGNED_PATH=$(echo "$SIGN_RESPONSE" |
+              jq -r '.signedURL // empty')
 
-          SIGNED_PATH=$(echo "$SIGN_RESPONSE" | jq -r '.signedURL // empty')
+            if [ -z "$SIGNED_PATH" ]; then
+              echo "Could not create signed voice URL."
+              jq '{statusCode, error, message}' \
+                <<< "$SIGN_RESPONSE" || true
+              exit 1
+            fi
 
-          if [ -z "$SIGNED_PATH" ]; then
-            echo "No signed voice URL returned."
-            jq '{statusCode, error, message}' <<< "$SIGN_RESPONSE" || true
-            exit 1
+            case "$SIGNED_PATH" in
+              http://*|https://*)
+                DOWNLOAD_URL="$SIGNED_PATH"
+                ;;
+              /*)
+                DOWNLOAD_URL="${SUPABASE_URL%/}/storage/v1${SIGNED_PATH}"
+                ;;
+              *)
+                DOWNLOAD_URL="${SUPABASE_URL%/}/storage/v1/${SIGNED_PATH}"
+                ;;
+            esac
+
+            curl -fLsS --retry 3 --retry-all-errors \
+              --max-time 180 "$DOWNLOAD_URL" -o voice.mp3
           fi
-
-          case "$SIGNED_PATH" in
-            http://*|https://*) AUDIO_URL="$SIGNED_PATH" ;;
-            /*) AUDIO_URL="${SUPABASE_URL%/}/storage/v1${SIGNED_PATH}" ;;
-            *) AUDIO_URL="${SUPABASE_URL%/}/storage/v1/${SIGNED_PATH}" ;;
-          esac
-
-          curl -fLsS --retry 3 --retry-all-errors \
-            "$AUDIO_URL" -o voice.mp3
 
           test -s voice.mp3
           ffprobe -v error voice.mp3
 
-          echo "Narration downloaded successfully."
+          echo "Voice-over downloaded successfully."
 
-      - name: Discover licensed stock visuals
+      - name: Discover and download Vecteezy stock videos
         env:
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          VECTEEZY_API_KEY: ${{ secrets.VECTEEZY_API_KEY }}
+          VECTEEZY_ACCOUNT_ID: ${{ secrets.VECTEEZY_ACCOUNT_ID }}
         run: |
           set -euo pipefail
 
-          cat > work/fetch_visuals.py <<'PY'
-          import json, os, re, subprocess, urllib.parse, urllib.request
+          cat > work/fetch_vecteezy.py <<'PY'
+          import json
+          import os
+          import re
+          import urllib.parse
+          import urllib.request
           from pathlib import Path
+
+          API_KEY = os.getenv("VECTEEZY_API_KEY", "").strip()
+          ACCOUNT_ID = os.getenv("VECTEEZY_ACCOUNT_ID", "").strip()
+          BASE = "https://api.vecteezy.com/v2"
 
           Path("assets").mkdir(exist_ok=True)
           Path("work/asset_sources.jsonl").write_text("", encoding="utf-8")
 
-          pexels = os.getenv("PEXELS_API_KEY", "").strip()
-          pixabay = os.getenv("PIXABAY_API_KEY", "").strip()
+          if not API_KEY or not ACCOUNT_ID:
+              print("Vecteezy credentials unavailable.")
+              print("All scenes will use original generated visuals.")
+              raise SystemExit(0)
 
-          def request_json(url, headers=None):
-              req = urllib.request.Request(url, headers=headers or {})
-              with urllib.request.urlopen(req, timeout=30) as response:
+          def api_get(url):
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {API_KEY}",
+                      "Accept": "application/json",
+                      "User-Agent": "AI-Tech-Lab-Renderer/1.0",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=45) as response:
                   return json.loads(response.read().decode("utf-8"))
 
-          def download(url, target):
-              req = urllib.request.Request(
-                  url, headers={"User-Agent": "AI-Assistant-Factory/1.0"}
-              )
-              with urllib.request.urlopen(req, timeout=60) as response:
-                  data = response.read()
-              if len(data) < 1000:
-                  raise ValueError("Asset too small")
-              Path(target).write_bytes(data)
+          def get_resource_id(item):
+              if not isinstance(item, dict):
+                  return None
+              for key in ("id", "resource_id", "resourceId"):
+                  if item.get(key) is not None:
+                      return item[key]
+              return None
 
-          def search(query):
-              query = re.sub(r"[^a-zA-Z0-9 \-]", " ", query).strip()[:100]
-              if len(query) < 3:
-                  query = "technology innovation"
+          def find_download_url(obj):
+              if isinstance(obj, dict):
+                  for key in (
+                      "download_url", "downloadUrl",
+                      "signed_url", "signedUrl"
+                  ):
+                      value = obj.get(key)
+                      if isinstance(value, str) and value.startswith("https://"):
+                          return value
 
-              if pexels:
-                  url = "https://api.pexels.com/videos/search?" + urllib.parse.urlencode({
-                      "query": query, "per_page": 5, "orientation": "landscape"
-                  })
-                  try:
-                      data = request_json(url, {"Authorization": pexels})
-                      for item in data.get("videos", []):
-                          files = sorted(
-                              item.get("video_files", []),
-                              key=lambda f: (
-                                  f.get("width", 0) < 1280,
-                                  abs(f.get("width", 0) - 1920)
-                              )
-                          )
-                          for f in files:
-                              link = f.get("link", "")
-                              if link.startswith("https://") and f.get("width", 0) >= 640:
-                                  return link, {
-                                      "provider": "Pexels",
-                                      "page": item.get("url"),
-                                      "asset_id": item.get("id"),
-                                      "license_reference": "https://www.pexels.com/license/"
-                                  }
-                  except Exception as exc:
-                      print("Pexels search unavailable:", str(exc)[:200])
+                  for value in obj.values():
+                      found = find_download_url(value)
+                      if found:
+                          return found
 
-              if pixabay:
-                  url = "https://pixabay.com/api/videos/?" + urllib.parse.urlencode({
-                      "key": pixabay, "q": query, "per_page": 5
-                  })
-                  try:
-                      data = request_json(url)
-                      for item in data.get("hits", []):
-                          variants = item.get("videos", {})
-                          for quality in ("large", "medium", "small", "tiny"):
-                              link = variants.get(quality, {}).get("url")
-                              if link and link.startswith("https://"):
-                                  return link, {
-                                      "provider": "Pixabay",
-                                      "page": item.get("pageURL"),
-                                      "asset_id": item.get("id"),
-                                      "license_reference": "https://pixabay.com/service/license-summary/"
-                                  }
-                  except Exception as exc:
-                      print("Pixabay search unavailable:", str(exc)[:200])
+              elif isinstance(obj, list):
+                  for value in obj:
+                      found = find_download_url(value)
+                      if found:
+                          return found
 
-              return None, None
+              elif isinstance(obj, str):
+                  if obj.startswith("https://"):
+                      return obj
 
-          rows = []
+              return None
+
+          def resources_from(data):
+              if isinstance(data, list):
+                  return [x for x in data if isinstance(x, dict)]
+
+              if isinstance(data, dict):
+                  for key in ("resources", "data", "results", "items"):
+                      value = data.get(key)
+                      if isinstance(value, list):
+                          return [x for x in value if isinstance(x, dict)]
+
+              return []
+
+          try:
+              api_get(f"{BASE}/{ACCOUNT_ID}/account/info")
+              print("Vecteezy account endpoint is accessible.")
+          except Exception as exc:
+              print("Vecteezy account check failed:", str(exc)[:200])
+              print("Generated visuals will be used where needed.")
+              raise SystemExit(0)
+
           with open("work/scenes.tsv", encoding="utf-8") as source:
-              for line in source:
-                  cols = line.rstrip("\n").split("\t")
-                  if len(cols) < 7:
+              rows = [
+                  line.rstrip("\n").split("\t")
+                  for line in source
+              ]
+
+          downloaded = 0
+          max_downloads = 8
+
+          for row in rows:
+              if len(row) < 7:
+                  continue
+
+              scene, start, end, duration, kind, query, overlay = row[:7]
+              scene = re.sub(r"[^a-zA-Z0-9_-]", "_", scene)[:80]
+              kind = kind.lower().strip()
+
+              if kind not in ("stock", "video", "stock_video", "vecteezy"):
+                  continue
+
+              if downloaded >= max_downloads:
+                  print("Per-run stock download limit reached.")
+                  break
+
+              query = re.sub(r"\s+", " ", query).strip()[:120]
+              if len(query) < 3:
+                  continue
+
+              search_url = (
+                  f"{BASE}/{ACCOUNT_ID}/resources?"
+                  + urllib.parse.urlencode({
+                      "term": query,
+                      "content_type": "video",
+                      "page": 1,
+                      "per_page": 5,
+                  })
+              )
+
+              try:
+                  results = resources_from(api_get(search_url))
+              except Exception as exc:
+                  print(f"Search failed for scene {scene}: {str(exc)[:150]}")
+                  continue
+
+              for item in results:
+                  resource_id = get_resource_id(item)
+                  if resource_id is None:
                       continue
-                  scene, start, end, duration, kind, query, overlay = cols[:7]
-                  scene = re.sub(r"[^a-zA-Z0-9_-]", "_", scene)
-                  target = Path(f"assets/scene_{scene}.mp4")
-                  metadata = None
 
-                  if kind.lower() in ("stock", "video", "stock_video", "pexels", "pixabay"):
-                      link, metadata = search(query)
-                      if link:
-                          try:
-                              download(link, target)
-                          except Exception as exc:
-                              print("Asset download failed:", str(exc)[:200])
-                              target.unlink(missing_ok=True)
-                              metadata = None
+                  try:
+                      download_info = api_get(
+                          f"{BASE}/{ACCOUNT_ID}/resources/"
+                          f"{urllib.parse.quote(str(resource_id), safe='')}/download"
+                      )
 
-                  if metadata:
-                      row = {"scene": scene, **metadata, "query": query}
-                      with open("work/asset_sources.jsonl", "a", encoding="utf-8") as log:
-                          log.write(json.dumps(row, ensure_ascii=False) + "\n")
-                      print(f"Scene {scene}: stock asset downloaded from {metadata['provider']}")
-                  else:
-                      print(f"Scene {scene}: original animated fallback will be used")
+                      url = find_download_url(download_info)
+                      if not url:
+                          continue
+
+                      request = urllib.request.Request(
+                          url,
+                          headers={"User-Agent": "AI-Tech-Lab-Renderer/1.0"},
+                      )
+
+                      with urllib.request.urlopen(request, timeout=120) as response:
+                          data = response.read()
+
+                      if len(data) < 1000:
+                          continue
+
+                      target = Path(f"assets/scene_{scene}.mp4")
+                      target.write_bytes(data)
+
+                      metadata = {
+                          "scene": scene,
+                          "provider": "Vecteezy",
+                          "asset_id": str(resource_id),
+                          "query": query,
+                          "license_reference":
+                              "https://www.vecteezy.com/licensing-agreement",
+                      }
+
+                      with open(
+                          "work/asset_sources.jsonl",
+                          "a",
+                          encoding="utf-8",
+                      ) as log:
+                          log.write(json.dumps(metadata) + "\n")
+
+                      downloaded += 1
+                      print(f"Downloaded Vecteezy video for scene {scene}.")
+                      break
+
+                  except Exception as exc:
+                      print(
+                          f"Download failed for scene {scene}: "
+                          f"{str(exc)[:150]}"
+                      )
+
+          print(f"Vecteezy downloads this run: {downloaded}")
+          print("Scenes without stock videos will use generated visuals.")
           PY
 
-          python3 work/fetch_visuals.py
+          python3 work/fetch_vecteezy.py
 
-      - name: Generate scene videos and overlays
+      - name: Render scene videos and overlays
         run: |
           set -euo pipefail
 
           python3 - <<'PY'
-          import csv, json, re, subprocess
+          import csv
+          import re
+          import subprocess
           from pathlib import Path
 
           def run(args):
@@ -366,128 +497,196 @@ jobs:
           def safe_name(value):
               return re.sub(r"[^a-zA-Z0-9_-]", "_", value)[:80]
 
-          def duration_value(value):
+          def scene_duration(value):
               try:
                   return max(1.0, min(float(value), 120.0))
               except Exception:
                   return 8.0
 
-          with open("work/scenes.tsv", encoding="utf-8") as f:
-              scenes = list(csv.reader(f, delimiter="\t"))
+          with open("work/scenes.tsv", encoding="utf-8") as source:
+              rows = list(csv.reader(source, delimiter="\t"))
 
-          if not scenes:
-              raise SystemExit("No scenes to render")
+          if not rows:
+              raise SystemExit("No scenes available.")
 
-          for row in scenes:
+          for row in rows:
               if len(row) < 7:
                   continue
 
               scene, start, end, duration, kind, query, overlay = row[:7]
               scene = safe_name(scene)
-              duration = duration_value(duration)
-              source = Path(f"assets/scene_{scene}.mp4")
+              duration = scene_duration(duration)
+
+              source_video = Path(f"assets/scene_{scene}.mp4")
               target = Path(f"scenes/scene_{scene}.mp4")
 
-              overlay = re.sub(r"\s+", " ", overlay).strip()[:90]
-              if not overlay:
-                  overlay = query.strip()[:90] or "AI AND FUTURE TECHNOLOGY"
+              text = re.sub(r"\s+", " ", overlay).strip()[:90]
+              if not text:
+                  text = query.strip()[:90] or "AI AND FUTURE TECHNOLOGY"
 
-              # Escape drawtext text for FFmpeg filter syntax.
-              escaped = (
-                  overlay.replace("\\", "\\\\")
-                         .replace(":", "\\:")
-                         .replace("'", "\\'")
-                         .replace("%", "\\%")
-                         .replace(",", "\\,")
-                         .replace("[", "\\[")
-                         .replace("]", "\\]")
+              text = (
+                  text.replace("\\", "\\\\")
+                      .replace(":", "\\:")
+                      .replace("'", "\\'")
+                      .replace("%", "\\%")
+                      .replace(",", "\\,")
+                      .replace("[", "\\[")
+                      .replace("]", "\\]")
               )
 
-              if source.exists() and source.stat().st_size > 1000:
-                  run([
-                      "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(source),
-                      "-t", str(duration),
-                      "-vf",
+              if source_video.exists() and source_video.stat().st_size > 1000:
+                  video_filter = (
                       "scale=1920:1080:force_original_aspect_ratio=increase,"
                       "crop=1920:1080,setsar=1,"
-                      "drawbox=x=0:y=820:w=1920:h=260:color=black@0.48:t=fill,"
-                      f"drawtext=text='{escaped}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-                      "fontsize=48:fontcolor=white:x=(w-text_w)/2:y=870",
-                      "-an", "-c:v", "libx264", "-preset", "veryfast",
-                      "-crf", "23", "-pix_fmt", "yuv420p", str(target)
-                  ])
-              else:
-                  # Original motion graphics fallback; no third-party footage.
+                      "drawbox=x=0:y=820:w=1920:h=260:"
+                      "color=black@0.48:t=fill,"
+                      f"drawtext=text='{text}':"
+                      "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+                      "fontsize=48:fontcolor=white:"
+                      "x=(w-text_w)/2:y=870"
+                  )
+
                   run([
                       "ffmpeg", "-y",
-                      "-f", "lavfi", "-i", "color=c=0x07152f:s=1920x1080:r=30",
+                      "-stream_loop", "-1",
+                      "-i", str(source_video),
                       "-t", str(duration),
-                      "-vf",
-                      "drawbox=x=0:y=0:w=1920:h=1080:color=0x07152f@1:t=fill,"
-                      "drawbox=x='mod(t*100,2200)-200':y=180:w=600:h=5:color=0x00d9ff@0.8:t=fill,"
-                      "drawbox=x=110:y=120:w=1700:h=840:color=0x00d9ff@0.12:t=3,"
-                      f"drawtext=text='{escaped}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-                      "fontsize=56:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2,"
-                      "drawtext=text='AI TECH LAB':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
-                      "fontsize=28:fontcolor=0x00d9ff:x=100:y=70",
-                      "-an", "-c:v", "libx264", "-preset", "veryfast",
-                      "-crf", "23", "-pix_fmt", "yuv420p", str(target)
+                      "-vf", video_filter,
+                      "-an",
+                      "-c:v", "libx264",
+                      "-preset", "veryfast",
+                      "-crf", "23",
+                      "-pix_fmt", "yuv420p",
+                      str(target),
+                  ])
+
+              else:
+                  video_filter = (
+                      "drawbox=x='mod(t*100,2200)-200':y=180:"
+                      "w=600:h=5:color=0x00d9ff@0.8:t=fill,"
+                      "drawbox=x=110:y=120:w=1700:h=840:"
+                      "color=0x00d9ff@0.12:t=3,"
+                      f"drawtext=text='{text}':"
+                      "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+                      "fontsize=56:fontcolor=white:"
+                      "x=(w-text_w)/2:y=(h-text_h)/2,"
+                      "drawtext=text='AI TECH LAB':"
+                      "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
+                      "fontsize=28:fontcolor=0x00d9ff:x=100:y=70"
+                  )
+
+                  run([
+                      "ffmpeg", "-y",
+                      "-f", "lavfi",
+                      "-i", "color=c=0x07152f:s=1920x1080:r=30",
+                      "-t", str(duration),
+                      "-vf", video_filter,
+                      "-an",
+                      "-c:v", "libx264",
+                      "-preset", "veryfast",
+                      "-crf", "23",
+                      "-pix_fmt", "yuv420p",
+                      str(target),
                   ])
 
               if not target.exists() or target.stat().st_size < 1000:
                   raise SystemExit(f"Scene render failed: {scene}")
 
-          with open("work/concat.txt", "w", encoding="utf-8") as out:
-              for file in sorted(Path("scenes").glob("scene_*.mp4")):
-                  out.write(f"file '{file.resolve()}'\n")
+          # Preserve the manifest's scene order.
+          with open("work/concat.txt", "w", encoding="utf-8") as output:
+              for row in rows:
+                  if len(row) < 7:
+                      continue
+                  scene = safe_name(row[0])
+                  target = Path(f"scenes/scene_{scene}.mp4")
+                  if target.exists():
+                      output.write(f"file '{target.resolve()}'\n")
 
           if not Path("work/concat.txt").stat().st_size:
-              raise SystemExit("No rendered scene files")
+              raise SystemExit("No scene videos were rendered.")
+
+          print("Scene rendering completed.")
           PY
 
-      - name: Combine scenes and generate approximate captions
+      - name: Combine scenes and generate captions
         run: |
           set -euo pipefail
 
-          ffmpeg -y -f concat -safe 0 -i work/concat.txt \
-            -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p \
-            -an work/visual_track.mp4
+          ffmpeg -y \
+            -f concat \
+            -safe 0 \
+            -i work/concat.txt \
+            -an \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 23 \
+            -pix_fmt yuv420p \
+            work/visual_track.mp4
 
           python3 - <<'PY'
           import subprocess
           from pathlib import Path
 
-          script = Path("work/script.txt").read_text(encoding="utf-8").split()
-          if not script:
-              raise SystemExit("Script is empty")
+          words = Path("work/script.txt").read_text(
+              encoding="utf-8"
+          ).split()
 
-          duration = float(subprocess.check_output([
-              "ffprobe", "-v", "error", "-show_entries", "format=duration",
-              "-of", "default=noprint_wrappers=1:nokey=1", "voice.mp3"
-          ], text=True).strip())
+          if not words:
+              raise SystemExit("Script is empty.")
+
+          result = subprocess.check_output([
+              "ffprobe",
+              "-v", "error",
+              "-show_entries", "format=duration",
+              "-of", "default=noprint_wrappers=1:nokey=1",
+              "voice.mp3",
+          ], text=True)
+
+          duration = float(result.strip())
 
           def stamp(seconds):
-              millis = int((seconds % 1) * 1000)
+              milliseconds = int(round((seconds % 1) * 1000))
               whole = int(seconds)
-              return f"{whole//3600:02}:{(whole%3600)//60:02}:{whole%60:02},{millis:03}"
-
-          words_per_caption = 8
-          blocks = []
-          chunks = [script[i:i+words_per_caption] for i in range(0, len(script), words_per_caption)]
-
-          for index, words in enumerate(chunks):
-              start = duration * index / len(chunks)
-              end = duration * (index + 1) / len(chunks)
-              blocks.append(
-                  f"{index+1}\n{stamp(start)} --> {stamp(end)}\n{' '.join(words)}\n"
+              if milliseconds == 1000:
+                  whole += 1
+                  milliseconds = 0
+              return (
+                  f"{whole//3600:02}:"
+                  f"{(whole%3600)//60:02}:"
+                  f"{whole%60:02},{milliseconds:03}"
               )
 
-          Path("work/captions.srt").write_text("\n".join(blocks), encoding="utf-8")
+          chunk_size = 8
+          chunks = [
+              words[index:index + chunk_size]
+              for index in range(0, len(words), chunk_size)
+          ]
+
+          captions = []
+          for index, chunk in enumerate(chunks):
+              start = duration * index / len(chunks)
+              end = duration * (index + 1) / len(chunks)
+
+              captions.append(
+                  f"{index + 1}\n"
+                  f"{stamp(start)} --> {stamp(end)}\n"
+                  f"{' '.join(chunk)}\n"
+              )
+
+          Path("work/captions.srt").write_text(
+              "\n".join(captions),
+              encoding="utf-8",
+          )
+
+          print("Caption file generated.")
           PY
 
       - name: Render final video and thumbnail
         run: |
           set -euo pipefail
+
+          VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          THUMBNAIL="output/thumbnail_${CONTENT_ID}.jpg"
 
           AUDIO_DURATION=$(ffprobe -v error \
             -show_entries format=duration \
@@ -498,31 +697,87 @@ jobs:
             -i voice.mp3 \
             -filter_complex \
             "[0:v]subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Alignment=2,MarginV=55'[v]" \
-            -map "[v]" -map 1:a \
+            -map "[v]" \
+            -map 1:a \
             -t "$AUDIO_DURATION" \
-            -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p \
-            -c:a aac -b:a 192k -movflags +faststart \
-            "output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 22 \
+            -pix_fmt yuv420p \
+            -c:a aac \
+            -b:a 192k \
+            -movflags +faststart \
+            "$VIDEO"
 
-          TITLE=$(cat work/title.txt)
-          SAFE_TITLE=$(printf '%s' "$TITLE" | cut -c1-55)
+          SAFE_TITLE=$(cat work/title.txt | cut -c1-55)
 
-          convert -size 1280x720 gradient:'#050914-#151a3d' \
-            -gravity center -font DejaVu-Sans-Bold -pointsize 56 \
-            -fill white -stroke '#00d9ff' -strokewidth 1 \
+          convert \
+            -size 1280x720 \
+            gradient:'#050914-#151a3d' \
+            -gravity center \
+            -font DejaVu-Sans-Bold \
+            -pointsize 56 \
+            -fill white \
+            -stroke '#00d9ff' \
+            -strokewidth 1 \
             -annotate +0+0 "$SAFE_TITLE" \
-            -gravity south -pointsize 30 -fill '#9be7ff' -stroke none \
+            -gravity south \
+            -pointsize 30 \
+            -fill '#9be7ff' \
+            -stroke none \
             -annotate +0+45 "AI TECH LAB" \
-            "output/thumbnail_${CONTENT_ID}.jpg"
+            "$THUMBNAIL"
 
-          test -s "output/AI_TECH_LAB_${CONTENT_ID}.mp4"
-          test -s "output/thumbnail_${CONTENT_ID}.jpg"
+          test -s "$VIDEO"
+          test -s "$THUMBNAIL"
+
+          echo "Video and thumbnail rendered."
 
       - name: Validate rendered production
         run: |
           set -euo pipefail
 
           VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          THUMBNAIL="output/thumbnail_${CONTENT_ID}.jpg"
 
-          ffprobe -v error \
-            -
+          test -s "$VIDEO"
+          test -s "$THUMBNAIL"
+
+          ffprobe -v error "$VIDEO"
+
+          DURATION=$(ffprobe -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$VIDEO")
+
+          SIZE=$(stat -c%s "$VIDEO")
+
+          python3 - "$DURATION" "$SIZE" <<'PY'
+          import sys
+
+          duration = float(sys.argv[1])
+          size = int(sys.argv[2])
+
+          if duration < 30:
+              raise SystemExit(
+                  f"QA failed: video duration is {duration:.1f} seconds."
+              )
+
+          if size < 100000:
+              raise SystemExit("QA failed: video file is too small.")
+
+          print(f"QA passed: duration={duration:.1f}s, size={size} bytes.")
+          PY
+
+      - name: Save video, thumbnail and metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-${{ inputs.content_id }}
+          path: |
+            output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
+            output/thumbnail_${{ inputs.content_id }}.jpg
+            work/asset_sources.jsonl
+            work/title.txt
+            work/description.txt
+            work/tags.txt
+          if-no-files-found: error
+          retention-days: 7
