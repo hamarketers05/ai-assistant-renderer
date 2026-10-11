@@ -1,0 +1,90 @@
+name: Renderer Static Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "tools/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "tools/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    name: Validate renderer code and workflow YAML
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install YAML parser
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
+
+      - name: Compile voice editor
+        run: python -m py_compile tools/voice_editor.py
+
+      - name: Validate workflow syntax and production gates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import yaml
+
+          workflow_dir = Path(".github/workflows")
+          for path in sorted(workflow_dir.glob("*.yml")):
+              parsed = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+              if not isinstance(parsed, dict) or not parsed.get("name"):
+                  raise SystemExit(f"Invalid workflow structure: {path}")
+              print(f"YAML parsed: {path}")
+
+          source = Path("tools/voice_editor.py").read_text(encoding="utf-8")
+          ast.parse(source, filename="tools/voice_editor.py")
+
+          workflow = yaml.load(
+              Path(".github/workflows/manual.yml").read_text(encoding="utf-8"),
+              Loader=yaml.BaseLoader,
+          )
+          inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+          steps = workflow["jobs"]["render"]["steps"]
+          names = [step.get("name", "") for step in steps]
+          required = [
+              "Download existing voice",
+              "Edit manual voice, add pauses and script cues, and generate captions",
+              "Assemble final video and thumbnail",
+              "QA rendered production",
+              "Check existing YouTube upload",
+          ]
+          if any(name not in names for name in required):
+              raise SystemExit("Required voice gate/render/QA/upload guard is missing.")
+          if names.index(required[0]) >= names.index(required[1]):
+              raise SystemExit("Voice editing must follow the required voice download gate.")
+          if not (
+              names.index(required[1]) < names.index(required[2]) < names.index(required[3])
+              < names.index(required[4])
+          ):
+              raise SystemExit("Voice edit, render, QA and upload guard are out of order.")
+
+          edit_step = steps[names.index(required[1])]
+          if "tools/voice_editor.py" not in edit_step.get("run", ""):
+              raise SystemExit("Voice editor is not invoked by the renderer.")
+          render_step = steps[names.index(required[2])]
+          if "work/voice_edited.wav" not in render_step.get("run", ""):
+              raise SystemExit("Final video does not use the edited narration.")
+          if inputs.get("audio_url", {}).get("required") != "false":
+              raise SystemExit("Direct voice URL must remain optional; approved stored voice remains supported.")
+
+          print("Static validation passed: manual voice gate, editor, duration QA and duplicate-upload guard.")
+          PY
