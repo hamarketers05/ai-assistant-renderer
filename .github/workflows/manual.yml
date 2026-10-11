@@ -260,6 +260,37 @@ jobs:
                           return found
               return None
 
+          def text_value(value):
+              if isinstance(value, str):
+                  return value.strip()
+              if isinstance(value, (int, float)):
+                  return str(value)
+              if isinstance(value, dict):
+                  for key in ("name", "full_name", "display_name", "username", "title", "label", "value"):
+                      candidate = text_value(value.get(key))
+                      if candidate:
+                          return candidate
+              return ""
+
+          def find_value(obj, keys):
+              wanted = {key.lower() for key in keys}
+              if isinstance(obj, dict):
+                  for key, value in obj.items():
+                      if key.lower() in wanted:
+                          candidate = text_value(value)
+                          if candidate:
+                              return candidate
+                  for value in obj.values():
+                      candidate = find_value(value, wanted)
+                      if candidate:
+                          return candidate
+              elif isinstance(obj, list):
+                  for value in obj:
+                      candidate = find_value(value, wanted)
+                      if candidate:
+                          return candidate
+              return ""
+
           try:
               api_get(f"{BASE}/{ACCOUNT_ID}/account/info")
           except Exception as exc:
@@ -269,7 +300,9 @@ jobs:
               rows = [line.rstrip("\n").split("\t") for line in source]
 
           downloaded = 0
-          max_downloads = 40
+          download_calls = 0
+          max_downloads = 6
+          max_download_calls = 6
           seen_queries = set()
 
           for row in rows:
@@ -298,16 +331,41 @@ jobs:
                   continue
 
               for item in results:
+                  if downloaded >= max_downloads or download_calls >= max_download_calls:
+                      break
                   rid = resource_id(item)
                   if rid is None:
                       continue
                   try:
+                      download_calls += 1
                       details = api_get(
                           f"{BASE}/{ACCOUNT_ID}/resources/"
                           f"{urllib.parse.quote(str(rid), safe='')}/download"
                       )
+                      combined = {"search_result": item, "download_response": details}
                       url = find_url(details)
                       if not url:
+                          continue
+
+                      # Free-tier stock requires attribution. Skip assets explicitly
+                      # marked editorial-only or Pro/premium, and never guess a creator.
+                      creator = find_value(combined, {
+                          "creator_name", "author_name", "contributor_name", "artist_name",
+                          "creator", "author", "contributor", "artist", "username", "byline"
+                      })
+                      source_url = find_value(combined, {
+                          "source_url", "page_url", "resource_url", "permalink", "web_url", "url"
+                      })
+                      source_host = urllib.parse.urlparse(source_url or "").netloc.lower()
+                      if not creator or not source_url or not source_host.endswith("vecteezy.com") or source_host.startswith("api."):
+                          print(f"Skipping {rid}: creator/source attribution metadata is missing.")
+                          continue
+                      license_label = find_value(combined, {
+                          "license_name", "license_type", "licence_name", "licence_type", "license", "licence"
+                      })
+                      license_lower = (license_label or "").lower()
+                      if "editorial" in license_lower or "pro standard" in license_lower or "premium" in license_lower:
+                          print(f"Skipping {rid}: license is editorial or not suitable for the free pipeline.")
                           continue
 
                       req = urllib.request.Request(
@@ -327,6 +385,9 @@ jobs:
                           "provider": "Vecteezy",
                           "asset_id": str(rid),
                           "query": query,
+                          "creator": creator,
+                          "source_url": source_url,
+                          "license_label": license_label or "Free-tier resource; individual license must be checked",
                           "license_reference": "https://www.vecteezy.com/licensing-agreement"
                       }
                       with open("work/asset_sources.jsonl", "a", encoding="utf-8") as log:
@@ -338,11 +399,43 @@ jobs:
                   except Exception as exc:
                       print(f"Vecteezy download failed for {scene}: {str(exc)[:120]}")
 
-          print(f"Vecteezy downloads: {downloaded}")
+          print(f"Vecteezy download endpoint calls: {download_calls}; clips saved: {downloaded}")
           print("Only assets permitted by the applicable license may be published.")
           PY
 
           .venv/bin/python work/fetch_vecteezy.py
+
+      - name: Add required Vecteezy creator attribution
+        run: |
+          set -euo pipefail
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          source_file = Path("work/asset_sources.jsonl")
+          description_file = Path("work/description.txt")
+          lines = source_file.read_text(encoding="utf-8").splitlines() if source_file.exists() else []
+          credits, seen = [], set()
+          for line in lines:
+              try:
+                  item = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              creator = str(item.get("creator") or "").strip()
+              url = str(item.get("source_url") or "").strip()
+              if creator and url and (creator, url) not in seen:
+                  seen.add((creator, url))
+                  credits.append(f"- {creator} — Vecteezy: {url}")
+          base = description_file.read_text(encoding="utf-8").strip()
+          if credits:
+              attribution = "\\n\\nStock-footage attribution (where footage appears):\\n" + "\\n".join(credits)
+              attribution += "\\nReview each linked resource's license terms: https://www.vecteezy.com/licensing-agreement"
+              base = (base[:max(0, 4900-len(attribution))].rstrip() + attribution)[:4900]
+              description_file.write_text(base, encoding="utf-8")
+              print(f"Added {len(credits)} creator credit(s) to the YouTube description.")
+          else:
+              print("No Vecteezy clip met attribution metadata requirements; generated visuals remain available.")
+          PY
 
       - name: Create original graphics
         run: |
@@ -357,9 +450,12 @@ jobs:
 
           Path("assets").mkdir(exist_ok=True)
           font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+          import re
+          raw_title = Path("work/title.txt").read_text(encoding="utf-8").strip()
+          topic = re.sub(r"\\s+", " ", raw_title).upper()[:36] or "FUTURE TECHNOLOGY"
           labels = [
-              "AI AGENTS", "AUTOMATION", "AI RESEARCH",
-              "FUTURE TECHNOLOGY", "HUMAN + AI", "WHAT CHANGES NEXT"
+              topic, "INSIDE THE TECHNOLOGY", "HOW IT WORKS",
+              "REAL-WORLD APPLICATIONS", "THE BIG PICTURE", "WHAT COMES NEXT"
           ]
 
           for i, label in enumerate(labels):
@@ -452,47 +548,16 @@ jobs:
           print("Scene rendering completed.")
           PY
 
-      - name: Generate speech-aligned captions
+      - name: Edit manual voice, add pauses and script cues, and generate captions
         run: |
           set -euo pipefail
-          .venv/bin/python - <<'PY'
-          from faster_whisper import WhisperModel
-          from pathlib import Path
-
-          model = WhisperModel("base.en", device="cpu", compute_type="int8")
-          segments, info = model.transcribe("voice.wav", word_timestamps=True, vad_filter=True)
-
-          def stamp(seconds):
-              ms = int(round(seconds * 1000))
-              h, ms = divmod(ms, 3600000)
-              m, ms = divmod(ms, 60000)
-              s, ms = divmod(ms, 1000)
-              return f"{h:02}:{m:02}:{s:02},{ms:03}"
-
-          entries = []
-          idx = 1
-          for segment in segments:
-              words = getattr(segment, "words", None) or []
-              if words:
-                  for start in range(0, len(words), 5):
-                      batch = words[start:start+5]
-                      text = " ".join(word.word.strip() for word in batch).strip()
-                      if text:
-                          begin = max(0, batch[0].start)
-                          end = max(begin + 0.15, batch[-1].end)
-                          entries.append(f"{idx}\n{stamp(begin)} --> {stamp(end)}\n{text}\n")
-                          idx += 1
-              elif segment.text.strip():
-                  entries.append(
-                      f"{idx}\n{stamp(segment.start)} --> {stamp(segment.end)}\n{segment.text.strip()}\n"
-                  )
-                  idx += 1
-
-          if not entries:
-              raise SystemExit("Speech recognition returned no captions.")
-          Path("work/captions.srt").write_text("\n".join(entries), encoding="utf-8")
-          print(f"Generated {len(entries)} caption entries.")
-          PY
+          test -s voice.wav
+          test -s work/script.txt
+          .venv/bin/python tools/voice_editor.py
+          test -s work/voice_edited.wav
+          test -s work/captions.srt
+          test -s work/voice_edit_report.json
+          cat work/voice_edit_report.json
 
       - name: Assemble final video and thumbnail
         run: |
@@ -502,28 +567,59 @@ jobs:
             work/visual_track.mp4
 
           AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 voice.wav)
+            -of default=noprint_wrappers=1:nokey=1 work/voice_edited.wav)
 
           VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
           THUMBNAIL="output/thumbnail_${CONTENT_ID}.jpg"
 
-          ffmpeg -y -i work/visual_track.mp4 -i voice.wav \
+          ffmpeg -y -stream_loop -1 -i work/visual_track.mp4 -i work/voice_edited.wav \
             -filter_complex \
             "[0:v]fps=30,scale=1920:1080,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55'[v]" \
             -map "[v]" -map 1:a -t "$AUDIO_DURATION" \
             -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p \
             -c:a aac -b:a 192k -movflags +faststart "$VIDEO"
 
-          convert -size 1280x720 gradient:'#030713-#10234a' \
-            -fill '#07142c' -draw 'polygon 665,0 1280,0 1280,720 760,720 905,360' \
-            -font /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf \
-            -fill '#6df2ff' -pointsize 38 -annotate +65+85 'AI TECH LAB | 2026' \
-            -fill white -pointsize 76 -annotate +65+230 'BEYOND' \
-            -fill '#ffd84d' -pointsize 100 -annotate +65+340 'CHATBOTS' \
-            -fill white -pointsize 30 -annotate +70+445 'AI AGENTS ARE TAKING ACTION' \
-            -fill '#00d9ff' -draw 'roundrectangle 65,520 620,590 16,16' \
-            -fill '#041021' -pointsize 26 -annotate +88+566 'WHAT CHANGES IN 2026' \
-            -quality 93 "$THUMBNAIL"
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageDraw, ImageFont
+          import re, textwrap
+
+          W, H = 1280, 720
+          image = Image.new("RGB", (W, H))
+          pixels = image.load()
+          for y in range(H):
+              t = y / max(1, H - 1)
+              color = (int(3 + 7*t), int(10 + 20*t), int(28 + 45*t))
+              for x in range(W):
+                  pixels[x, y] = color
+
+          draw = ImageDraw.Draw(image)
+          cyan, gold, white = (70, 235, 255), (255, 211, 73), (246, 250, 255)
+          draw.polygon([(860, 0), (1280, 0), (1280, 720), (700, 720), (960, 330)], fill=(9, 35, 72))
+          for x in range(850, 1260, 75):
+              draw.line((x, 20, x-120, 720), fill=(13, 74, 112), width=2)
+          draw.rounded_rectangle((32, 30, 1248, 690), radius=28, outline=(20, 165, 205), width=3)
+          bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+          regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+          draw.text((70, 62), "AI TECH LAB  |  2026", font=ImageFont.truetype(bold, 32), fill=cyan)
+
+          raw = Path("work/title.txt").read_text(encoding="utf-8").strip()
+          raw = re.sub(r"(?i)^AI Tech Lab\\s*[:|—-]?\\s*", "", raw)
+          raw = re.sub(r"\\s+", " ", raw).strip() or "Future Technology"
+          lines = textwrap.wrap(raw.upper(), width=20, break_long_words=True, break_on_hyphens=False)[:3]
+          title_font = ImageFont.truetype(bold, 66 if len(lines) <= 2 else 54)
+          y0 = 175
+          for i, line in enumerate(lines):
+              draw.text((70, y0 + i*92), line, font=title_font,
+                        fill=gold if i == len(lines)-1 else white, stroke_width=1, stroke_fill=(0, 0, 0))
+          draw.rounded_rectangle((70, 520, 670, 592), radius=16, fill=cyan)
+          draw.text((96, 538), "THE NEXT AI SHIFT", font=ImageFont.truetype(bold, 28), fill=(3, 15, 33))
+          draw.text((72, 630), "ORIGINAL EXPLAINERS • RESEARCH • TECHNOLOGY",
+                    font=ImageFont.truetype(regular, 18), fill=(190, 220, 238))
+          image.save("$THUMBNAIL", quality=93, optimize=True)
+          PY
+
+
 
           test -s "$VIDEO"
           test -s "$THUMBNAIL"
@@ -536,14 +632,20 @@ jobs:
           DURATION=$(ffprobe -v error -show_entries format=duration \
             -of default=noprint_wrappers=1:nokey=1 "$VIDEO")
           SIZE=$(stat -c%s "$VIDEO")
-          .venv/bin/python - "$DURATION" "$SIZE" <<'PY'
+          AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration \\
+            -of default=noprint_wrappers=1:nokey=1 work/voice_edited.wav)
+          .venv/bin/python - "$DURATION" "$SIZE" "$AUDIO_DURATION" <<'PY'
           import sys
-          duration, size = float(sys.argv[1]), int(sys.argv[2])
+          duration, size, audio_duration = float(sys.argv[1]), int(sys.argv[2]), float(sys.argv[3])
           if duration < 30:
               raise SystemExit("QA failed: video is too short.")
           if size < 100000:
               raise SystemExit("QA failed: output file is too small.")
-          print(f"QA passed: {duration:.1f}s, {size} bytes")
+          if abs(duration - audio_duration) > 2.0:
+              raise SystemExit(
+                  f"QA failed: video/audio duration mismatch ({duration:.2f}s vs {audio_duration:.2f}s)."
+              )
+          print(f"QA passed: video {duration:.1f}s; narration {audio_duration:.1f}s; {size} bytes")
           PY
 
       - name: Save video artifacts
@@ -554,6 +656,8 @@ jobs:
             output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
             output/thumbnail_${{ inputs.content_id }}.jpg
             work/asset_sources.jsonl
+            work/voice_edit_report.json
+            work/captions.srt
             work/title.txt
             work/description.txt
             work/tags.txt
