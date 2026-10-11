@@ -27,6 +27,10 @@ on:
         description: "Comma-separated YouTube tags"
         required: false
         type: string
+      publish_at:
+        description: "Optional UTC publish time, e.g. 2026-10-12T15:00:00Z. Empty keeps the video private."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -47,6 +51,7 @@ jobs:
       INPUT_SCRIPT: ${{ inputs.script }}
       INPUT_DESCRIPTION: ${{ inputs.description }}
       INPUT_TAGS: ${{ inputs.tags }}
+      INPUT_PUBLISH_AT: ${{ inputs.publish_at }}
 
     steps:
       - name: Install rendering tools
@@ -781,3 +786,126 @@ jobs:
             work/tags.txt
           if-no-files-found: error
           retention-days: 7
+
+
+      - name: Check YouTube upload state
+        id: youtube_state
+        env:
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+        run: |
+          set -euo pipefail
+          jq -n --arg content_id "$CONTENT_ID" '{content_id:($content_id|tonumber)}' > work/youtube_upload_state_request.json
+          CODE=$(curl -sS --max-time 30 -o work/youtube_upload_state.json -w "%{http_code}" -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" -H "Content-Type: application/json" --data-binary @work/youtube_upload_state_request.json "$WORKER_URL/youtube/upload-state")
+          if [ "$CODE" != "200" ]; then echo "Could not check existing YouTube upload (HTTP $CODE)."; jq '{ok,error}' work/youtube_upload_state.json || true; exit 1; fi
+          echo "already_uploaded=$(jq -r '.already_uploaded // false' work/youtube_upload_state.json)" >> "$GITHUB_OUTPUT"
+          echo "video_id=$(jq -r '.video_id // empty' work/youtube_upload_state.json)" >> "$GITHUB_OUTPUT"
+          echo "YouTube duplicate check completed."
+
+      - name: Get short-lived YouTube access token from Cloudflare
+        id: youtube_token
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        env:
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+        run: |
+          set -euo pipefail
+          CODE=$(curl -sS --max-time 45 -o work/youtube_token.json -w "%{http_code}" -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" -H "Content-Type: application/json" "$WORKER_URL/youtube/access-token")
+          if [ "$CODE" != "200" ]; then echo "Cloudflare could not provide a YouTube access token (HTTP $CODE)."; jq '{ok,error,provider_error,http_status}' work/youtube_token.json || true; exit 1; fi
+          TOKEN=$(jq -r '.access_token // empty' work/youtube_token.json)
+          test -n "$TOKEN" || { echo "Access token was not returned."; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "YOUTUBE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          rm -f work/youtube_token.json
+          echo "Short-lived access token acquired; it was not stored in GitHub Secrets."
+
+      - name: Prepare YouTube metadata and schedule
+        id: youtube_metadata
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        env:
+          INPUT_PUBLISH_AT: ${{ inputs.publish_at }}
+          INPUT_TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone, timedelta
+          from pathlib import Path
+          title = Path("work/title.txt").read_text(encoding="utf-8").strip()
+          description = Path("work/description.txt").read_text(encoding="utf-8").strip()
+          if not title: raise SystemExit("YouTube upload blocked: title is empty.")
+          title, description = title[:100], description[:4900]
+          raw_tags = os.getenv("INPUT_TAGS", "").strip()
+          if raw_tags:
+              tags = [x.strip() for x in raw_tags.split(",") if x.strip()]
+          else:
+              tags = [x.strip() for x in Path("work/tags.txt").read_text(encoding="utf-8").split(",") if x.strip()]
+          tags = tags[:30]
+          while tags and sum(map(len, tags)) > 450: tags.pop()
+          status = {"privacyStatus": "private"}
+          requested = os.getenv("INPUT_PUBLISH_AT", "").strip()
+          normalized = ""
+          if requested:
+              try: dt = datetime.fromisoformat(requested.replace("Z", "+00:00"))
+              except ValueError: raise SystemExit("publish_at must be ISO 8601 and include Z or an explicit timezone offset.")
+              if dt.tzinfo is None: raise SystemExit("publish_at must include Z or an explicit timezone offset.")
+              dt = dt.astimezone(timezone.utc)
+              if dt <= datetime.now(timezone.utc) + timedelta(minutes=2): raise SystemExit("publish_at must be at least 2 minutes in the future.")
+              normalized = dt.isoformat(timespec="seconds").replace("+00:00", "Z")
+              status["publishAt"] = normalized
+          metadata = {"snippet":{"title":title,"description":description,"tags":tags,"categoryId":"28","defaultLanguage":"en"},"status":status}
+          Path("work/youtube_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+          Path("work/publish_at_normalized.txt").write_text(normalized, encoding="utf-8")
+          print("YouTube metadata prepared. Privacy is private; optional schedule validated.")
+          PY
+
+      - name: Upload video through official YouTube Data API v3
+        id: youtube_upload
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        run: |
+          set -euo pipefail
+          VIDEO="output/AI_TECH_LAB_$CONTENT_ID.mp4"
+          THUMBNAIL="output/thumbnail_$CONTENT_ID.jpg"
+          test -s "$VIDEO"
+          test -s "$THUMBNAIL"
+          FILE_SIZE=$(stat -c%s "$VIDEO")
+          INIT_CODE=$(curl -sS --max-time 60 -D work/youtube_upload_headers.txt -o work/youtube_upload_init.json -w "%{http_code}" -X POST -H "Authorization: Bearer $YOUTUBE_ACCESS_TOKEN" -H "Content-Type: application/json; charset=UTF-8" -H "X-Upload-Content-Type: video/mp4" -H "X-Upload-Content-Length: $FILE_SIZE" --data-binary @work/youtube_metadata.json "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status")
+          if [ "$INIT_CODE" != "200" ] && [ "$INIT_CODE" != "201" ]; then echo "YouTube upload initialization failed (HTTP $INIT_CODE)."; jq '{error:{code:.error.code,message:.error.message}}' work/youtube_upload_init.json || true; exit 1; fi
+          LOCATION=$(grep -i '^location:' work/youtube_upload_headers.txt | tail -n 1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')
+          test -n "$LOCATION" || { echo "YouTube did not return a resumable upload URL."; exit 1; }
+          UPLOAD_CODE=$(curl -sS --max-time 1200 -o work/youtube_upload_result.json -w "%{http_code}" -X PUT -H "Authorization: Bearer $YOUTUBE_ACCESS_TOKEN" -H "Content-Type: video/mp4" --data-binary @"$VIDEO" "$LOCATION")
+          if [ "$UPLOAD_CODE" != "200" ] && [ "$UPLOAD_CODE" != "201" ]; then echo "YouTube video transfer failed (HTTP $UPLOAD_CODE)."; jq '{error:{code:.error.code,message:.error.message}}' work/youtube_upload_result.json || true; exit 1; fi
+          VIDEO_ID=$(jq -r '.id // empty' work/youtube_upload_result.json)
+          test -n "$VIDEO_ID" || { echo "YouTube did not return a video ID."; exit 1; }
+          echo "video_id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
+          echo "YouTube video uploaded successfully; ID recorded in the job output."
+
+      - name: Save YouTube video ID and schedule to Cloudflare D1
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        env:
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+        run: |
+          set -euo pipefail
+          VIDEO_ID="${{ steps.youtube_upload.outputs.video_id }}"
+          PUBLISH_AT=$(cat work/publish_at_normalized.txt)
+          jq -n --arg content_id "$CONTENT_ID" --arg video_id "$VIDEO_ID" --arg publish_at "$PUBLISH_AT" '{content_id:($content_id|tonumber),video_id:$video_id,publish_at:$publish_at}' > work/youtube_upload_record.json
+          CODE=$(curl -sS --max-time 45 -o work/youtube_upload_record_response.json -w "%{http_code}" -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" -H "Content-Type: application/json" --data-binary @work/youtube_upload_record.json "$WORKER_URL/youtube/upload-result")
+          if [ "$CODE" != "200" ] || [ "$(jq -r '.ok // false' work/youtube_upload_record_response.json)" != "true" ]; then echo "Video uploaded, but Cloudflare could not save its ID. Do not re-run this content blindly."; jq '{ok,error}' work/youtube_upload_record_response.json || true; exit 1; fi
+          echo "YouTube video ID and schedule saved to Cloudflare D1."
+
+
+      - name: Set custom YouTube thumbnail
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        run: |
+          set -euo pipefail
+          VIDEO_ID="${{ steps.youtube_upload.outputs.video_id }}"
+          test -n "$VIDEO_ID"
+          CODE=$(curl -sS --max-time 90 -o work/youtube_thumbnail_result.json -w "%{http_code}" -X POST -H "Authorization: Bearer $YOUTUBE_ACCESS_TOKEN" -H "Content-Type: image/jpeg" --data-binary @"output/thumbnail_$CONTENT_ID.jpg" "https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=$VIDEO_ID")
+          if [ "$CODE" != "200" ]; then echo "Thumbnail upload failed (HTTP $CODE)."; jq '{error:{code:.error.code,message:.error.message}}' work/youtube_thumbnail_result.json || true; exit 1; fi
+          echo "Custom thumbnail set successfully."
+
+      - name: Report existing YouTube upload without duplicating it
+        if: steps.youtube_state.outputs.already_uploaded == 'true'
+        run: |
+          echo "Content $CONTENT_ID already has YouTube video ID ${{ steps.youtube_state.outputs.video_id }}; duplicate upload skipped."
