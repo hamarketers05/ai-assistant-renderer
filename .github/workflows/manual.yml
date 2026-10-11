@@ -582,7 +582,7 @@ jobs:
           .venv/bin/python - <<'PY'
           from pathlib import Path
           from PIL import Image, ImageDraw, ImageFont
-          import re, textwrap
+          import os, re, textwrap
 
           W, H = 1280, 720
           image = Image.new("RGB", (W, H))
@@ -616,7 +616,7 @@ jobs:
           draw.text((96, 538), "THE NEXT AI SHIFT", font=ImageFont.truetype(bold, 28), fill=(3, 15, 33))
           draw.text((72, 630), "ORIGINAL EXPLAINERS • RESEARCH • TECHNOLOGY",
                     font=ImageFont.truetype(regular, 18), fill=(190, 220, 238))
-          image.save("$THUMBNAIL", quality=93, optimize=True)
+          image.save(f"output/thumbnail_{os.environ['CONTENT_ID']}.jpg", quality=93, optimize=True)
           PY
 
 
