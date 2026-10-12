@@ -1,10 +1,16 @@
 {
-  "schema_version": 1,
-  "review_status": "NO_PREVIOUS_REVIEW",
-  "decision": "NONE",
-  "title": "",
-  "summary": "No prior final-video review has been persisted yet.",
-  "top_improvements": [],
-  "repeat_issues_to_avoid": [],
-  "next_video_rules": []
+  "generated_at_utc": "2026-10-12T11:06:55Z",
+  "title": "AI Agents Gone Wrong: 5 Safety Rules You Should Know",
+  "review_status": "failed",
+  "decision": "BLOCK",
+  "top_improvements": [
+    "Restore the free Groq API quota/key or correct the review error, then rerun final QA."
+  ],
+  "repeat_issues_to_avoid": [
+    "Never upload a render whose required final review did not complete."
+  ],
+  "blocking_issues": [
+    "Final AI/vision review did not complete: RuntimeError: GROQ_API_KEY is not configured"
+  ],
+  "review_scope": "Rendered MP4 and thumbnail sampled before YouTube upload; this is a quality-control review, not a guarantee of factual truth."
 }
