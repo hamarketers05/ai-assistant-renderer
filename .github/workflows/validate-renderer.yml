@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -60,6 +60,7 @@ jobs:
           names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
           required = [
               "Fetch and validate approved narration",
+              "Build sentence-by-sentence visual direction",
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
               "Find additional free, topic-matched Wikimedia Commons footage",
@@ -76,8 +77,10 @@ jobs:
           missing = [x for x in required if x not in names]
           if missing:
               raise SystemExit("Missing production stages: " + ", ".join(missing))
-          if not (names.index(required[0]) < names.index(required[1])):
-              raise SystemExit("Narration decode must precede voice editing.")
+          if not (names.index(required[0]) < names.index(required[1]) < names.index("Discover and download Vecteezy footage")):
+              raise SystemExit("Voice validation and sentence-level scene planning must precede asset discovery.")
+          if not Path("tools/scene_director.py").is_file() or not Path("tools/groq_thumbnail_brief.py").is_file():
+              raise SystemExit("Sentence scene director or Groq thumbnail brief tool is missing.")
           if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[2]) < names.index(required[6])):
               raise SystemExit("Commons fallback, attribution, evidence charts, music and SEO are out of order.")
           if not (names.index(required[7]) < names.index(required[8]) < names.index(required[9]) < names.index(required[10]) < names.index(required[11]) < names.index(required[12])):
