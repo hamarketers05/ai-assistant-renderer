@@ -251,7 +251,7 @@ def main():
     caption_count = emit_captions(words, shifts)
     report = {
         "status": "passed",
-        "manual_voice_required": True,
+        "manual_voice_required": False,
         "input_file": str(SOURCE),
         "output_file": str(EDITED),
         "language": getattr(info, "language", "en"),
@@ -272,7 +272,7 @@ def main():
         ],
         "limitations": [
             "Audio processing cannot fully manufacture natural acting/emotion from a flat recording.",
-            "For strongest emotion, record or generate the manual voice while following the script's delivery cues.",
+            "Kokoro voice expressiveness has model limits; retain sentence-level pauses and subtle processing rather than aggressive pitch effects.",
         ],
     }
     REPORT.write_text(json.dumps(report, indent=2), encoding="utf-8")
