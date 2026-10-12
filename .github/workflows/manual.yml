@@ -865,7 +865,7 @@ jobs:
           chart_report = json.loads(Path("work/evidence_charts_report.json").read_text(encoding="utf-8"))
           chart_files = [Path(p) for p in (chart_report.get("charts_created") or []) if Path(p).is_file()]
           chart_details = {Path(item.get("path", "")).name: item for item in (chart_report.get("chart_details") or []) if isinstance(item, dict) and item.get("path")}
-          chart_cursor = 0
+          used_chart_names = set()
           chart_uses = []
           rendered_asset_records = []
           stop_words = set("the and for with from into that this these those then than have has had are was were can could will would should about after before your you our their they them its how what when where why which while explain explained latest trend news future technology".split())
@@ -876,7 +876,7 @@ jobs:
 
           def number_keys(value):
               keys = set()
-              for item in re.findall(r"(?<![A-Za-z])\\d[\\d,]*(?:\\.\\d+)?%?(?![A-Za-z])", str(value)):
+              for item in re.findall(r"(?<![A-Za-z])\d[\d,]*(?:\.\d+)?%?(?![A-Za-z])", str(value)):
                   try:
                       keys.add(f"{float(item.replace(',', '').replace('%', '')):g}")
                   except ValueError:
@@ -904,15 +904,16 @@ jobs:
               chart_selected = False
               chart_name = ""
               scene_text = " ".join(str(x) for x in row[4:7])
-              for candidate in range(chart_cursor, len(chart_files)):
-                  candidate_path = chart_files[candidate]
+              for candidate_path in chart_files:
+                  if candidate_path.name in used_chart_names:
+                      continue
                   detail = chart_details.get(candidate_path.name, {})
                   if chart_matches(scene_text, detail):
                       graphic = candidate_path
                       chart_selected = True
                       chart_name = candidate_path.name
-                      chart_uses.append({"scene": scene, "chart": chart_name, "title": str(detail.get("title") or "")})
-                      chart_cursor = candidate + 1
+                      used_chart_names.add(chart_name)
+                      chart_uses.append({"scene": scene, "chart": chart_name, "title": str(detail.get("title") or ""), "source_url": str(detail.get("source_url") or "")})
                       break
 
               resize = shot_filter(i)
