@@ -45,6 +45,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import ast
+          import re
           import yaml
 
           for path in sorted(Path(".github/workflows").glob("*.yml")):
@@ -55,6 +56,14 @@ jobs:
 
           for path in Path("tools").glob("*.py"):
               ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+          manual_workflow = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+          render_step = next(step for step in manual_workflow["jobs"]["render"]["steps"] if step.get("name") == "Render scenes")
+          embedded = re.search(r"python - <<'PY'\\n(.*?)\\nPY", render_step.get("run", ""), re.S)
+          if not embedded:
+              raise SystemExit("Could not extract the embedded Python scene-rendering program for syntax validation.")
+          ast.parse(embedded.group(1), filename=".github/workflows/manual.yml:Render scenes embedded Python")
+          print("Embedded scene-rendering Python syntax passed AST validation.")
 
           import librosa
           import numpy as np
