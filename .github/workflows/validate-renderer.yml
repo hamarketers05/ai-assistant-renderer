@@ -172,7 +172,8 @@ jobs:
           if not manual_names.index("Check existing YouTube upload") < manual_names.index("Convert final master to 3D before YouTube upload") < manual_names.index("Upload video using YouTube Data API"):
               raise SystemExit("3D conversion must finish before the YouTube upload step.")
           upload_step = wf["jobs"]["render"]["steps"][manual_names.index("Upload video using YouTube Data API")].get("run", "")
-          if 'VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${{ inputs.stereo_output }}.mp4"' not in upload_step:
+          expected_video = 'VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_' + chr(36) + '{{ inputs.stereo_output }}.mp4"'
+          if expected_video not in upload_step:
               raise SystemExit("YouTube upload must use the 3D output, never the standard 2D source.")
           router_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
           for marker in ("qwen/qwen3.8-27b", "video_frame_", "thumbnail_review", "near_black_frame_ratio", "decision", "next_video_rules"):
