@@ -1112,7 +1112,7 @@ jobs:
             --mode "$STEREO_OUTPUT" \
             --content-format "$CONTENT_FORMAT" \
             --report work/stereo_3d_report.json \
-            --max-duration-seconds 365 \
+            --max-duration-seconds 480 \
             --max-conversion-seconds 1800 \
             --require-success
           jq -e '.status == "success" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
