@@ -2,7 +2,7 @@ name: CI Workflow Guard
 
 on:
   push:
-    branches: ["feat/cinematic-retention-pipeline"]
+    branches: ["main"]
     paths:
       - ".github/workflows/**"
       - "tools/**"
