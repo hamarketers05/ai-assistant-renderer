@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/write_editing_tool_manifest.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -126,7 +126,7 @@ jobs:
                   raise SystemExit(f"Visual novelty guard lacks required logic: {marker}")
           if "actions: read" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Bootstrapping the previous production manifest requires read-only Actions permission.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
@@ -147,11 +147,11 @@ jobs:
           if "APPROVED VOICE GATE" in workflow_source or "AUDIO_URL: ${{ inputs.audio_url }}" in workflow_source or "Fetch and validate approved narration" in workflow_source:
               raise SystemExit("Renderer must not require a manually approved voice or supplied audio URL.")
           render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
-          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
+          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "work/transition_sfx.wav", "tools/make_transition_sfx.py", "apulsator=mode=sine:amount=0.15:hz=0.08", "drawbox=x=0:y=0:w=iw:h=131", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
           scene_render = wf["jobs"]["render"]["steps"][names.index("Render scenes")].get("run", "")
-          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png", "scene_overlay_", "vignette=PI/5", "saturation=1.18"):
+          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png", "scene_overlay_", "vignette=PI/5", "saturation=1.10", "colorbalance=", "noise=alls=1.2:allf=t"):
               if marker not in scene_render:
                   raise SystemExit(f"Scene motion/3D overlay is missing: {marker}")
           brand_script = Path("tools/make_brand_assets.py").read_text(encoding="utf-8")
@@ -190,6 +190,23 @@ jobs:
           sbs_code = Path("tools/convert_video_midas_sbs.py").read_text(encoding="utf-8")
           if "librosa.effects.preemphasis" not in voice_editor_code or "duration_preserved" not in voice_editor_code:
               raise SystemExit("Required duration-preserving librosa voice enhancement is missing.")
+          if "deesser=i=0.22:m=0.30:f=0.55" not in voice_editor_code:
+              raise SystemExit("Automatic narration must include the validated light de-esser stage.")
+          sfx_code = Path("tools/make_transition_sfx.py").read_text(encoding="utf-8")
+          manifest_code = Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8")
+          for marker in ("synthesize_event", "work/transition_sfx_report.json", "no third-party audio samples".lower()):
+              if marker.lower() not in sfx_code.lower():
+                  raise SystemExit(f"Procedural, royalty-free transition SFX implementation missing: {marker}")
+          for marker in ("FLUX.1 [schnell]", "Demucs", "DaVinci Resolve", "not_installed", "editing_tools", "color grade"):
+              if marker.lower() not in manifest_code.lower():
+                  raise SystemExit(f"Per-video editing tool manifest incomplete: {marker}")
+          director_code = Path("tools/scene_director.py").read_text(encoding="utf-8")
+          if "word-timestamped clause-aware scene phrases" not in director_code or "target=max(2.4" not in director_code:
+              raise SystemExit("Scene director must schedule visual change points around short voice-aligned phrases.")
+          transitions_code = Path("tools/render_transitions.py").read_text(encoding="utf-8")
+          for marker in ('"pixelize"', '"zoomin"', 'transition_frames_at_30fps'):
+              if marker not in transitions_code:
+                  raise SystemExit(f"Cinematic short transition option is missing: {marker}")
           for marker in ("CINEMATIC_LUT_URL", "CINEMATIC_LUT_GIT_BLOB_SHA", "cinematic.cube", "cinematic_ffmpeg.cube", "LUT_3D_INPUT_RANGE", "build_rec709_to_cineon_lut", "lut_input_expected", "rec709_to_cineon_transform_applied", "lut3d=file=", "interp=trilinear", "color_grade_applied"):
               if marker not in sbs_code:
                   raise SystemExit(f"Required pinned cinematic LUT integration is missing: {marker}")
