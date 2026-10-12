@@ -64,6 +64,7 @@ jobs:
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
               "Find additional free, topic-matched Wikimedia Commons footage",
+              "Bootstrap visual history from the last verified production artifact",
               "Reject previously used or weakly matched visual assets",
               "Add stock creator and license attribution",
               "Generate only evidence-supported data charts",
@@ -93,6 +94,7 @@ jobs:
               "Build sentence-by-sentence visual direction",
               "Discover and download Vecteezy footage",
               "Find additional free, topic-matched Wikimedia Commons footage",
+              "Bootstrap visual history from the last verified production artifact",
               "Reject previously used or weakly matched visual assets",
               "Add stock creator and license attribution",
               "Create original graphics",
@@ -111,9 +113,11 @@ jobs:
           history_code = Path("tools/asset_reuse_guard.py").read_text(encoding="utf-8")
           if "voice_word_timestamps.json" not in voice_code or "exact_word_timing" not in director_code:
               raise SystemExit("Word timestamps from the final voice must drive the scene planner.")
-          for marker in ("asset was used in a previously delivered video", "same asset selected for multiple scenes", "relevance"):
+          for marker in ("asset was used in a previously delivered video", "same asset selected for multiple scenes", "relevance", "seeded_from_previous_verified_renderer_artifact"):
               if marker.lower() not in history_code.lower():
                   raise SystemExit(f"Visual novelty guard lacks required logic: {marker}")
+          if "actions: read" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
+              raise SystemExit("Bootstrapping the previous production manifest requires read-only Actions permission.")
           ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
