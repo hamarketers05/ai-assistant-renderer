@@ -387,7 +387,7 @@ jobs:
           set -euo pipefail
           mkdir -p work
           printf '1\t0\t2.75\t2.75\tgenerated\topening\tOpening\n2\t2.75\t5.5\t2.75\tgenerated\tclosing\tClosing\n' > work/scenes.tsv
-          python tools/make_transition_sfx.py --scenes work/scenes.tsv --voice-duration 5.5 --intro-seconds 4 --content-id 9876 --output work/transition-sfx-smoke.wav
+          python tools/make_transition_sfx.py --scenes work/scenes.tsv --voice-duration 25.0 --intro-seconds 4 --content-id 9876 --output work/transition-sfx-smoke.wav
           test -s work/transition-sfx-smoke.wav
           test -s work/transition_sfx_report.json
           python - <<'PY'
@@ -398,7 +398,7 @@ jobs:
               assert audio.getnchannels() == 2 and audio.getframerate() == 44100 and audio.getnframes() > 0
           if report.get("status") != "generated" or report.get("transition_count") != 1:
               raise SystemExit(f"Transition SFX report invalid: {report}")
-          if abs(report.get("duration_seconds", 0) - 9.5) > 0.02:
+          if abs(report.get("duration_seconds", 0) - 29.0) > 0.02:
               raise SystemExit(f"Transition SFX track duration mismatch: {report}")
           print("Procedural transition SFX smoke test passed; event count and stereo WAV validated.")
           PY
