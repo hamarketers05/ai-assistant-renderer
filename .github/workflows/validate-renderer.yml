@@ -175,7 +175,7 @@ jobs:
           set -euo pipefail
           mkdir -p work output
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=4" -an -c:v libx264 -pix_fmt yuv420p work/camera_input.mp4
-          ffmpeg -hide_banner -loglevel error -y -i work/camera_input.mp4 -t 4 -vf "rotate='0.0025*sin(t*0.34)':c=black@0.0:ow=rotw(0.005):oh=roth(0.005),scale=1400:790:force_original_aspect_ratio=increase,crop=1280:720:x='(in_w-out_w)*(0.5+0.26*sin(t*0.58))':y='(in_h-out_h)*(0.5+0.18*cos(t*0.43)',setsar=1,eq=contrast=1.08:saturation=1.08,unsharp=5:5:0.45:3:3:0.0" -an -c:v libx264 -preset ultrafast -pix_fmt yuv420p work/camera_motion_smoke.mp4
+          ffmpeg -hide_banner -loglevel error -y -i work/camera_input.mp4 -t 4 -vf "rotate='0.0025*sin(t*0.34)':c=black@0.0:ow=rotw(0.005):oh=roth(0.005),scale=1400:790:force_original_aspect_ratio=increase,crop=1280:720:x='(in_w-out_w)*(0.5+0.26*sin(t*0.58))':y='(in_h-out_h)*(0.5+0.18*cos(t*0.43))',setsar=1,eq=contrast=1.08:saturation=1.08,unsharp=5:5:0.45:3:3:0.0" -an -c:v libx264 -preset ultrafast -pix_fmt yuv420p work/camera_motion_smoke.mp4
           ffprobe -v error -show_entries stream=width,height -of csv=p=0 work/camera_motion_smoke.mp4 | grep -qx '1280,720'
           test -s work/camera_motion_smoke.mp4
           echo "Camera drift, small roll, contrast, and sharpening passed FFmpeg smoke test."
