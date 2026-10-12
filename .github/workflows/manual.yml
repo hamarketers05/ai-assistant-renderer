@@ -155,17 +155,33 @@ jobs:
           PY
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_KEY"
-          OBJECT_PATH="ai-tech-lab/$CONTENT_ID/kokoro.wav"
-          curl -fLsS --retry 3 --retry-all-errors --max-time 180 -X POST \
+          # Keep the lossless WAV locally for editing; store a compact MP3 hand-off.
+          # Supabase Free limits individual uploads to 50 MB; this narration WAV is ~71 MB.
+          ffmpeg -hide_banner -loglevel error -y -i voice.wav -vn -c:a libmp3lame -b:a 128k -ar 44100 -ac 2 work/kokoro_upload.mp3
+          test -s work/kokoro_upload.mp3
+          UPLOAD_BYTES=$(stat -c%s work/kokoro_upload.mp3)
+          [ "$UPLOAD_BYTES" -lt $((20*1024*1024)) ] || { echo "Compressed Kokoro hand-off unexpectedly exceeds 20 MiB."; exit 1; }
+          OBJECT_PATH="ai-tech-lab/$CONTENT_ID/kokoro.mp3"
+          UPLOAD_CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 180 -X POST \
+            -o work/kokoro_upload.json -w "%{http_code}" \
             "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$OBJECT_PATH" \
             -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" \
-            -H "Content-Type: audio/wav" -H "x-upsert: true" --data-binary @voice.wav \
-            -o work/kokoro_upload.json
-          curl -fLsS --retry 3 --retry-all-errors --max-time 60 -X POST \
+            -H "Content-Type: audio/mpeg" -H "x-upsert: true" --data-binary @work/kokoro_upload.mp3)
+          if [ "$UPLOAD_CODE" != "200" ] && [ "$UPLOAD_CODE" != "201" ]; then
+            echo "Supabase audio upload failed: HTTP $UPLOAD_CODE."
+            jq '{statusCode,error,message}' work/kokoro_upload.json || cat work/kokoro_upload.json
+            exit 1
+          fi
+          SIGN_CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 60 -X POST \
+            -o work/kokoro_signed_url.json -w "%{http_code}" \
             "$SUPABASE_URL/storage/v1/object/sign/ai-assistant-audio/$OBJECT_PATH" \
             -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" \
-            -H "Content-Type: application/json" --data '{"expiresIn":604800}' \
-            -o work/kokoro_signed_url.json
+            -H "Content-Type: application/json" --data '{"expiresIn":604800}')
+          if [ "$SIGN_CODE" != "200" ]; then
+            echo "Supabase signed URL creation failed: HTTP $SIGN_CODE."
+            jq '{statusCode,error,message}' work/kokoro_signed_url.json || cat work/kokoro_signed_url.json
+            exit 1
+          fi
           SIGNED_PATH=$(jq -r '.signedURL // .signedUrl // empty' work/kokoro_signed_url.json)
           test -n "$SIGNED_PATH" || { echo "Could not create signed URL for Kokoro narration."; exit 1; }
           if [[ "$SIGNED_PATH" == https://* ]]; then
