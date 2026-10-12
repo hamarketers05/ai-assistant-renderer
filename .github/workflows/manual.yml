@@ -272,7 +272,7 @@ jobs:
 
           def find_url(obj):
               if isinstance(obj, dict):
-                  for key in ("download_url", "downloadUrl", "signed_url", "signedUrl"):
+                  for key in ("download_url", "downloadUrl", "signed_url", "signedUrl", "direct_download_url", "download_link", "downloadLink", "file_url", "fileUrl"):
                       value = obj.get(key)
                       if isinstance(value, str) and value.startswith("https://"):
                           return value
@@ -441,7 +441,14 @@ jobs:
 
           .venv/bin/python work/fetch_vecteezy.py
 
-      - name: Add required Vecteezy creator attribution
+      - name: Find additional free, topic-matched Wikimedia Commons footage
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/fetch_free_video.py
+          test -s work/commons_media_report.json
+          cat work/commons_media_report.json
+
+      - name: Add stock creator and license attribution
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
@@ -459,18 +466,25 @@ jobs:
                   continue
               creator = str(item.get("creator") or "").strip()
               url = str(item.get("source_url") or "").strip()
-              if creator and url and (creator, url) not in seen:
-                  seen.add((creator, url))
-                  credits.append(f"- {creator} — Vecteezy: {url}")
+              provider = str(item.get("provider") or "Stock media").strip()
+              asset_title = str(item.get("asset_title") or "").strip()
+              license_label = str(item.get("license_label") or "License details").strip()
+              license_url = str(item.get("license_url") or "").strip()
+              key = (provider, creator, url)
+              if creator and url and key not in seen:
+                  seen.add(key)
+                  name = f" — {asset_title}" if asset_title else ""
+                  credits.append(f"- {provider}{name} — {creator} | {license_label}: {url}")
+                  if license_url:
+                      credits.append(f"  License: {license_url}")
           base = description_file.read_text(encoding="utf-8").strip()
           if credits:
-              attribution = "\n\nStock-footage attribution (where footage appears):\n" + "\n".join(credits)
-              attribution += "\nReview each linked resource's license terms: https://www.vecteezy.com/licensing-agreement"
+              attribution = "\n\nSTOCK MEDIA CREDITS & LICENSES\n" + "\n".join(credits)
               base = (base[:max(0, 4900-len(attribution))].rstrip() + attribution)[:4900]
               description_file.write_text(base, encoding="utf-8")
-              print(f"Added {len(credits)} creator credit(s) to the YouTube description.")
+              print(f"Added {len(seen)} stock-media credit(s) with license references.")
           else:
-              print("No Vecteezy clip met attribution metadata requirements; generated visuals remain available.")
+              print("No stock footage was downloaded; the quality gate will prevent upload.")
           PY
 
       - name: Create original graphics
@@ -741,43 +755,7 @@ jobs:
             -map 0:v:0 -map "[a]" -t "$TOTAL_DURATION" \
             -c:v copy -c:a aac -b:a 192k -movflags +faststart "$VIDEO"
 
-          .venv/bin/python - <<'PY'
-          from pathlib import Path
-          from PIL import Image, ImageDraw, ImageFont
-          import os, re, textwrap
-
-          W, H = 1280, 720
-          image = Image.new("RGB", (W, H))
-          pixels = image.load()
-          for yy in range(H):
-              t = yy / max(1, H - 1)
-              color = (int(3 + 7*t), int(10 + 20*t), int(28 + 45*t))
-              for xx in range(W):
-                  pixels[xx, yy] = color
-          draw = ImageDraw.Draw(image)
-          cyan, gold, white = (70, 235, 255), (255, 211, 73), (246, 250, 255)
-          draw.polygon([(860, 0), (1280, 0), (1280, 720), (700, 720), (960, 330)], fill=(9, 35, 72))
-          for xx in range(850, 1260, 75):
-              draw.line((xx, 20, xx-120, 720), fill=(13, 74, 112), width=2)
-          draw.rounded_rectangle((32, 30, 1248, 690), radius=28, outline=(20, 165, 205), width=3)
-          bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-          regular = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-          draw.text((70, 62), "AI TECH LAB  |  2026", font=ImageFont.truetype(bold, 32), fill=cyan)
-          raw = Path("work/title.txt").read_text(encoding="utf-8").strip()
-          raw = re.sub(r"(?i)^AI Tech Lab\s*[:|—-]?\s*", "", raw)
-          raw = re.sub(r"\s+", " ", raw).strip() or "Future Technology"
-          lines = textwrap.wrap(raw.upper(), width=20, break_long_words=True, break_on_hyphens=False)[:3]
-          title_font = ImageFont.truetype(bold, 66 if len(lines) <= 2 else 54)
-          for i, line in enumerate(lines):
-              draw.text((70, 175 + i*92), line, font=title_font, fill=gold if i == len(lines)-1 else white,
-                        stroke_width=1, stroke_fill=(0, 0, 0))
-          draw.rounded_rectangle((70, 520, 670, 592), radius=16, fill=cyan)
-          draw.text((96, 538), "THE NEXT AI SHIFT", font=ImageFont.truetype(bold, 28), fill=(3, 15, 33))
-          draw.text((72, 630), "ORIGINAL EXPLAINERS • RESEARCH • TECHNOLOGY",
-                    font=ImageFont.truetype(regular, 18), fill=(190, 220, 238))
-          image.save(f"output/thumbnail_{os.environ['CONTENT_ID']}.jpg", quality=93, optimize=True)
-          PY
-
+          .venv/bin/python tools/make_premium_thumbnail.py --title-file work/title.txt --output "$THUMBNAIL"
           convert "$THUMBNAIL" -sharpen 0x0.7 -quality 94 "output/thumbnail_${CONTENT_ID}.processed.jpg"
           mv "output/thumbnail_${CONTENT_ID}.processed.jpg" "$THUMBNAIL"
           test -s "$VIDEO"
@@ -826,6 +804,36 @@ jobs:
           print(f"QA passed: {fmt}; {width}x{height}; video={duration:.1f}s; narration={audio_duration:.1f}s; bytes={size}.")
           PY
 
+
+      - name: Verify narration, music, captions, and premium thumbnail assets
+        run: |
+          set -euo pipefail
+          VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          THUMBNAIL="output/thumbnail_${CONTENT_ID}.jpg"
+          test -s "$VIDEO"
+          test -s "$THUMBNAIL"
+          test -s work/voice_edited.wav
+          test -s work/captions.srt
+          test -s work/music.wav
+          .venv/bin/python - "$VIDEO" "$THUMBNAIL" <<'PY'
+          import json, subprocess, sys
+          from pathlib import Path
+          from PIL import Image
+          video, thumbnail = sys.argv[1:3]
+          probe = subprocess.run(["ffprobe","-v","error","-show_entries","stream=codec_type,width,height","-of","json",video],check=True,capture_output=True,text=True)
+          streams = json.loads(probe.stdout).get("streams",[])
+          kinds = {x.get("codec_type") for x in streams}
+          if not {"video","audio"}.issubset(kinds):
+              raise SystemExit(f"QA failed: expected video and audio streams, got {kinds}")
+          with Image.open(thumbnail) as im:
+              if im.size != (1280,720): raise SystemExit(f"Premium thumbnail size invalid: {im.size}")
+              im.verify()
+          captions = Path("work/captions.srt").read_text(encoding="utf-8").strip()
+          if "-->" not in captions or len(captions.splitlines()) < 8:
+              raise SystemExit("QA failed: captions are missing/too sparse.")
+          print(json.dumps({"audio_video_streams":"pass","thumbnail":"1280x720 valid","captions":"present","music":"present"}))
+          PY
+
       - name: Save video artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -852,7 +860,7 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
-          import json
+          import json, re
           from pathlib import Path
 
           source_file = Path("work/asset_sources.jsonl")
@@ -863,25 +871,43 @@ jobs:
                       item = json.loads(line)
                   except json.JSONDecodeError:
                       continue
-                  if item.get("provider") and item.get("creator") and item.get("source_url"):
+                  provider = str(item.get("provider") or "")
+                  label = str(item.get("license_label") or "").lower()
+                  license_url = str(item.get("license_url") or "").lower()
+                  source_url = str(item.get("source_url") or "")
+                  creator = str(item.get("creator") or "")
+                  if not (provider and source_url.startswith("https://") and creator):
+                      continue
+                  if provider == "Vecteezy":
+                      licensed = label.strip() in {"free", "free license"} and "vecteezy.com" in source_url.lower()
+                  elif provider == "Wikimedia Commons":
+                      licensed = bool(item.get("commercial_use_allowed")) and (
+                          "creativecommons.org/licenses/by/" in license_url
+                          or "creativecommons.org/licenses/by-sa/" in license_url
+                          or "creativecommons.org/publicdomain/" in license_url
+                          or "public domain" in label
+                          or "cc0" in label
+                          or "pd-usgov" in label
+                      ) and not any(term in label + " " + license_url for term in ("by-nc", "by-nd", "noncommercial", "non-commercial"))
+                  else:
+                      licensed = False
+                  scene = str(item.get("scene") or "")
+                  rendered_scene = Path(f"scenes/scene_{scene}.mp4") if scene else None
+                  if licensed and rendered_scene and rendered_scene.is_file() and rendered_scene.stat().st_size > 10000:
                       records.append(item)
 
-          rendered = list(Path("assets").glob("scene_*.mp4"))
-          used = []
-          for item in records:
-              scene = str(item.get("scene", ""))
-              if scene and Path(f"scenes/scene_{scene}.mp4").exists():
-                  used.append(item)
-
+          unique = {(str(x.get("provider")), str(x.get("scene"))) for x in records}
+          scenes_with_motion = list(Path("scenes").glob("scene_*.mp4"))
           print(json.dumps({
-              "licensed_attributed_clips": len(records),
-              "downloaded_scene_videos": len(rendered),
-              "clips_used_in_render": len(used)
+              "verified_commercial_use_clips": len(unique),
+              "rendered_scene_videos": len(scenes_with_motion),
+              "providers": sorted({str(x.get("provider")) for x in records}),
+              "license_audit": "pass" if len(unique) >= 4 else "blocked"
           }))
-          if len(used) < 4:
+          if len(unique) < 4:
               raise SystemExit(
-                  "UPLOAD BLOCKED: fewer than four verified, attributed stock clips were actually used. "
-                  "Fix media sourcing first; generated cards alone do not meet premium-video requirements."
+                  "UPLOAD BLOCKED: fewer than four scene-matched commercial-use clips with verified licenses "
+                  "and attribution records. Do not publish a generated-card-only video."
               )
           PY
 
