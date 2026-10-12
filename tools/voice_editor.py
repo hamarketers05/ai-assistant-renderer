@@ -121,9 +121,11 @@ def main():
     # Open-source FFmpeg audio mastering: rumble/high-frequency trim, gentle denoise,
     # light compression and platform-friendly loudness normalization.
     audio_filter = (
-        "highpass=f=75,lowpass=f=15000,afftdn=nr=6:nf=-35,"
-        "acompressor=threshold=0.125:ratio=2:attack=15:release=200:makeup=2,"
-        "loudnorm=I=-16:TP=-1.5:LRA=11"
+        "highpass=f=80,lowpass=f=16000,afftdn=nr=4:nf=-32,"
+        "equalizer=f=180:t=q:w=1:g=1.5,"
+        "equalizer=f=2800:t=q:w=1:g=1.8,"
+        "acompressor=threshold=0.16:ratio=2.4:attack=10:release=160:makeup=3,"
+        "loudnorm=I=-16:TP=-1.5:LRA=9"
     )
     run([
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
