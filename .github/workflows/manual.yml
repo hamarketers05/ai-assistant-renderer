@@ -489,9 +489,21 @@ jobs:
               return ""
 
           try:
-              api_get(f"{BASE}/{ACCOUNT_ID}/account/info")
+              account_info = api_get(f"{BASE}/{ACCOUNT_ID}/account/info")
           except Exception as exc:
-              raise SystemExit(f"Vecteezy account check failed: {str(exc)[:180]}")
+              print(f"Vecteezy account check failed ({str(exc)[:120]}).")
+              print("Skipping Vecteezy downloads; use the verified free-license Commons source instead.")
+              raise SystemExit(0)
+
+          plan_name = find_value(account_info, {
+              "plan_name", "plan", "pricing_plan", "subscription_plan",
+              "subscription_tier", "account_plan", "billing_plan", "tier", "account_type"
+          })
+          if "free" not in plan_name.lower():
+              print("Vecteezy API plan was not positively identified as Free; no resource download endpoints will be called.")
+              print("Skipping Vecteezy downloads to prevent unexpected charges.")
+              raise SystemExit(0)
+          print("Vecteezy Free plan explicitly confirmed; applying strict Free License, creator, source and relevance checks.")
 
           with open("work/scenes.tsv", encoding="utf-8") as source:
               rows = [line.rstrip("\n").split("\t") for line in source]
