@@ -22,7 +22,7 @@ def main():
     p.add_argument("--scenes",default="work/scenes.tsv")
     p.add_argument("--target-duration",type=float,required=True)
     p.add_argument("--output",default="work/visual_track.mp4")
-    p.add_argument("--transition",type=float,default=0.5)
+    p.add_argument("--transition",type=float,default=0.35)
     args=p.parse_args()
     if not 5<=args.target_duration<=3600: raise SystemExit("Target video duration is outside safe limits.")
     if not 0.2<=args.transition<=0.8: raise SystemExit("Transition duration must be 0.2–0.8 seconds.")
@@ -64,7 +64,7 @@ def main():
         )
     current="v0"
     cumulative=clips[0][1]+(args.transition if len(clips)>1 else 0.0)
-    transition_types=["fade","smoothleft","wipeleft","slideleft","fadeblack","smoothright"]
+    transition_types=["fade","smoothleft","wipeleft","slideleft","fadeblack","smoothright","pixelize","zoomin"]
     used_transitions=[]
     for i in range(1,len(clips)):
         out=f"x{i}"
@@ -87,7 +87,8 @@ def main():
     if abs(duration-args.target_duration)>0.25:
         raise SystemExit(f"Transition render duration mismatch: {duration:.2f}s vs {args.target_duration:.2f}s.")
     report={"scenes":len(clips),"transition":"alternating cinematic xfade","transition_types":sorted(set(used_transitions)),
-            "transition_seconds":args.transition,"target_duration_seconds":args.target_duration,
+            "transition_seconds":args.transition,"transition_frames_at_30fps":round(args.transition*30,1),
+ "digital_mosaic_glitch_count":used_transitions.count("pixelize"),"zoom_push_count":used_transitions.count("zoomin"),"target_duration_seconds":args.target_duration,
             "rendered_duration_seconds":round(duration,3),"loops_entire_video":False,
             "clip_duration_total_seconds":round(sum(d for _,d in clips),3),
             "untrimmed_crossfade_timeline_seconds":round(cumulative,3),
