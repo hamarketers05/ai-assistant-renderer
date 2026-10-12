@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/generate_kokoro_voice.py tools/render_transitions.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -142,6 +142,25 @@ jobs:
                   raise SystemExit(f"Premium thumbnail wrong size: {im.size}")
               im.verify()
           print("Topic-matched 3D-style thumbnail generated and verified.")
+          PY
+
+      - name: Smoke-test transparent 3D security hero overlay
+        run: |
+          set -euo pipefail
+          mkdir -p work output
+          printf '%s' 'AI Agent Security: Why Testing Before Release Matters' > work/title.txt
+          python tools/make_3d_hero_overlay.py work/title.txt output/3d-security-hero.png
+          python - <<'PY'
+          from PIL import Image
+          path = "output/3d-security-hero.png"
+          with Image.open(path) as im:
+              if im.size != (720, 720) or im.mode != "RGBA":
+                  raise SystemExit(f"3D overlay dimensions/mode invalid: {im.size}, {im.mode}")
+              alpha = im.getchannel("A")
+              if alpha.getextrema() != (0, 255):
+                  raise SystemExit(f"3D overlay transparency was not preserved: {alpha.getextrema()}")
+              im.verify()
+          print("Transparent 3D security hero generated and verified.")
           PY
 
       - name: Smoke-test FFmpeg crossfade renderer
