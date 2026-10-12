@@ -57,6 +57,16 @@ def load_midas():
 
     # Keep model inference predictable on GitHub's CPU runner.
     torch.set_num_threads(max(1, min(4, os.cpu_count() or 2)))
+    # MiDaS_small calls torch.hub.load("rwightman/gen-efficientnet-pytorch", ...)
+    # internally. GitHub Actions is non-interactive, so explicitly pre-authorize the
+    # exact dependency repository name that the pinned official MiDaS source requests.
+    # This avoids an interactive prompt/EOFError while preserving the official call path.
+    hub_dir = Path(torch.hub.get_dir())
+    trusted_file = hub_dir / "trusted_list.txt"
+    trusted_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = set(trusted_file.read_text(encoding="utf-8").splitlines()) if trusted_file.exists() else set()
+    existing.add("rwightman_gen-efficientnet-pytorch")
+    trusted_file.write_text("\\n".join(sorted(existing)) + "\\n", encoding="utf-8")
     model_ref = f"{MIDAS_REPO}:{MIDAS_COMMIT}"
     model = torch.hub.load(model_ref, MIDAS_MODEL, trust_repo=True, verbose=True)
     model.eval()
