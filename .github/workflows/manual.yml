@@ -555,17 +555,18 @@ jobs:
           is_short = os.getenv("CONTENT_FORMAT", "LONG_VIDEO").upper() == "SHORT"
           width, height = (1080, 1920) if is_short else (1920, 1080)
           # Slightly vary digital camera framing by shot, then animate a restrained pan/roll.
-          # Keep the movements subtle so technical visuals remain readable.
-          shot_scale = 1.06 + (i % 4) * 0.015
-          scaled_w, scaled_h = int(width * shot_scale), int(height * shot_scale)
-          drift = -1 if i % 2 else 1
-          roll = (0.0015 + (i % 3) * 0.0010) * drift
-          resize = (
-              f"rotate='{roll}*sin(t*0.34)':c=black@0.0:ow=rotw(iw):oh=roth(ih),"
-              f"scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=increase,"
-              f"crop={width}:{height}:x='(in_w-out_w)*(0.5+0.26*sin(t*0.58+{i}))':"
-              f"y='(in_h-out_h)*(0.5+0.18*cos(t*0.43+{i * 0.7}))',setsar=1"
-          )
+          # The per-shot filter is built inside the scene loop to avoid shared framing.
+          def shot_filter(i):
+              shot_scale = 1.06 + (i % 4) * 0.015
+              scaled_w, scaled_h = int(width * shot_scale), int(height * shot_scale)
+              drift = -1 if i % 2 else 1
+              roll = (0.0015 + (i % 3) * 0.0010) * drift
+              return (
+                  f"rotate='{roll}*sin(t*0.34)':c=black@0.0:ow=rotw(iw):oh=roth(ih),"
+                  f"scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=increase,"
+                  f"crop={width}:{height}:x='(in_w-out_w)*(0.5+0.26*sin(t*0.58+{i}))':"
+                  f"y='(in_h-out_h)*(0.5+0.18*cos(t*0.43+{i * 0.7}))',setsar=1"
+              )
 
           with open("work/scenes.tsv", encoding="utf-8") as f:
               rows = list(csv.reader(f, delimiter="\t"))
@@ -589,6 +590,7 @@ jobs:
               if chart.exists() and any(token in (row[4] + " " + row[5]).lower() for token in ("chart", "graph", "statistic", "data visualization", "evidence chart")):
                   graphic = chart
 
+              resize = shot_filter(i)
               if stock.exists() and stock.stat().st_size > 10000:
                   run([
                       "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
