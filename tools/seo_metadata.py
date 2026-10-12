@@ -130,6 +130,7 @@ def extract_sources():
 
 
 def main():
+    global DESCRIPTION
     title = clean_title(TITLE)
     # Keep meaningful LLM-produced copy and source/asset credits; only add a structured,
     # searchable section if it is missing.
