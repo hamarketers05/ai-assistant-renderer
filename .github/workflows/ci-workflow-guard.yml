@@ -1,0 +1,61 @@
+name: CI Workflow Guard
+
+on:
+  push:
+    branches: ["feat/cinematic-retention-pipeline"]
+    paths:
+      - ".github/workflows/**"
+      - "tools/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/**"
+      - "tools/**"
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-guard:
+    name: Validate workflow YAML and embedded Python
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install YAML parser
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
+
+      - name: Parse every workflow and embedded renderer Python
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import re
+          from pathlib import Path
+          import yaml
+
+          workflow_files = sorted(Path(".github/workflows").glob("*.yml"))
+          for path in workflow_files:
+              doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+              if not isinstance(doc, dict) or not doc.get("name") or not isinstance(doc.get("jobs"), dict):
+                  raise SystemExit(f"Invalid GitHub Actions workflow structure: {path}")
+              print(f"YAML OK: {path}")
+
+          for path in Path("tools").glob("*.py"):
+              ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+          manual = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+          render = next(step for step in manual["jobs"]["render"]["steps"] if step.get("name") == "Render scenes")
+          match = re.search("python - <<'PY'\\n(.*?)\\nPY", render.get("run", ""), re.S)
+          if not match:
+              raise SystemExit("Could not extract embedded Python from the Render scenes step.")
+          ast.parse(match.group(1), filename="manual.yml:Render scenes embedded Python")
+          print(f"Embedded scene renderer syntax OK; checked {len(workflow_files)} workflows.")
+          PY
