@@ -1210,7 +1210,7 @@ jobs:
           if [[ "$STEREO_OUTPUT" == "SBS" ]]; then
             .venv/bin/python tools/convert_video_midas_sbs.py \
               --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
-              --output "output/AI_TECH_LAB_$CONTENT_ID_3D_SBS.mp4" \
+              --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_SBS.mp4" \
               --mode SBS \
               --content-format "$CONTENT_FORMAT" \
               --report work/stereo_3d_report.json \
