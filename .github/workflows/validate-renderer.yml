@@ -18,9 +18,9 @@ permissions:
 
 jobs:
   static-validation:
-    name: Validate renderer code and workflow YAML
+    name: Validate renderer, SEO, brand assets and original audio
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,61 +30,145 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install YAML parser
-        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
-
-      - name: Compile voice editor
-        run: python -m py_compile tools/voice_editor.py
-
-      - name: Validate workflow syntax and production gates
+      - name: Install free validation dependencies
         run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick fonts-dejavu-core
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check PyYAML==6.0.2 numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper
+
+      - name: Compile project tools and validate workflow order
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py
           python - <<'PY'
           from pathlib import Path
           import ast
           import yaml
 
-          workflow_dir = Path(".github/workflows")
-          for path in sorted(workflow_dir.glob("*.yml")):
-              parsed = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-              if not isinstance(parsed, dict) or not parsed.get("name"):
-                  raise SystemExit(f"Invalid workflow structure: {path}")
+          for path in sorted(Path(".github/workflows").glob("*.yml")):
+              obj = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+              if not isinstance(obj, dict) or not obj.get("name") or not isinstance(obj.get("jobs"), dict):
+                  raise SystemExit(f"Workflow YAML structure invalid: {path}")
               print(f"YAML parsed: {path}")
 
-          source = Path("tools/voice_editor.py").read_text(encoding="utf-8")
-          ast.parse(source, filename="tools/voice_editor.py")
+          for path in Path("tools").glob("*.py"):
+              ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
-          workflow = yaml.load(
-              Path(".github/workflows/manual.yml").read_text(encoding="utf-8"),
-              Loader=yaml.BaseLoader,
-          )
-          inputs = workflow["on"]["workflow_dispatch"]["inputs"]
-          steps = workflow["jobs"]["render"]["steps"]
-          names = [step.get("name", "") for step in steps]
+          wf = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+          names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
           required = [
-              "Download existing voice",
+              "Fetch and validate automatic narration",
               "Edit manual voice, add pauses and script cues, and generate captions",
+              "Generate original topic-aware background score",
+              "Generate only evidence-supported data charts",
+              "Improve SEO title, description, tags, sources and chapters",
+              "Create AI Tech Lab branded intro and subscribe popup",
               "Assemble final video and thumbnail",
               "QA rendered production",
               "Check existing YouTube upload",
           ]
-          if any(name not in names for name in required):
-              raise SystemExit("Required voice gate/render/QA/upload guard is missing.")
+          missing = [x for x in required if x not in names]
+          if missing:
+              raise SystemExit("Missing production stages: " + ", ".join(missing))
           if names.index(required[0]) >= names.index(required[1]):
-              raise SystemExit("Voice editing must follow the required voice download gate.")
-          if not (
-              names.index(required[1]) < names.index(required[2]) < names.index(required[3])
-              < names.index(required[4])
-          ):
-              raise SystemExit("Voice edit, render, QA and upload guard are out of order.")
+              raise SystemExit("Narration decode must precede voice editing.")
+          if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[6]) < names.index(required[7]) < names.index(required[8])):
+              raise SystemExit("Research assets, SEO, brand intro, render QA and upload guard are out of order.")
+          voice = wf["jobs"]["render"]["steps"][names.index(required[0])].get("run", "")
+          if "auto_tts_full.wav" not in voice or "auto_tts_full.mp3" not in voice:
+              raise SystemExit("Renderer must accept both supported automatic TTS audio formats.")
+          render = wf["jobs"]["render"]["steps"][names.index(required[6])].get("run", "")
+          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14"):
+              if marker not in render:
+                  raise SystemExit(f"Renderer assembly is missing: {marker}")
+          if "retention-days: 7" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
+              raise SystemExit("Seven-day recovery artifact retention is missing.")
+          print("Static validation passed: automatic TTS, original score, subtitles, branded intro, subscribe CTA, SEO, QA and duplicate-upload guard.")
+          PY
 
-          edit_step = steps[names.index(required[1])]
-          if "tools/voice_editor.py" not in edit_step.get("run", ""):
-              raise SystemExit("Voice editor is not invoked by the renderer.")
-          render_step = steps[names.index(required[2])]
-          if "work/voice_edited.wav" not in render_step.get("run", ""):
-              raise SystemExit("Final video does not use the edited narration.")
-          if inputs.get("audio_url", {}).get("required") != "false":
-              raise SystemExit("Direct voice URL must remain optional; approved stored voice remains supported.")
+      - name: Generate original branded assets for landscape and portrait
+        run: |
+          set -euo pipefail
+          mkdir -p work assets
+          python tools/make_brand_assets.py --format LONG_VIDEO --outdir assets
+          python - <<'PY'
+          from PIL import Image
+          for path, expected in [
+              ("assets/ai_tech_lab_intro.png", (1920, 1080)),
+              ("assets/ai_tech_lab_subscribe.png", (1000, 250)),
+          ]:
+              with Image.open(path) as im:
+                  if im.size != expected:
+                      raise SystemExit(f"{path}: expected {expected}, got {im.size}")
+                  im.verify()
+          PY
+          python tools/make_brand_assets.py --format SHORT --outdir assets
+          python - <<'PY'
+          from PIL import Image
+          with Image.open("assets/ai_tech_lab_intro.png") as im:
+              if im.size != (1080, 1920):
+                  raise SystemExit(f"Portrait dimensions incorrect: {im.size}")
+              im.verify()
+          print("Original intro and subscribe assets passed Pillow verification.")
+          PY
 
-          print("Static validation passed: manual voice gate, editor, duration QA and duplicate-upload guard.")
+      - name: Generate and probe original background music
+        run: |
+          set -euo pipefail
+          python tools/generate_music.py --duration 8 --topic "AI research future technology" --output work/ci_music.wav
+          test -s work/ci_music.wav
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 work/ci_music.wav
+          test -s work/music_report.json
+          python - <<'PY'
+          import wave
+          with wave.open("work/ci_music.wav", "rb") as wav:
+              if wav.getnchannels() != 2 or wav.getnframes() <= 0 or wav.getframerate() <= 0:
+                  raise SystemExit("Generated score did not pass WAV validation.")
+          print("Original stereo music successfully generated.")
+          PY
+
+      - name: Test SEO limits using a source-linked fixture
+        run: |
+          set -euo pipefail
+          cat > work/production_manifest.json <<'JSON'
+          {
+            "topic": "How AI research agents verify sources",
+            "seo": {
+              "title": "How AI Research Agents Verify Sources: What Actually Works",
+              "description": "Explore how AI research agents gather sources, check claims, and handle uncertainty. This original explainer compares verifiable capabilities with practical limitations.",
+              "tags": ["AI research agents", "source verification", "AI tools"]
+            },
+            "sources": [
+              {"title":"Research documentation","url":"https://www.nist.gov/"},
+              {"title":"AI research overview","url":"https://arxiv.org/"}
+            ]
+          }
+          JSON
+          printf '%s' 'AI and Future Technology latest trends news topics' > work/title.txt
+          printf '%s' 'Explore how AI research agents gather sources, check claims, and handle uncertainty. This original explainer compares verifiable capabilities with practical limitations.' > work/description.txt
+          printf '%s' 'AI research agents, source verification, AI tools' > work/tags.txt
+          cat > work/script.txt <<'TXT'
+          AI research agents help organize information. This explainer reviews source verification, evidence quality, attribution, limitations, and responsible use. We compare source verification and practical AI workflows. We discuss what the evidence shows and what it does not show.
+          TXT
+          cat > work/scenes.tsv <<'TSV'
+          1	0	12	12	generated	AI research agents	Opening and overview
+          2	12	30	18	generated	Source verification	How source verification works
+          3	30	50	20	generated	Limitations and practical checks	Limitations and practical checks
+          TSV
+          CONTENT_FORMAT=LONG_VIDEO python tools/seo_metadata.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("work/seo_report.json").read_text(encoding="utf-8"))
+          title = Path("work/title.txt").read_text(encoding="utf-8").strip()
+          tags = Path("work/tags.txt").read_text(encoding="utf-8").strip()
+          desc = Path("work/description.txt").read_text(encoding="utf-8")
+          assert 1 <= len(title) <= 100, len(title)
+          assert len(tags) <= 500, len(tags)
+          assert 1 <= len(desc) <= 5000, len(desc)
+          assert "SOURCES & FURTHER READING" in desc
+          assert report["tag_count"] > 0 and report["source_url_count"] > 0
+          print(json.dumps({"title": title, "tag_characters": len(tags), "description_characters": len(desc), "sources": report["source_url_count"]}))
           PY
