@@ -142,7 +142,7 @@ jobs:
           if "HF_TOKEN: " + "$" + "{{ secrets.HF_TOKEN }}" not in renderer_text:
               raise SystemExit("Renderer must pass an optional HF_TOKEN for FLUX thumbnails.")
           stereo_code = Path("tools/convert_video_3d.py").read_text(encoding="utf-8")
-          for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB"):
+          for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "frame-packing=3", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB"):
               if marker.lower() not in stereo_code.lower():
                   raise SystemExit(f"Optional 2D3D safe-export integration missing: {marker}")
           stereo_step = names.index("Generate optional 2D3D stereoscopic companion without replacing standard master")
