@@ -197,9 +197,15 @@ jobs:
           for marker in ("synthesize_event", "work/transition_sfx_report.json", "no third-party audio samples".lower()):
               if marker.lower() not in sfx_code.lower():
                   raise SystemExit(f"Procedural, royalty-free transition SFX implementation missing: {marker}")
-          for marker in ("FLUX.1 [schnell]", "Demucs", "DaVinci Resolve", "not_installed", "editing_tools", "color grade"):
+          for marker in ("FLUX.1 [schnell]", "Demucs", "DaVinci Resolve", "not_installed", "editing_tools", "color grade", "rendered_scene_assets_report.json", "evidence_charts_used", "transparent_hud_overlays_applied"):
               if marker.lower() not in manifest_code.lower():
                   raise SystemExit(f"Per-video editing tool manifest incomplete: {marker}")
+          charts_code = Path("tools/make_evidence_charts.py").read_text(encoding="utf-8")
+          for marker in ("charts[:12]", "chart_details", "source_url", "Only source-linked numeric values"):
+              if marker.lower() not in charts_code.lower():
+                  raise SystemExit(f"Evidence chart generation/matching rule missing: {marker}")
+          if "chart_matches(scene_text, detail)" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
+              raise SystemExit("Only a script/source-matched chart may enter the final video.")
           director_code = Path("tools/scene_director.py").read_text(encoding="utf-8")
           if "word-timestamped clause-aware scene phrases" not in director_code or "target=max(2.4" not in director_code:
               raise SystemExit("Scene director must schedule visual change points around short voice-aligned phrases.")
