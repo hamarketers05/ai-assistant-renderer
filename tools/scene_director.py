@@ -137,7 +137,7 @@ def make_groups(sentence_data,duration,max_scenes,word_times,display_words,punct
 
     # Merge tiny phrase fragments instead of flashing to a new visual for a
     # one-second sentence. Keep all boundaries on recognized word timestamps.
-    min_scene=2.4
+    min_scene=1.6
     while len(groups)>1:
         short=next((i for i,g in enumerate(groups)
                     if float(g[-1]["end"])-float(g[0]["start"])<min_scene),None)
@@ -236,7 +236,7 @@ def main():
       "exact_token_match_ratio":round(exact_ratio,4),"mapped_script_token_ratio":round(mapped_ratio,4),
       "timestamp_word_count":len(asr),
       "scene_duration_seconds":{"min":round(min(lengths),3),"max":round(max(lengths),3),"mean":round(sum(lengths)/len(lengths),3)},
-      "visual_change_policy":"word-timestamped clause-aware scene phrases targeting about 3.6-4.0 seconds; short phrases merge to avoid flicker; capped at 90 scenes"}
+      "visual_change_policy":"word-timestamped clause-aware scene phrases targeting about 3-4 seconds, with brief 1.6+ second emphasis shots where word timing requires; short phrases merge to avoid flicker; capped at 90 scenes"}
     Path("work/scene_director_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     print(json.dumps(report))
 if __name__=="__main__": main()
