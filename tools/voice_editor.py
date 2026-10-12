@@ -71,6 +71,49 @@ def pause_ms(mark):
     return {"?": 220, "!": 190, ".": 170, ",": 95, ";": 125, ":": 125}.get(mark, 0)
 
 
+def apply_librosa_presence_effect(path: Path) -> dict:
+    """Add very light speech presence without changing pitch or duration."""
+    import librosa
+    import numpy as np
+    import soundfile as sf
+
+    samples, sample_rate = sf.read(str(path), dtype="float32", always_2d=True)
+    original = samples.T.copy()  # librosa expects (..., samples), including multichannel.
+    if original.shape[-1] < sample_rate * 10:
+        raise ValueError("Librosa voice enhancement received unexpectedly short audio.")
+
+    emphasized = librosa.effects.preemphasis(original, coef=0.65)
+    blend = 0.12
+    enhanced = (1.0 - blend) * original + blend * emphasized
+    if enhanced.shape != original.shape or not np.isfinite(enhanced).all():
+        raise ValueError("Librosa voice enhancement returned invalid samples.")
+
+    peak = float(np.max(np.abs(enhanced))) if enhanced.size else 0.0
+    if peak <= 1e-8:
+        raise ValueError("Librosa voice enhancement detected silent narration.")
+    peak_guard_gain = min(1.0, 0.98 / peak)
+    enhanced *= peak_guard_gain
+
+    sf.write(str(path), enhanced.T, sample_rate, subtype="PCM_16")
+    check, check_rate = sf.read(str(path), dtype="float32", always_2d=True)
+    if check_rate != sample_rate or check.shape != samples.shape:
+        raise ValueError("Librosa enhancement changed sample rate, channel layout, or duration.")
+    if not np.isfinite(check).all() or float(np.max(np.abs(check))) <= 1e-8:
+        raise ValueError("Librosa-enhanced narration failed audio-signal validation.")
+
+    return {
+        "status": "passed",
+        "effect": "subtle blended librosa pre-emphasis for speech presence",
+        "coefficient": 0.65,
+        "blend_ratio": blend,
+        "sample_rate_hz": sample_rate,
+        "channels": int(samples.shape[1]),
+        "samples_preserved": int(samples.shape[0]),
+        "duration_preserved": True,
+        "peak_guard_gain": round(peak_guard_gain, 6),
+    }
+
+
 def emit_captions(words, shifts):
     entries = []
     batch = []
@@ -244,6 +287,10 @@ def main():
     if len(edited) < 30_000 or edited.dBFS == float("-inf"):
         raise SystemExit("Edited voice failed duration or signal validation.")
     edited.export(str(EDITED), format="wav")
+    librosa_voice_enhancement = apply_librosa_presence_effect(EDITED)
+    edited = AudioSegment.from_wav(str(EDITED))
+    if len(edited) < 30_000 or edited.dBFS == float("-inf"):
+        raise SystemExit("Librosa-enhanced narration failed duration or signal validation.")
 
     caption_count = emit_captions(words, shifts)
     edited_duration = len(edited) / 1000.0
@@ -286,8 +333,10 @@ def main():
         "voice_word_timestamps": "work/voice_word_timestamps.json",
         "pause_policy": "sentence endings 170-220 ms; commas 95 ms; semicolon/colon 125 ms; long gaps capped to 190-300 ms",
         "caption_entries": caption_count,
+        "librosa_voice_enhancement": librosa_voice_enhancement,
         "script_cues": {name: cues_used.count(name) for name in sorted(set(cues_used))},
         "processing": [
+            "subtle duration-preserving librosa pre-emphasis blend for speech presence",
             "high-pass/low-pass filtering",
             "gentle FFT denoising",
             "light compression",
