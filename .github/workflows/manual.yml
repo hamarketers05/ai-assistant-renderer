@@ -1033,7 +1033,7 @@ jobs:
 
           # Original, generated background music is kept under narration using side-chain ducking.
           ffmpeg -y -i work/branded_visual.mp4 -i work/voice_edited.wav -stream_loop -1 -i work/music.wav -i work/transition_sfx.wav \
-            -filter_complex "[1:a]adelay=4000|4000,asetpts=PTS-STARTPTS,asplit=2[voice_sc][voice_mix];[2:a]volume=0.62,apulsator=mode=sine:amount=0.15:hz=0.08,asetpts=PTS-STARTPTS[music];[3:a]volume=0.14,asetpts=PTS-STARTPTS[sfx];[music][sfx]amix=inputs=2:duration=longest:dropout_transition=0[bed];[bed][voice_sc]sidechaincompress=threshold=0.035:ratio=8:attack=20:release=700[ducked];[voice_mix][ducked]amix=inputs=2:duration=longest:dropout_transition=0,loudnorm=I=-14:TP=-1.0:LRA=11[a]" \
+            -filter_complex "[1:a]adelay=4000|4000,asetpts=PTS-STARTPTS,asplit=2[voice_sc][voice_mix];[2:a]volume=0.62,apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08,asetpts=PTS-STARTPTS[music];[3:a]volume=0.14,asetpts=PTS-STARTPTS[sfx];[music][sfx]amix=inputs=2:duration=longest:dropout_transition=0[bed];[bed][voice_sc]sidechaincompress=threshold=0.035:ratio=8:attack=20:release=700[ducked];[voice_mix][ducked]amix=inputs=2:duration=longest:dropout_transition=0,loudnorm=I=-14:TP=-1.0:LRA=11[a]" \
             -map 0:v:0 -map "[a]" -t "$TOTAL_DURATION" \
             -c:v copy -c:a aac -b:a 192k -movflags +faststart "$VIDEO"
 
