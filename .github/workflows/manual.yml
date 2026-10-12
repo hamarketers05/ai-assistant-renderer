@@ -704,7 +704,7 @@ jobs:
           else
             WIDTH=1920
             HEIGHT=1080
-            VF="fps=30,scale=1920:1080:setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55'"
+            VF="fps=30,scale=1920:1080,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55'"
             CTA_WIDTH=1180
             CTA_Y=650
           fi
