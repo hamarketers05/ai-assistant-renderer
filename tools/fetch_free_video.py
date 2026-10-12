@@ -79,7 +79,25 @@ def concept_terms(text):
     return set(re.findall(r"[a-z0-9]+", str(text or "").lower()))
 
 def anchor_terms(text):
-    return concept_terms(text) & ANCHORS
+    tokens = concept_terms(text)
+    expanded = set(tokens)
+    aliases = {
+        "microchip": {"chip", "processor"}, "microchips": {"chip", "processor"},
+        "cpu": {"processor"}, "gpus": {"gpu", "processor", "accelerator"},
+        "gpu": {"processor", "accelerator"}, "accelerators": {"accelerator", "processor", "chip"},
+        "semiconductors": {"semiconductor", "chip"}, "semiconductor": {"chip"},
+        "silicon": {"chip", "semiconductor"}, "wafers": {"wafer", "silicon", "chip"},
+        "datacenter": {"data", "center", "server"}, "datacenters": {"data", "center", "server"},
+        "servers": {"server", "rack"}, "racks": {"rack", "server"},
+        "chiplets": {"chiplet", "chip", "silicon"}, "processors": {"processor", "chip"},
+        "transistors": {"transistor", "chip"}, "circuits": {"circuit", "hardware"},
+    }
+    for token in tokens:
+        expanded.update(aliases.get(token, set()))
+    # Compound phrases often appear hyphenated in scene text and unhyphenated in stock titles.
+    if "data-center" in tokens or {"data", "center"} <= tokens:
+        expanded.update({"data", "center", "datacenter"})
+    return expanded & ANCHORS
 
 def topic_queries(text):
     """Build focused searches only when a narrated scene contains a hardware concept."""
