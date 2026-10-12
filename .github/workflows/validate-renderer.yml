@@ -262,6 +262,7 @@ jobs:
               if im.size != (1280, 720):
                   raise SystemExit(f"Premium thumbnail wrong size: {im.size}")
               im.verify()
+          with Image.open(p) as im:
               top_popout = im.getpixel((1000, 84))
               bottom_popout = im.getpixel((1000, 659))
               if max(top_popout) < 60 or max(bottom_popout) < 40:
