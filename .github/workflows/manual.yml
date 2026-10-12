@@ -449,11 +449,27 @@ jobs:
                       terms.append(word)
               return terms[:12]
 
+          def semantic_terms(text):
+              tokens = set(significant_terms(str(text or "").replace("-", " ")))
+              aliases = {
+                  "microchip": {"chip", "processor"}, "microchips": {"chip", "processor"},
+                  "cpu": {"processor"}, "gpu": {"processor", "accelerator"}, "gpus": {"processor", "accelerator"},
+                  "silicon": {"chip", "semiconductor"}, "semiconductor": {"chip"}, "semiconductors": {"chip"},
+                  "datacenter": {"data", "center", "server"}, "datacenters": {"data", "center", "server"},
+                  "server": {"rack"}, "servers": {"rack"}, "rack": {"server"}, "racks": {"server"},
+                  "chiplets": {"chiplet", "chip", "silicon"}, "processors": {"processor", "chip"},
+                  "transistors": {"transistor", "chip"}, "circuits": {"circuit", "hardware"}
+              }
+              for token in list(tokens):
+                  tokens.update(aliases.get(token, set()))
+              return tokens
+
           def relevance(query, title, description):
-              # Score a candidate against a short, narration-grounded query, not a 120-character sentence.
-              needed = set(significant_terms(query))
-              available = set(significant_terms(str(title or "") + " " + str(description or "")))
-              return round(len(needed & available) / max(1, len(needed)), 3), sorted(needed & available)
+              # Expand equivalent hardware terms but still demand overlap with a focused scene query.
+              needed = semantic_terms(query)
+              available = semantic_terms(str(title or "") + " " + str(description or ""))
+              matching = sorted(needed & available)
+              return round(len(matching) / max(1, len(needed)), 3), matching
 
           def focused_search_query(scene_text):
               lower = re.sub(r"\s+", " ", str(scene_text or "").lower())
@@ -533,7 +549,7 @@ jobs:
                   asset_description = find_value(item, {"description", "summary", "keywords", "tags", "category"})
                   relevance_score, matching_terms = relevance(query, asset_title, asset_description)
                   if not asset_title or relevance_score < 0.20:
-                      print(f"Skipping {rid}: weak scene relevance ({relevance_score:.3f}); title={asset_title!r}")
+                      print(f"Skipping {rid}: weak scene relevance ({relevance_score:.3f}); query={query!r}; title={asset_title!r}")
                       continue
                   try:
                       download_calls += 1
@@ -600,7 +616,7 @@ jobs:
                           log.write(json.dumps(metadata) + "\n")
 
                       downloaded += 1
-                      print(f"Vecteezy clip downloaded for scene {scene}")
+                      print(f"Vecteezy clip downloaded for scene {scene}; query={query!r}; relevance={relevance_score:.3f}")
                       break
                   except Exception as exc:
                       print(f"Vecteezy download failed for {scene}: {str(exc)[:120]}")
