@@ -33,12 +33,20 @@ def main():
         grouped=[]; chunk=max(2,(len(items)+a.max_scenes-1)//a.max_scenes)
         for i in range(0,len(items),chunk): grouped.append(" ".join(items[i:i+chunk]))
         items=grouped
-    weights=[max(4,len(re.findall(r"\b[\w'-]+\b",s))) for s in items]
     usable=max(1.0,a.duration-4.0)
+    # Keep each visual long enough for a readable sentence and a valid transition.
+    max_scenes_by_duration=max(1,int(usable//3.2))
+    if len(items)>max_scenes_by_duration:
+        grouped=[]; chunk=max(2,(len(items)+max_scenes_by_duration-1)//max_scenes_by_duration)
+        for i in range(0,len(items),chunk): grouped.append(" ".join(items[i:i+chunk]))
+        items=grouped
+    weights=[max(4,len(re.findall(r"\b[\w'-]+\b",s))) for s in items]
     total=sum(weights)
+    minimum=3.0
+    extra=max(0.0,usable-minimum*len(items))
     cursor=0.0; rows=[]
     for i,(sentence,weight) in enumerate(zip(items,weights),1):
-        dur=usable*weight/total
+        dur=minimum+extra*weight/total
         start=cursor; end=cursor+dur; cursor=end
         # Full sentence is retained as the search prompt; scene art and overlays use its meaning.
         query=re.sub(r"\s+"," ",sentence).strip()[:180]
