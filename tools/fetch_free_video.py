@@ -206,7 +206,7 @@ def main():
         if target.is_file() and target.stat().st_size > 10000:
             continue
 
-        scene_text = re.sub(r"\\s+", " ", f"{row[5]} {row[6]}").strip()
+        scene_text = re.sub(r"\s+", " ", f"{row[5]} {row[6]}").strip()
         scene_anchors = anchor_terms(scene_text)
         if not scene_anchors:
             skipped += 1
@@ -235,7 +235,7 @@ def main():
             for result in results:
                 title = str(result.get("title") or "")
                 if (not title or title in seen_titles or title in USED_FILE_TITLES
-                        or not re.search(r"\\.(mp4|webm|ogv|ogg|mov|m4v)$", title, re.I)):
+                        or not re.search(r"\.(mp4|webm|ogv|ogg|mov|m4v)$", title, re.I)):
                     continue
                 seen_titles.add(title)
                 score, _, _ = relevance_score(scene_text, title, "")
