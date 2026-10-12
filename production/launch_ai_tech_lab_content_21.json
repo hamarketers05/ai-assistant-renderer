@@ -42,5 +42,7 @@
       "source_type": "official_security_guidance",
       "verified_claim": "NCSC interim guidance stresses that agent autonomy must remain proportionate to risk and be supported by safeguards, sandboxing and active oversight."
     }
-  ]
+  ],
+  "launch_attempt": 2,
+  "handoff_storage_fix": "Upload compact 128-kbps MP3 to remain below Supabase Free 50 MB limit; lossless mastered WAV remains the local render source."
 }
