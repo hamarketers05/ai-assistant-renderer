@@ -887,10 +887,14 @@ jobs:
 
           title = Path("work/title.txt").read_text(encoding="utf-8").strip()[:100]
           description = Path("work/description.txt").read_text(encoding="utf-8").strip()[:4900]
-          raw = os.getenv("INPUT_TAGS", "").strip()
-          tags = [x.strip() for x in raw.split(",") if x.strip()] if raw else [
-              x.strip() for x in Path("work/tags.txt").read_text(encoding="utf-8").split(",") if x.strip()
-          ]
+          # SEO stage has already curated the topic-specific tag list. Prefer it over
+          # the initial generic D1 tags passed in INPUT_TAGS; fall back only if absent.
+          tag_file = Path("work/tags.txt")
+          if tag_file.is_file() and tag_file.read_text(encoding="utf-8").strip():
+              tags = [x.strip() for x in tag_file.read_text(encoding="utf-8").split(",") if x.strip()]
+          else:
+              raw = os.getenv("INPUT_TAGS", "").strip()
+              tags = [x.strip() for x in raw.split(",") if x.strip()]
           tags = tags[:30]
           while tags and sum(map(len, tags)) > 450:
               tags.pop()
