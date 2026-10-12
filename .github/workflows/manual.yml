@@ -998,6 +998,11 @@ jobs:
             output/thumbnail_${{ inputs.content_id }}.jpg
             work/asset_sources.jsonl
             work/voice_edit_report.json
+            work/kokoro_tts_report.json
+            work/kokoro_audio_quality.json
+            work/kokoro_voice.wav
+            voice.wav
+            work/voice_edited.wav
             work/captions.srt
             work/music_report.json
             work/evidence_charts_report.json
