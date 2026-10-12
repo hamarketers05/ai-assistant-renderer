@@ -48,6 +48,11 @@ on:
         description: "Optional UTC publish time"
         required: false
         type: string
+      skip_groq_review:
+        description: "Skip Groq final AI/vision review for this run only; other technical, license, 3D and upload checks remain mandatory."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -991,6 +996,7 @@ jobs:
           PY
 
       - name: Groq router reviews rendered video, visual match, audio assets and thumbnail
+        if: inputs.skip_groq_review != true
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GROQ_TEXT_MODEL: openai/gpt-oss-20b
@@ -1004,6 +1010,28 @@ jobs:
           test -s work/video_review_report.json
           test -s work/video_review_metrics.json
           jq '{review_status,decision,overall_score,blocking_issues,top_improvements}' work/video_review_report.json
+
+      - name: Record user-authorized Groq review skip
+        if: inputs.skip_groq_review == true
+        run: |
+          set -euo pipefail
+          jq -n --arg content_id "$CONTENT_ID" '{
+            content_id: $content_id,
+            review_status: "skipped",
+            decision: "SKIPPED_USER_AUTHORIZED",
+            reviewer: "Groq final video/vision review",
+            user_authorized_skip: true,
+            blocking_issues: [],
+            top_improvements: ["No AI/vision review was performed. Run the Groq review on a future pass if you need that additional assurance."],
+            note: "Groq final AI review skipped at the user's request. Remaining automated technical, footage-license, 3D, thumbnail, schedule and YouTube verification gates remain mandatory."
+          }' > work/video_review_report.json
+          jq -n '{
+            review_status: "skipped",
+            reviewer: "Groq final video/vision review",
+            user_authorized_skip: true,
+            ai_vision_approval: false
+          }' > work/video_review_metrics.json
+          cat work/video_review_report.json
 
       - name: Save video artifacts
         uses: actions/upload-artifact@v4
@@ -1037,6 +1065,7 @@ jobs:
           retention-days: 7
 
       - name: Persist final QA feedback for the next video
+        if: inputs.skip_groq_review != true
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
@@ -1069,18 +1098,24 @@ jobs:
             done
           fi
 
-      - name: Block upload if final quality review found critical issues
+      - name: Enforce final review policy
+        env:
+          SKIP_GROQ_REVIEW: ${{ inputs.skip_groq_review }}
         run: |
           set -euo pipefail
           test -s work/video_review_report.json
           STATUS=$(jq -r '.review_status // "failed"' work/video_review_report.json)
           DECISION=$(jq -r '.decision // "BLOCK"' work/video_review_report.json)
-          if [ "$STATUS" != "completed" ] || [ "$DECISION" = "BLOCK" ]; then
+          if [ "$STATUS" = "skipped" ] && [ "$DECISION" = "SKIPPED_USER_AUTHORIZED" ] && [ "$SKIP_GROQ_REVIEW" = "true" ]; then
+            echo "NOTICE: Groq final AI/vision review was skipped at the user's request. No AI/vision approval is claimed."
+            echo "Continuing only to the remaining mandatory technical, licensed-footage, 3D and YouTube verification gates."
+          elif [ "$STATUS" != "completed" ] || [ "$DECISION" = "BLOCK" ]; then
             jq '{review_status,decision,blocking_issues,top_improvements}' work/video_review_report.json
-            echo "UPLOAD BLOCKED: final Groq/router review did not approve this render. Correct the listed issues before rerunning."
+            echo "UPLOAD BLOCKED: final review failed or returned BLOCK."
             exit 1
+          else
+            echo "Final video review accepted: $DECISION."
           fi
-          echo "Final video review accepted: $DECISION."
 
       - name: Require script-relevant licensed footage before upload
         run: |
