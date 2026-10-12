@@ -61,7 +61,8 @@ def punctuation(word):
     if not text:
         return ""
     # Ignore trailing closing quotes/brackets before recognizing punctuation.
-    text = text.rstrip("\\\"'”’)]}")
+    while text and text[-1] in ('"', "'", "”", "’", ")", "]", "}"):
+        text = text[:-1]
     return text[-1] if text and text[-1] in ",;:.!?" else ""
 
 
