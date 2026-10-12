@@ -65,16 +65,15 @@ def punctuation(word):
 
 
 def pause_ms(mark):
-    if mark == ",":
-        return 180
-    if mark in ";:":
-        return 300
+    # Generated narration already includes natural breath and comma pauses.
+    # Add only short sentence-ending pauses; long per-word pauses stretched a
+    # five-minute narration to nearly nine minutes and broke the duration QA.
     if mark == "?":
-        return 520
+        return 220
     if mark == "!":
-        return 480
+        return 180
     if mark == ".":
-        return 420
+        return 150
     return 0
 
 
