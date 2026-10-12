@@ -76,8 +76,6 @@ jobs:
           missing = [x for x in required if x not in names]
           if missing:
               raise SystemExit("Missing production stages: " + ", ".join(missing))
-          if names.index(required[0]) >= names.index(required[1]):
-              raise SystemExit("Narration decode must precede voice editing.")
           if not (names.index(required[0]) < names.index(required[1])):
               raise SystemExit("Narration decode must precede voice editing.")
           if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[2]) < names.index(required[6])):
@@ -92,7 +90,7 @@ jobs:
           voice = wf["jobs"]["render"]["steps"][names.index(required[0])].get("run", "")
           if "auto_tts_full." not in voice or "for EXT in wav mp3" not in voice:
               raise SystemExit("Renderer must accept both supported automatic TTS audio formats.")
-          render = wf["jobs"]["render"]["steps"][names.index(required[6])].get("run", "")
+          render = wf["jobs"]["render"]["steps"][names.index(required[8])].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14"):
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
@@ -125,6 +123,22 @@ jobs:
                   raise SystemExit(f"Portrait dimensions incorrect: {im.size}")
               im.verify()
           print("Original intro and subscribe assets passed Pillow verification.")
+          PY
+
+      - name: Smoke-test the topic-matched 3D thumbnail generator
+        run: |
+          set -euo pipefail
+          mkdir -p work output
+          printf '%s' 'AI Is Moving Into Your PC: What Local AI Really Changes' > work/title.txt
+          python tools/make_premium_thumbnail.py --title-file work/title.txt --output output/thumbnail-smoke-test.jpg
+          python - <<'PY'
+          from PIL import Image
+          p = "output/thumbnail-smoke-test.jpg"
+          with Image.open(p) as im:
+              if im.size != (1280, 720):
+                  raise SystemExit(f"Premium thumbnail wrong size: {im.size}")
+              im.verify()
+          print("Topic-matched 3D-style thumbnail generated and verified.")
           PY
 
       - name: Generate and probe original background music
