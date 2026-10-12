@@ -132,6 +132,41 @@ def seed(content_id, manifest_path):
                  "seeded_assets":len(used),"history_file":str(HISTORY),
                  "source_manifest":str(source),"duplicate_guard":"enabled_before_next_upload"})
 
+def merge_history(candidate_path):
+    history=load_history()
+    used=history.setdefault("used",[])
+    current_keys=set()
+    for item in used:
+        current_keys.update(identity(item))
+    source=Path(candidate_path)
+    if not source.is_file():
+        raise SystemExit(f"Cannot recover concurrent asset-history update: missing candidate {source}")
+    candidate=json.loads(source.read_text(encoding="utf-8"))
+    candidate_items=candidate.get("used") if isinstance(candidate,dict) else None
+    if not isinstance(candidate_items,list):
+        raise SystemExit("Cannot recover concurrent asset-history update: candidate history format is invalid.")
+    added=0
+    now=datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for item in candidate_items:
+        keys=identity(item)
+        if not keys:
+            continue
+        if keys & current_keys:
+            continue
+        record=dict(item)
+        record["merged_after_concurrent_delivery"]=True
+        record["history_merged_at_utc"]=now
+        used.append(record)
+        current_keys.update(keys)
+        added+=1
+    history["version"]=1
+    history["updated_at_utc"]=now
+    HISTORY.parent.mkdir(parents=True,exist_ok=True)
+    HISTORY.write_text(json.dumps(history,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+    save_report({"status":"merged_concurrent_asset_history","new_records":added,
+                 "total_history_assets":len(used),"candidate":str(source),
+                 "deduplication":"passed"})
+
 def persist(content_id):
     history=load_history(); used=history.setdefault("used",[]); already=set()
     for item in used: already.update(identity(item))
@@ -151,14 +186,17 @@ def persist(content_id):
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument("--mode",choices=("seed","validate","persist"),required=True)
+    p.add_argument("--mode",choices=("seed","validate","persist","merge-history"),required=True)
     p.add_argument("--content-id",required=True)
     p.add_argument("--manifest",default="work/previous_assets.jsonl")
+    p.add_argument("--candidate",default="work/asset_history_candidate.json")
     a=p.parse_args()
     if a.mode=="validate":
         validate(a.content_id)
     elif a.mode=="persist":
         persist(a.content_id)
+    elif a.mode=="merge-history":
+        merge_history(a.candidate)
     else:
         seed(a.content_id,a.manifest)
 
