@@ -1334,7 +1334,7 @@ jobs:
             --max-conversion-seconds 1800
 
       - name: Record optional 3D exporter crash without affecting the scheduled 2D video
-        if: steps.stereo_export.outcome == 'failure'
+        if: always() && steps.stereo_export.outcome != 'success'
         run: |
           set -euo pipefail
           mkdir -p work
