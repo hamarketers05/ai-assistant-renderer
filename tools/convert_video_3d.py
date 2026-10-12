@@ -129,14 +129,12 @@ def main() -> int:
 
         output.parent.mkdir(parents=True, exist_ok=True)
         output.unlink(missing_ok=True)
-        env = os.environ.copy()
-        # Respect hardware if present, while using a CPU-only PyTorch wheel in standard Actions runners.
-        env["TOKENIZERS_PARALLELISM"] = "false"
+        # Use the project virtualenv, which already has CPU PyTorch, OpenCV, NumPy and Pillow.
+        # This avoids downloading and reinstalling a second large PyTorch environment per video.
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
         with tempfile.TemporaryDirectory(prefix="ai-tech-lab-2d3d-") as temporary:
-            root = Path(temporary)
-            checkout = root / "2D3D"
-            venv = root / ".venv"
+            checkout = Path(temporary) / "2D3D"
             run_command(
                 ["git", "clone", "--quiet", "--no-checkout", REPOSITORY, str(checkout)],
                 timeout=180,
@@ -160,29 +158,21 @@ def main() -> int:
                     raise ValueError("Pinned 2D3D source layout changed; refusing an unverified metadata patch.")
                 pipeline_file.write_text(upstream.replace(needle, replacement), encoding="utf-8")
                 print("Added YouTube H.264 side-by-side stereo metadata in the temporary checkout.")
-            run_command([sys.executable, "-m", "venv", str(venv)], timeout=120)
-            pip = str(venv / "bin" / "pip")
-            python = str(venv / "bin" / "python")
+            runtime_python = sys.executable
             run_command(
-                [pip, "install", "--disable-pip-version-check", "--no-cache-dir",
-                 "--index-url", "https://download.pytorch.org/whl/cpu", "torch"],
+                [runtime_python, "-m", "pip", "install", "--disable-pip-version-check",
+                 "--no-cache-dir", "transformers>=4.45"],
                 timeout=900,
                 cwd=checkout,
             )
             run_command(
-                [pip, "install", "--disable-pip-version-check", "--no-cache-dir",
-                 "-r", "requirements.txt"],
-                timeout=900,
-                cwd=checkout,
-            )
-            run_command(
-                [python, "test_pipeline.py"],
+                [runtime_python, "test_pipeline.py"],
                 timeout=240,
                 cwd=checkout,
             )
             run_command(
                 [
-                    python, "main.py", str(source), "--output", str(output),
+                    runtime_python, "main.py", str(source), "--output", str(output),
                     "--profile", "fast", "--format", FORMATS[args.mode],
                     "--strength", "0.015", "--smoothing", "0.55",
                     "--crf", "18", "--preset", "veryfast",
