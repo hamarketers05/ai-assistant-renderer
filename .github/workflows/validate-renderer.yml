@@ -98,12 +98,12 @@ jobs:
           gate = wf["jobs"]["render"]["steps"][names.index("Validate configuration and approved voice gate")].get("run", "")
           if "APPROVED VOICE GATE" not in gate or '[[ "$AUDIO_URL" == https://* ]]' not in gate:
               raise SystemExit("Approved voice URL must be enforced before production-manifest creation.")
-          render = wf["jobs"]["render"]["steps"][names.index(required[8])].get("run", "")
+          render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
           scene_render = wf["jobs"]["render"]["steps"][names.index("Render scenes")].get("run", "")
-          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png"):
+          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png", "scene_overlay_", "vignette=PI/5", "saturation=1.18"):
               if marker not in scene_render:
                   raise SystemExit(f"Scene motion/3D overlay is missing: {marker}")
           brand_script = Path("tools/make_brand_assets.py").read_text(encoding="utf-8")
