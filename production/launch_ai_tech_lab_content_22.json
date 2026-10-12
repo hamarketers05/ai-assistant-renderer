@@ -59,5 +59,11 @@
       "Do not describe the design as consuming less total power than every Nvidia rack",
       "Keep the video in English for the US audience"
     ]
+  },
+  "production_retry": {
+    "attempt": 2,
+    "updated_at_utc": "2026-10-12T16:53:00Z",
+    "reason": "Retry after improving focused Vecteezy searches and serial, cache-aware Wikimedia Commons requests with exponential backoff.",
+    "publication_gate": "Do not upload or schedule unless four unique, scene-matched, commercially reusable clips are verified, all technical/3D/color/audio/thumbnail gates pass, and YouTube read-after-write confirms the scheduled private upload."
   }
 }
