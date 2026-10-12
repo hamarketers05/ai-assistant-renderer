@@ -16,7 +16,7 @@ def main():
     script=re.sub(r"\n{3,}","\n\n",script).strip()
     # Kokoro splits on newlines; sentence-level chunks prevent oversized model inputs.
     script=re.sub(r"(?<=[.!?])\s+(?=[A-Z0-9\"“])","\n",script)
-    if len(script)<100: raise SystemExit("Kokoro fallback requires the actual long-form narration script.")
+    if len(script)<100: raise SystemExit("Kokoro requires the actual long-form narration script.")
     if len(script)>30000: raise SystemExit("Narration is longer than the safe local TTS limit.")
     if not 0.75<=args.speed<=1.2: raise SystemExit("TTS speed must be between 0.75 and 1.2.")
     try:
