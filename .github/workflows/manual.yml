@@ -20,11 +20,10 @@ on:
           - SHORT
         default: LONG_VIDEO
       stereo_output:
-        description: "Create a separate stereoscopic companion after the normal video is scheduled; never replaces the main 2D upload."
+        description: "Required 3D format; the generated 3D file, not the 2D source, is uploaded and scheduled."
         required: false
         type: choice
         options:
-          - OFF
           - SBS
           - TB
           - ANAGLYPH
@@ -1084,6 +1083,38 @@ jobs:
           echo "already_uploaded=$(jq -r '.already_uploaded // false' work/state.json)" >> "$GITHUB_OUTPUT"
           echo "video_id=$(jq -r '.video_id // empty' work/state.json)" >> "$GITHUB_OUTPUT"
 
+      - name: Convert final master to 3D before YouTube upload
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        env:
+          STEREO_OUTPUT: ${{ inputs.stereo_output }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git
+          .venv/bin/python tools/convert_video_3d.py \
+            --input "output/AI_TECH_LAB_${CONTENT_ID}.mp4" \
+            --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4" \
+            --mode "$STEREO_OUTPUT" \
+            --content-format "$CONTENT_FORMAT" \
+            --report work/stereo_3d_report.json \
+            --max-duration-seconds 365 \
+            --max-conversion-seconds 1800 \
+            --require-success
+          jq -e '.status == "success" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
+          test -s "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
+          echo "3D output passed stream, audio, duration and geometry checks; only this 3D file may be uploaded."
+
+      - name: Save verified 3D upload artifact
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-3d-ready-${{ inputs.content_id }}
+          path: |
+            output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4
+            work/stereo_3d_report.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Get YouTube access token
         if: steps.youtube_state.outputs.already_uploaded != 'true'
         env:
@@ -1158,7 +1189,8 @@ jobs:
         if: steps.youtube_state.outputs.already_uploaded != 'true'
         run: |
           set -euo pipefail
-          VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${{ inputs.stereo_output }}.mp4"
+          test -s "$VIDEO"
           SIZE=$(stat -c%s "$VIDEO")
 
           INIT_CODE=$(curl -sS --max-time 60 -D work/upload_headers.txt \
@@ -1280,77 +1312,3 @@ jobs:
         run: |
           echo "Content $CONTENT_ID already has video ID ${{ steps.youtube_state.outputs.video_id }}."
           echo "Duplicate upload skipped. Do not delete the old scheduled video."
-
-
-  stereo-companion:
-    name: Build optional 2D3D stereoscopic companion (non-blocking)
-    if: ${{ inputs.content_format == 'LONG_VIDEO' && inputs.stereo_output != 'OFF' }}
-    needs: render
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      actions: read
-    env:
-      CONTENT_ID: ${{ inputs.content_id }}
-      CONTENT_FORMAT: ${{ inputs.content_format }}
-      STEREO_OUTPUT: ${{ inputs.stereo_output }}
-    steps:
-      - name: Checkout renderer
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install FFmpeg and git
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg git
-
-      - name: Download completed QA-checked standard master
-        uses: actions/download-artifact@v4
-        with:
-          name: ai-tech-lab-${{ inputs.content_id }}
-          path: .
-
-      - name: Generate optional 2D3D stereoscopic companion
-        id: stereo_export
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          test -s "output/AI_TECH_LAB_${CONTENT_ID}.mp4"
-          mkdir -p work output
-          python tools/convert_video_3d.py \
-            --input "output/AI_TECH_LAB_${CONTENT_ID}.mp4" \
-            --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4" \
-            --mode "$STEREO_OUTPUT" \
-            --content-format "$CONTENT_FORMAT" \
-            --report work/stereo_3d_report.json \
-            --max-duration-seconds 365 \
-            --max-conversion-seconds 1800
-
-      - name: Record optional 3D exporter crash without affecting the scheduled 2D video
-        if: always() && steps.stereo_export.outcome != 'success'
-        run: |
-          set -euo pipefail
-          mkdir -p work
-          jq -n --arg mode "$STEREO_OUTPUT" \
-            '{tool:"JulesMellot/2D3D",status:"failed_optional_export",requested_mode:$mode,main_video_untouched:true,fallback:"The standard QA-checked 2D video was already scheduled; no 3D file was published."}' \
-            > work/stereo_3d_report.json
-          echo "Optional 3D companion failed; the standard 2D upload remains unaffected."
-
-      - name: Save stereoscopic companion artifact and report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-tech-lab-3d-${{ inputs.content_id }}
-          path: |
-            output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4
-            work/stereo_3d_report.json
-          if-no-files-found: warn
-          retention-days: 30
-
