@@ -100,27 +100,21 @@ def anchor_terms(text):
     return expanded & ANCHORS
 
 def topic_queries(text):
-    """Build focused searches only when a narrated scene contains a hardware concept."""
-    raw = str(text or "").lower()
-    anchors = anchor_terms(raw)
+    """Return a small set of reusable searches based on real hardware concepts."""
+    anchors = anchor_terms(text)
     queries = []
-    if anchors & {"chip", "chips", "chiplet", "chiplets", "semiconductor", "semiconductors",
-                  "processor", "processors", "silicon", "microchip", "microchips", "wafer", "wafers", "maia"}:
-        queries.append("AI chip semiconductor silicon")
-        if anchors & {"chiplet", "chiplets", "silicon", "wafer", "semiconductor", "semiconductors"}:
-            queries.append("silicon wafer microchip processor")
-    if anchors & {"gpu", "gpus", "nvidia", "accelerator", "accelerators", "inference", "compute", "computing"}:
-        queries.append("GPU AI accelerator processor")
-    if anchors & {"server", "servers", "rack", "racks", "datacenter", "data", "center", "network", "networking", "bandwidth"}:
-        queries.append("data center server rack networking")
-    if anchors & {"megawatt", "megawatts", "power", "electricity", "cooling"}:
-        queries.append("data center power cooling")
-    if anchors & {"memory", "circuit", "circuits", "motherboard", "transistor", "transistors", "hardware"}:
-        queries.append("computer hardware circuit board")
-    words = terms_of(raw)
-    if len(words) >= 2:
-        queries.append(" ".join(words[:5]))
-    return list(dict.fromkeys(q for q in queries if q))[:3]
+    if anchors & {"chip", "chips", "chiplet", "semiconductor", "processor", "silicon", "microchip", "wafer", "maia"}:
+        queries.extend(["computer chip semiconductor", "microchip processor"])
+    if anchors & {"gpu", "nvidia", "accelerator", "inference", "compute", "computing"}:
+        queries.append("GPU processor")
+    if anchors & {"server", "rack", "datacenter", "data", "center", "network", "networking"}:
+        queries.extend(["data center server", "server rack"])
+    if anchors & {"megawatt", "power", "electricity", "cooling"}:
+        queries.append("data center cooling")
+    if anchors & {"memory", "circuit", "motherboard", "transistor", "hardware"}:
+        queries.append("computer hardware")
+    # Remove duplicates and keep the query set small so Commons can be used politely.
+    return list(dict.fromkeys(q for q in queries if q))[:4]
 
 def relevance_score(scene_text, title, description):
     """Score on both shared hardware concepts and narrower scene-word overlap."""
@@ -158,7 +152,7 @@ def search_files(query):
     if key in SEARCH_CACHE:
         return SEARCH_CACHE[key]
     params = {"action":"query","format":"json","list":"search","maxlag":2,
-              "srsearch":f"filetype:video {query}","srnamespace":6,"srlimit":8,"srprop":"size|wordcount"}
+              "srsearch":f"filetype:video {query}","srnamespace":6,"srlimit":20,"srprop":"size|wordcount"}
     data = req_json(API + "?" + urllib.parse.urlencode(params))
     result = (data.get("query") or {}).get("search") or []
     SEARCH_CACHE[key] = result
@@ -214,8 +208,6 @@ def main():
 
         scene_text = re.sub(r"\\s+", " ", f"{row[5]} {row[6]}").strip()
         scene_anchors = anchor_terms(scene_text)
-        # Non-hardware/abstract scenes are handled with original generated scene art;
-        # stock footage is only fetched where the narrated visual contains a real anchor.
         if not scene_anchors:
             skipped += 1
             continue
@@ -237,22 +229,23 @@ def main():
                     stop_all = True
                 continue
 
-            metadata_candidates = 0
+            # Rank video candidates by title relevance, but do not require exact title
+            # token identity (e.g. "microchip" vs "chip" or "datacenter" vs "data center").
+            candidates = []
             for result in results:
-                if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
-                    break
                 title = str(result.get("title") or "")
                 if (not title or title in seen_titles or title in USED_FILE_TITLES
                         or not re.search(r"\\.(mp4|webm|ogv|ogg|mov|m4v)$", title, re.I)):
                     continue
                 seen_titles.add(title)
-                title_anchors = anchor_terms(title)
-                # The search phrase is specific; screen unrelated titles before
-                # requesting their more expensive license/description metadata.
-                if not (scene_anchors & title_anchors):
-                    continue
-                metadata_candidates += 1
-                if metadata_candidates > 3:
+                score, _, _ = relevance_score(scene_text, title, "")
+                candidates.append((score, title))
+            candidates.sort(key=lambda item: item[0], reverse=True)
+
+            # Read a few metadata records per shared query; caches ensure that the same
+            # candidate isn't fetched repeatedly for every scene.
+            for title_score, title in candidates[:4]:
+                if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
                     break
                 try:
                     pair = file_info(title)
@@ -277,7 +270,14 @@ def main():
                         continue
                     desc = meta_field(meta, "ImageDescription")
                     score, matching_terms, matching_anchors = relevance_score(scene_text, title, desc)
-                    if score < 0.20 or not matching_anchors:
+                    if score < 0.18 or not matching_anchors:
+                        continue
+                    specific = scene_anchors & {
+                        "chip", "chips", "chiplet", "semiconductor", "processor", "gpu", "nvidia",
+                        "silicon", "microchip", "wafer", "accelerator", "maia", "server", "rack",
+                        "networking", "bandwidth", "circuit", "hardware", "motherboard", "transistor"
+                    }
+                    if specific and not (specific & set(matching_anchors)):
                         continue
                     source_url = str(info.get("descriptionurl") or "")
                     if not file_url.startswith("https://") or not source_url.startswith("https://commons.wikimedia.org/"):
