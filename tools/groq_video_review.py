@@ -238,7 +238,7 @@ def main():
           "repeat_issues_to_avoid":final_review.get("repeat_issues_to_avoid",[])[:5] if isinstance(final_review.get("repeat_issues_to_avoid",[]),list) else [],
           "next_video_rules":final_review.get("next_video_rules",[])[:6] if isinstance(final_review.get("next_video_rules",[]),list) else [],
           "summary":str(final_review.get("summary",""))[:1200],
-          "asset_source_count":len(sources),"manual_voice_gate":"approved manual voice required; no synthetic fallback",
+          "asset_source_count":len(sources),"voice_pipeline":"Kokoro-82M American-English narration; automated audio QA required before render",
           "review_models":{"vision":VISION_MODEL,"router":TEXT_MODEL}})
     except Exception as exc:
         report.update({"review_status":"failed","decision":"BLOCK",
