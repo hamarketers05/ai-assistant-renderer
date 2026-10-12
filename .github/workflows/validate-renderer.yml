@@ -149,6 +149,10 @@ jobs:
           kokoro_code = Path("tools/generate_kokoro_voice.py").read_text(encoding="utf-8")
           if "KPipeline" not in kokoro_code or "af_heart" not in kokoro_code:
               raise SystemExit("Kokoro American-English voice generator is missing.")
+          voice_editor_code = Path("tools/voice_editor.py").read_text(encoding="utf-8")
+          review_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
+          if '"manual_voice_required": False' not in voice_editor_code or "Kokoro-82M American-English narration" not in review_code:
+              raise SystemExit("Voice editor or final QA still expects a manually approved voice.")
           for marker in ("Generate, master and validate Kokoro narration", "manual_voice_approval_required", "quality_gate", "ai-assistant-audio", "work/kokoro_audio_quality.json"):
               if marker not in renderer_text:
                   raise SystemExit(f"Kokoro auto-voice integration missing: {marker}")
