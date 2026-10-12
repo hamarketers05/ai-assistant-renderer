@@ -105,7 +105,7 @@ def main() -> int:
             **base, "status": "failed",
             "reason": "Safety check rejected an output path that would overwrite the standard video.",
         })
-        return 0
+        return 1 if args.require_success else 0
     if not source.is_file() or source.stat().st_size < 100_000:
         write_report(report_path, {
             **base, "status": "skipped",
@@ -125,7 +125,7 @@ def main() -> int:
                 **base, "status": "skipped", "source": source_probe,
                 "reason": f"Source duration exceeds the safe automated limit ({args.max_duration_seconds:g}s).",
             })
-            return 0
+            return 1 if args.require_success else 0
 
         output.parent.mkdir(parents=True, exist_ok=True)
         output.unlink(missing_ok=True)
