@@ -58,8 +58,37 @@ def draw_chip(img):
         d.line((1090,yy,1112,yy-3),fill=(76,212,255,230),width=4)
     d.line(front[:3],fill=(208,252,255,255),width=4); d.line(front[3:],fill=(26,112,185,255),width=3)
 
+def draw_shield(img):
+    """Topic-specific beveled 3D shield and lock for AI-agent safety/security videos."""
+    glow=Image.new("RGBA",img.size,(0,0,0,0)); gd=ImageDraw.Draw(glow)
+    gd.ellipse((785,110,1210,600),fill=(0,190,255,105))
+    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(48)))
+    d=ImageDraw.Draw(img,"RGBA")
+    # Circuit paths behind the shield.
+    for x in (810,875,1145,1200):
+        d.line((x,130,x,200),fill=(45,220,255,150),width=4)
+        d.ellipse((x-6,122,x+6,134),fill=(155,245,255,230))
+        d.line((x,480,x,555),fill=(45,220,255,130),width=3)
+    front=[(1000,155),(1155,218),(1138,378),(1095,451),(1000,515),(905,451),(862,378),(845,218)]
+    back=[(x+25,y+24) for x,y in front]
+    d.polygon(back,fill=(1,22,48,255),outline=(0,98,160,255))
+    d.polygon([front[0],front[1],back[1],back[0]],fill=(56,159,205,255))
+    d.polygon([front[1],front[2],back[2],back[1]],fill=(16,96,157,255))
+    d.polygon([front[2],front[3],back[3],back[2]],fill=(8,65,119,255))
+    d.polygon([front[3],front[4],back[4],back[3]],fill=(3,34,73,255))
+    d.polygon(front,fill=(8,36,68,255),outline=(68,226,255,255))
+    inner=[(1000,196),(1118,244),(1105,365),(1068,422),(1000,465),(932,422),(895,365),(882,244)]
+    d.polygon(inner,fill=(12,69,109,255),outline=(255,207,80,255),width=5)
+    # Gold-rimmed lock is a legible security cue at mobile scale.
+    d.arc((941,272,1059,392),180,360,fill=(230,250,255,255),width=15)
+    d.rounded_rectangle((925,326,1075,430),radius=20,fill=(3,18,40,255),outline=(75,229,255,255),width=5)
+    d.ellipse((982,353,1018,389),fill=(255,207,80,255))
+    d.rounded_rectangle((993,379,1007,407),radius=6,fill=(255,207,80,255))
+    d.line(front[:3],fill=(215,251,255,255),width=4)
+
 def headline_for(title):
     low=title.lower()
+    if "agent" in low and any(x in low for x in ("security","safe","test","guard","risk")): return ["AI AGENTS","NEED GUARDRAILS"]
     if any(x in low for x in ("local ai","into your pc","on-device","on device","offline ai")): return ["AI IS MOVING","INTO YOUR PC"]
     if any(x in low for x in ("cybersecurity","cyber security","hack","privacy","security")): return ["YOUR AI","YOUR SECURITY?"]
     if any(x in low for x in ("robot","humanoid")): return ["THE NEXT","AI ROBOTS"]
@@ -70,7 +99,12 @@ def headline_for(title):
     cut=math.ceil(len(words)/2); return [" ".join(words[:cut])," ".join(words[cut:])]
 
 def make(title,output):
-    img=background(); draw_chip(img)
+    img=background()
+    low=title.lower()
+    if "agent" in low and any(x in low for x in ("security","safe","test","guard","risk")):
+        draw_shield(img)
+    else:
+        draw_chip(img)
     panel=Image.new("RGBA",img.size,(0,0,0,0)); pd=ImageDraw.Draw(panel)
     pd.rounded_rectangle((38,72,716,602),radius=32,fill=(1,8,24,218),outline=(45,210,250,165),width=3)
     img.alpha_composite(panel.filter(ImageFilter.GaussianBlur(.4)))
