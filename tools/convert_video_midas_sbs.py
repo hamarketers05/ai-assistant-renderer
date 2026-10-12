@@ -126,6 +126,10 @@ def synthesize_sbs(frame, depth, max_disparity: float):
     # Nearer objects move in opposite directions in the two eye views.
     left_x = x - shift
     right_x = x + shift
+    # Make maps contiguous: cv2.remap rejects broadcast/strided maps on newer OpenCV builds.
+    left_x = np.ascontiguousarray(left_x, dtype=np.float32)
+    right_x = np.ascontiguousarray(right_x, dtype=np.float32)
+    y = np.ascontiguousarray(y, dtype=np.float32)
     left = cv2.remap(frame, left_x, y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
     right = cv2.remap(frame, right_x, y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
     return np.concatenate((left, right), axis=1)
