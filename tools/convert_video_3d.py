@@ -62,7 +62,7 @@ def main() -> int:
     parser.add_argument("--mode", required=True, choices=["OFF", "SBS", "TB", "ANAGLYPH"])
     parser.add_argument("--content-format", default="LONG_VIDEO", choices=["LONG_VIDEO", "SHORT"])
     parser.add_argument("--report", default="work/stereo_3d_report.json", type=Path)
-    parser.add_argument("--max-duration-seconds", type=float, default=365.0)
+    parser.add_argument("--max-duration-seconds", type=float, default=480.0)
     parser.add_argument("--max-conversion-seconds", type=int, default=1800)
     parser.add_argument("--require-success", action="store_true",
                         help="Fail the workflow unless a valid stereoscopic output is produced.")
