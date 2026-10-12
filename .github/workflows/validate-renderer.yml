@@ -147,7 +147,7 @@ jobs:
           if "APPROVED VOICE GATE" in workflow_source or "AUDIO_URL: ${{ inputs.audio_url }}" in workflow_source or "Fetch and validate approved narration" in workflow_source:
               raise SystemExit("Renderer must not require a manually approved voice or supplied audio URL.")
           render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
-          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "work/transition_sfx.wav", "tools/make_transition_sfx.py", "apulsator=mode=sine:amount=0.15:hz=0.08", "drawbox=x=0:y=0:w=iw:h=131", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
+          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "work/transition_sfx.wav", "tools/make_transition_sfx.py", "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08", "drawbox=x=0:y=0:w=iw:h=131", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
           scene_render = wf["jobs"]["render"]["steps"][names.index("Render scenes")].get("run", "")
@@ -408,7 +408,7 @@ jobs:
           set -euo pipefail
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=640x360:rate=30:duration=2" -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=2" \\
             -vf "eq=contrast=1.10:saturation=1.10:gamma=1.015:brightness=0.004,colorbalance=rs=-0.018:gs=0.000:bs=0.018:rm=-0.008:gm=0.000:bm=0.008:rh=0.016:gh=0.004:bh=-0.014:pl=1,unsharp=5:5:0.45:3:3:0.0,vignette=PI/5,noise=alls=1.2:allf=t,drawbox=x=0:y=0:w=iw:h=44:color=black:t=fill" \\
-            -af "apulsator=mode=sine:amount=0.15:hz=0.08,deesser=i=0.22:m=0.30:f=0.55,loudnorm=I=-14:TP=-1.0:LRA=11" \\
+            -af "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08,deesser=i=0.22:m=0.30:f=0.55,loudnorm=I=-14:TP=-1.0:LRA=11" \\
             -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -t 2 work/cinematic-filter-smoke.mp4
           ffprobe -v error -show_entries stream=codec_type -of csv=p=0 work/cinematic-filter-smoke.mp4 | grep -qx video
           ffprobe -v error -show_entries stream=codec_type -of csv=p=0 work/cinematic-filter-smoke.mp4 | grep -qx audio
