@@ -19,6 +19,16 @@ on:
           - LONG_VIDEO
           - SHORT
         default: LONG_VIDEO
+      stereo_output:
+        description: "Optional separate 2D3D stereoscopic copy; normal 2D video and upload are never replaced."
+        required: true
+        type: choice
+        options:
+          - OFF
+          - SBS
+          - TB
+          - ANAGLYPH
+        default: OFF
       title:
         description: "Video title"
         required: true
@@ -56,6 +66,7 @@ jobs:
     env:
       CONTENT_ID: ${{ inputs.content_id }}
       CONTENT_FORMAT: ${{ inputs.content_format }}
+      STEREO_OUTPUT: ${{ inputs.stereo_output }}
       INPUT_TITLE: ${{ inputs.title }}
       INPUT_SCRIPT: ${{ inputs.script }}
       INPUT_DESCRIPTION: ${{ inputs.description }}
@@ -913,6 +924,31 @@ jobs:
           print(json.dumps({"audio_video_streams":"pass","thumbnail":"1280x720 valid","captions":"present","music":"present"}))
           PY
 
+      - name: Generate optional 2D3D stereoscopic companion without replacing standard master
+        id: stereo_export
+        continue-on-error: true
+        env:
+          STEREO_OUTPUT: ${{ inputs.stereo_output }}
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/convert_video_3d.py \
+            --input "output/AI_TECH_LAB_${CONTENT_ID}.mp4" \
+            --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4" \
+            --mode "$STEREO_OUTPUT" \
+            --content-format "$CONTENT_FORMAT" \
+            --report work/stereo_3d_report.json \
+            --max-duration-seconds 365 \
+            --max-conversion-seconds 1800
+
+      - name: Record optional 3D exporter crash without blocking standard production
+        if: steps.stereo_export.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          jq -n --arg mode "$STEREO_OUTPUT" \
+            '{tool:"JulesMellot/2D3D",status:"failed_optional_export",requested_mode:$mode,main_video_untouched:true,fallback:"Continue with the original QA-checked 2D master; no 3D file is published."}' \
+            > work/stereo_3d_report.json
+          echo "Optional 3D companion failed; the standard 2D master remains the production source."
+
       - name: Groq router reviews rendered video, visual match, audio assets and thumbnail
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -935,6 +971,8 @@ jobs:
           path: |
             output/AI_TECH_LAB_${{ inputs.content_id }}.mp4
             output/thumbnail_${{ inputs.content_id }}.jpg
+            output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4
+            work/stereo_3d_report.json
             work/asset_sources.jsonl
             work/voice_edit_report.json
             work/captions.srt
