@@ -603,13 +603,24 @@ jobs:
 
               resize = shot_filter(i)
               if stock.exists() and stock.stat().st_size > 10000:
-                  run([
-                      "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
-                      "-t", str(duration), "-vf",
-                      f"{resize},eq=contrast=1.14:saturation=1.18:gamma=1.02:brightness=0.008,unsharp=5:5:0.65:3:3:0.0,vignette=PI/5",
-                      "-an", "-c:v", "libx264", "-preset", "veryfast",
-                      "-crf", "23", "-pix_fmt", "yuv420p", str(target)
-                  ])
+                  overlay = Path(f"assets/scene_overlay_{scene}.png")
+                  if overlay.exists():
+                      run([
+                          "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
+                          "-loop", "1", "-framerate", "30", "-i", str(overlay),
+                          "-t", str(duration), "-filter_complex",
+                          f"[0:v]{resize},eq=contrast=1.14:saturation=1.18:gamma=1.02:brightness=0.008,unsharp=5:5:0.65:3:3:0.0,vignette=PI/5[base];[1:v]scale={width}:{height},format=rgba,fade=t=in:st=0:d=0.3:alpha=1[ov];[base][ov]overlay=0:0:shortest=1,format=yuv420p[v]",
+                          "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "veryfast",
+                          "-crf", "23", "-pix_fmt", "yuv420p", str(target)
+                      ])
+                  else:
+                      run([
+                          "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
+                          "-t", str(duration), "-vf",
+                          f"{resize},eq=contrast=1.14:saturation=1.18:gamma=1.02:brightness=0.008,unsharp=5:5:0.65:3:3:0.0,vignette=PI/5",
+                          "-an", "-c:v", "libx264", "-preset", "veryfast",
+                          "-crf", "23", "-pix_fmt", "yuv420p", str(target)
+                      ])
               else:
                   run([
                       "ffmpeg", "-y", "-loop", "1", "-i", str(graphic),
