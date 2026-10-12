@@ -594,52 +594,57 @@ jobs:
           test -s work/commons_media_report.json
           cat work/commons_media_report.json
 
-      - name: Bootstrap visual history from the last verified production artifact
+      - name: Bootstrap visual history from recent verified production deliveries
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p learning work
           if [ -s learning/used_visual_assets.json ] && [ "$(jq '.used | length' learning/used_visual_assets.json)" -gt 0 ]; then
-            echo "Existing visual asset history found; no historical artifact download is needed."
+            echo "Persistent cross-video media history is available."
           else
-            RUNS_JSON=$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?branch=main&per_page=30")
+            RUNS_JSON=$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?branch=main&per_page=50")
             RUN_IDS=$(printf '%s' "$RUNS_JSON" | jq -r --arg current "$GITHUB_RUN_ID" '.workflow_runs[] | select((.id|tostring) != $current) | select(.name == "AI Assistant Renderer") | select(.conclusion == "success") | .id')
-            PREVIOUS_RUN_ID=""
-            ARTIFACT_ID=""
-            PREVIOUS_CONTENT_ID=""
+            : > work/previous_assets.jsonl
             HAS_PRIOR_RUNS=false
+            SEEDED_DELIVERIES=0
             while IFS= read -r CANDIDATE_RUN; do
               [ -n "$CANDIDATE_RUN" ] || continue
               HAS_PRIOR_RUNS=true
+              [ "$SEEDED_DELIVERIES" -lt 8 ] || break
               ARTIFACTS_JSON=$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN/artifacts") || continue
-              DELIVERY_NAME=$(printf '%s' "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.expired == false) | .name | select(test("^ai-tech-lab-delivery-[0-9]+$"))' | head -n 1)
-              [ -n "$DELIVERY_NAME" ] || continue
-              CANDIDATE_CONTENT_ID=$(printf '%s' "$DELIVERY_NAME" | sed 's/^ai-tech-lab-delivery-//')
-              CANDIDATE_ARTIFACT_ID=$(printf '%s' "$ARTIFACTS_JSON" | jq -r --arg name "ai-tech-lab-$CANDIDATE_CONTENT_ID" '.artifacts[] | select(.expired == false) | select(.name == $name) | .id' | head -n 1)
-              [ -n "$CANDIDATE_ARTIFACT_ID" ] || continue
-              PREVIOUS_RUN_ID="$CANDIDATE_RUN"
-              PREVIOUS_CONTENT_ID="$CANDIDATE_CONTENT_ID"
-              ARTIFACT_ID="$CANDIDATE_ARTIFACT_ID"
-              break
+              DELIVERY_NAMES=$(printf '%s' "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.expired == false) | .name | select(test("^ai-tech-lab-delivery-[0-9]+$"))')
+              while IFS= read -r DELIVERY_NAME; do
+                [ -n "$DELIVERY_NAME" ] || continue
+                [ "$SEEDED_DELIVERIES" -lt 8 ] || break
+                CANDIDATE_CONTENT_ID=$(printf '%s' "$DELIVERY_NAME" | sed 's/^ai-tech-lab-delivery-//')
+                CANDIDATE_ARTIFACT_ID=$(printf '%s' "$ARTIFACTS_JSON" | jq -r --arg name "ai-tech-lab-$CANDIDATE_CONTENT_ID" '.artifacts[] | select(.expired == false) | select(.name == $name) | .id' | sed -n '1p')
+                [ -n "$CANDIDATE_ARTIFACT_ID" ] || continue
+                ZIP="work/previous_assets_$CANDIDATE_CONTENT_ID.zip"
+                RAW="work/previous_assets_$CANDIDATE_CONTENT_ID.jsonl"
+                curl -fsSL --max-time 240 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$CANDIDATE_ARTIFACT_ID/zip" -o "$ZIP"
+                ENTRY=$(unzip -Z1 "$ZIP" | grep -E '(^|/)work/asset_sources[.]jsonl$' | sed -n '1p' || true)
+                if [ -z "$ENTRY" ]; then
+                  echo "Historical delivery $CANDIDATE_CONTENT_ID has no source manifest; it cannot be counted as seeded."
+                  continue
+                fi
+                unzip -p "$ZIP" "$ENTRY" > "$RAW"
+                if [ ! -s "$RAW" ]; then
+                  echo "Historical asset manifest for $CANDIDATE_CONTENT_ID is empty; it cannot be counted as seeded."
+                  continue
+                fi
+                jq -c --arg cid "$CANDIDATE_CONTENT_ID" '. + {content_id:$cid}' "$RAW" >> work/previous_assets.jsonl
+                SEEDED_DELIVERIES=$((SEEDED_DELIVERIES + 1))
+              done <<< "$DELIVERY_NAMES"
             done <<< "$RUN_IDS"
-            if [ -z "$PREVIOUS_RUN_ID" ]; then
-              if [ "$HAS_PRIOR_RUNS" = "true" ]; then
-                echo "Cannot safely seed visual history: previous renderer successes exist but no unexpired verified-delivery manifest artifact was found."
-                exit 1
-              fi
-              printf '{"version":1,"used":[],"updated_at_utc":null}\n' > learning/used_visual_assets.json
-              echo "No earlier successful production render found; starting a new history."
+            if [ "$SEEDED_DELIVERIES" -gt 0 ]; then
+              .venv/bin/python tools/asset_reuse_guard.py --mode seed --content-id "historical-bootstrap" --manifest work/previous_assets.jsonl
+            elif [ "$HAS_PRIOR_RUNS" = "true" ]; then
+              echo "Cannot safely seed visual history: earlier renderer runs exist but no usable verified-delivery manifest artifacts remain."
+              exit 1
             else
-              curl -fsSL --max-time 240 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" -o work/previous_video_artifact.zip
-              ENTRY=$(unzip -Z1 work/previous_video_artifact.zip | grep -E '(^|/)work/asset_sources[.]jsonl$' | head -n 1 || true)
-              if [ -z "$ENTRY" ]; then
-                echo "Cannot seed visual history: the previous delivery artifact lacks the source manifest."
-                exit 1
-              fi
-              unzip -p work/previous_video_artifact.zip "$ENTRY" > work/previous_assets.jsonl
-              test -s work/previous_assets.jsonl
-              .venv/bin/python tools/asset_reuse_guard.py --mode seed --content-id "$PREVIOUS_CONTENT_ID" --manifest work/previous_assets.jsonl
+              printf '{"version":1,"used":[],"updated_at_utc":null}\n' > learning/used_visual_assets.json
+              echo "No earlier successful production delivery found; starting a new history."
             fi
           fi
           test -s learning/used_visual_assets.json
