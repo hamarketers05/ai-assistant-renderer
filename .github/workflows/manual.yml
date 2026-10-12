@@ -603,7 +603,7 @@ jobs:
               if i == 0 and Path("assets/ai_security_3d_hero.png").exists():
                   temp_target = target.with_name(target.stem + "_3d.mp4")
                   run([
-                      "ffmpeg", "-y", "-i", str(target), "-i", "assets/ai_security_3d_hero.png",
+                      "ffmpeg", "-y", "-i", str(target), "-loop", "1", "-i", "assets/ai_security_3d_hero.png",
                       "-filter_complex",
                       "[1:v]format=rgba,scale=720:720[hero];[0:v][hero]overlay=x=W-w-90:y=H-h-90:shortest=1:format=auto,format=yuv420p[v]",
                       "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast",
