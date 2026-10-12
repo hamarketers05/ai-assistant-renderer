@@ -258,7 +258,11 @@ jobs:
               if im.size != (1280, 720):
                   raise SystemExit(f"Premium thumbnail wrong size: {im.size}")
               im.verify()
-          print("Topic-matched 3D-style thumbnail generated and verified.")
+              top_popout = im.getpixel((1000, 84))
+              bottom_popout = im.getpixel((1000, 659))
+              if max(top_popout) < 60 or max(bottom_popout) < 40:
+                  raise SystemExit("Foreground hero did not visibly break through both cinematic bars.")
+          print("Python/Pillow thumbnail dimensions and top/bottom 3D pop-out verified.")
           PY
 
       - name: Smoke-test transparent 3D security hero overlay
