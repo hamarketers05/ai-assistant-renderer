@@ -45,13 +45,15 @@ def main():
         filters.append(f"[{i}:v]setpts=PTS-STARTPTS,fps=30,format=yuv420p,settb=AVTB[v{i}]")
     current="v0"
     cumulative=clips[0][1]
+    transition_types=["fade","smoothleft","wipeleft","slideleft","fadeblack","smoothright"]
+    used_transitions=[]
     for i in range(1,len(clips)):
         out=f"x{i}"
-        # xfade offsets mark the start of the overlap, so subtract the transition
-        # from the current composed duration. Each transition shortens only by its
-        # actual overlap; the last frame is extended only if narration is longer.
+        # Alternate polished transitions instead of repeating one fade across the whole timeline.
         offset=max(0.0,cumulative-args.transition)
-        filters.append(f"[{current}][v{i}]xfade=transition=fade:duration={args.transition:.3f}:offset={offset:.3f}[{out}]")
+        transition=transition_types[(i-1)%len(transition_types)]
+        used_transitions.append(transition)
+        filters.append(f"[{current}][v{i}]xfade=transition={transition}:duration={args.transition:.3f}:offset={offset:.3f}[{out}]")
         current=out
         cumulative+=clips[i][1]-args.transition
     padding=max(0.0,args.target_duration-cumulative)
@@ -64,7 +66,7 @@ def main():
     duration=probe_duration(args.output)
     if duration+0.15<args.target_duration:
         raise SystemExit(f"Transition render shorter than narration: {duration:.2f}s < {args.target_duration:.2f}s")
-    report={"scenes":len(clips),"transition":"crossfade","transition_seconds":args.transition,
+    report={"scenes":len(clips),"transition":"alternating cinematic xfade","transition_types":sorted(set(used_transitions)),"transition_seconds":args.transition,
             "target_duration_seconds":args.target_duration,"rendered_duration_seconds":round(duration,3),
             "loops_entire_video":False,"clip_duration_total_seconds":round(sum(d for _,d in clips),3),
             "untrimmed_crossfade_timeline_seconds":round(cumulative,3), "final_frame_padding_seconds":round(padding,3)}
