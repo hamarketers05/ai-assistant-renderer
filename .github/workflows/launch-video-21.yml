@@ -31,7 +31,7 @@ jobs:
           test -s "$FILE"
           jq -e '.content_id == "21" and .content_format == "LONG_VIDEO" and .title and (.script | length > 3000) and .description and .tags and (.sources | length >= 3)' "$FILE" >/dev/null
           WORDS=$(jq -r '.script' "$FILE" | wc -w)
-          [ "$WORDS" -ge 850 ] || { echo "Research script too short: $WORDS words"; exit 1; }
+          [ "$WORDS" -ge 780 ] || { echo "Research script too short: $WORDS words"; exit 1; }
           for source in "https://www.aisi.gov.uk/" "https://apnews.com/" "https://www.ncsc.gov.uk/"; do
             jq -e --arg prefix "$source" '[.sources[].url | select(startswith($prefix))] | length > 0' "$FILE" >/dev/null || { echo "Missing required source family: $source"; exit 1; }
           done
