@@ -59,7 +59,7 @@ jobs:
           wf = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
           names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
           required = [
-              "Fetch or generate validated English narration",
+              "Fetch and validate approved narration",
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
               "Find additional free, topic-matched Wikimedia Commons footage",
@@ -88,8 +88,11 @@ jobs:
           if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[6]) < names.index(required[7]) < names.index(required[8])):
               raise SystemExit("Research assets, SEO, brand intro, render QA and upload guard are out of order.")
           voice = wf["jobs"]["render"]["steps"][names.index(required[0])].get("run", "")
-          if "auto_tts_full." not in voice or "for EXT in wav mp3" not in voice:
-              raise SystemExit("Renderer must accept both supported automatic TTS audio formats.")
+          if '[[ "$AUDIO_URL" == https://* ]]' not in voice or "ffprobe -v error voice_input" not in voice:
+              raise SystemExit("Renderer must require and validate manually approved narration audio.")
+          gate = wf["jobs"]["render"]["steps"][names.index("Validate configuration and approved voice gate")].get("run", "")
+          if "APPROVED VOICE GATE" not in gate or '[[ "$AUDIO_URL" == https://* ]]' not in gate:
+              raise SystemExit("Approved voice URL must be enforced before production-manifest creation.")
           render = wf["jobs"]["render"]["steps"][names.index(required[8])].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
