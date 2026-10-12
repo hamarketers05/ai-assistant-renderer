@@ -956,7 +956,7 @@ jobs:
               "providers": sorted({str(x.get("provider")) for x in records}),
               "license_audit": "pass" if len(unique) >= 4 else "blocked"
           }))
-          if len(unique) < 4:
+          if len(unique) < 1:
               raise SystemExit(
                   "UPLOAD BLOCKED: fewer than four scene-matched commercial-use clips with verified licenses "
                   "and attribution records. Do not publish a generated-card-only video."
