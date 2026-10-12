@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local free American-English TTS fallback using Kokoro-82M (Apache-2.0 model)."""
+"""Automatic free American-English TTS using Kokoro-82M (Apache-2.0 model)."""
 from __future__ import annotations
 import argparse, json, re
 from pathlib import Path
