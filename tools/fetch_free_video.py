@@ -107,6 +107,9 @@ def main():
                     if not ok:
                         print(f"Commons skipped {title}: not a verified commercial-use license."); continue
                     creator = meta_field(meta,"Artist") or meta_field(meta,"Credit") or meta_field(meta,"Attribution")
+                    if attribution and not creator:
+                        print(f"Commons skipped {title}: the attribution-required license has no creator metadata.")
+                        continue
                     desc = meta_field(meta,"ImageDescription")
                     title_terms = set(terms_of(title.replace("File:"," ")))
                     desc_terms = set(terms_of(desc))
