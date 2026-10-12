@@ -60,7 +60,7 @@ jobs:
           names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
           required = [
               "Fetch and validate automatic narration",
-              "Edit manual voice, add pauses and script cues, and generate captions",
+              "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
               "Generate only evidence-supported data charts",
               "Improve SEO title, description, tags, sources and chapters",
