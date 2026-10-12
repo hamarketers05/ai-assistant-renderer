@@ -468,32 +468,6 @@ jobs:
               print("No Vecteezy clip met attribution metadata requirements; generated visuals remain available.")
           PY
 
-      - name: Improve SEO title, description, tags, sources and chapters
-        run: |
-          set -euo pipefail
-          .venv/bin/python tools/seo_metadata.py
-          test -s work/seo_report.json
-          test -s work/title.txt
-          test -s work/description.txt
-          test -s work/tags.txt
-          .venv/bin/python - <<'PY'
-          import json
-          from pathlib import Path
-          report = json.loads(Path("work/seo_report.json").read_text(encoding="utf-8"))
-          title = Path("work/title.txt").read_text(encoding="utf-8").strip()
-          tags = Path("work/tags.txt").read_text(encoding="utf-8").strip()
-          description = Path("work/description.txt").read_text(encoding="utf-8")
-          if not title or len(title) > 100:
-              raise SystemExit("SEO QA failed: title must be 1-100 characters.")
-          if len(tags) > 500:
-              raise SystemExit("SEO QA failed: YouTube tags exceed the 500-character limit.")
-          if not description or len(description) > 5000:
-              raise SystemExit("SEO QA failed: description must be 1-5000 characters.")
-          print(json.dumps({"title": title, "tag_characters": len(tags),
-                            "description_characters": len(description),
-                            "source_count": report.get("source_url_count", 0)}))
-          PY
-
       - name: Create original graphics
         run: |
           set -euo pipefail
@@ -612,7 +586,7 @@ jobs:
           print("Scene rendering completed.")
           PY
 
-      - name: Edit manual voice, add pauses and script cues, and generate captions
+      - name: Edit generated narration, add pauses and script cues, and generate captions
         run: |
           set -euo pipefail
           test -s voice.wav
@@ -668,6 +642,32 @@ jobs:
           .venv/bin/python tools/make_evidence_charts.py
           test -s work/evidence_charts_report.json
           cat work/evidence_charts_report.json
+
+      - name: Improve SEO title, description, tags, sources and chapters
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/seo_metadata.py
+          test -s work/seo_report.json
+          test -s work/title.txt
+          test -s work/description.txt
+          test -s work/tags.txt
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("work/seo_report.json").read_text(encoding="utf-8"))
+          title = Path("work/title.txt").read_text(encoding="utf-8").strip()
+          tags = Path("work/tags.txt").read_text(encoding="utf-8").strip()
+          description = Path("work/description.txt").read_text(encoding="utf-8")
+          if not title or len(title) > 100:
+              raise SystemExit("SEO QA failed: title must be 1-100 characters.")
+          if len(tags) > 500:
+              raise SystemExit("SEO QA failed: YouTube tags exceed the 500-character limit.")
+          if not description or len(description) > 5000:
+              raise SystemExit("SEO QA failed: description must be 1-5000 characters.")
+          print(json.dumps({"title": title, "tag_characters": len(tags),
+                            "description_characters": len(description),
+                            "source_count": report.get("source_url_count", 0)}))
+          PY
 
       - name: Create AI Tech Lab branded intro and subscribe popup
         run: |
