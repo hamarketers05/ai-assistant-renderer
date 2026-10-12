@@ -554,7 +554,18 @@ jobs:
 
           is_short = os.getenv("CONTENT_FORMAT", "LONG_VIDEO").upper() == "SHORT"
           width, height = (1080, 1920) if is_short else (1920, 1080)
-          resize = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1"
+          # Slightly vary digital camera framing by shot, then animate a restrained pan/roll.
+          # Keep the movements subtle so technical visuals remain readable.
+          shot_scale = 1.06 + (i % 4) * 0.015
+          scaled_w, scaled_h = int(width * shot_scale), int(height * shot_scale)
+          drift = -1 if i % 2 else 1
+          roll = (0.0015 + (i % 3) * 0.0010) * drift
+          resize = (
+              f"rotate='{roll}*sin(t*0.34)':c=black@0.0:ow=rotw(iw):oh=roth(ih),"
+              f"scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=increase,"
+              f"crop={width}:{height}:x='(in_w-out_w)*(0.5+0.26*sin(t*0.58+{i}))':"
+              f"y='(in_h-out_h)*(0.5+0.18*cos(t*0.43+{i * 0.7}))',setsar=1"
+          )
 
           with open("work/scenes.tsv", encoding="utf-8") as f:
               rows = list(csv.reader(f, delimiter="\t"))
@@ -582,7 +593,7 @@ jobs:
                   run([
                       "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
                       "-t", str(duration), "-vf",
-                      f"{resize},eq=contrast=1.08:saturation=1.08",
+                      f"{resize},eq=contrast=1.08:saturation=1.08,unsharp=5:5:0.45:3:3:0.0",
                       "-an", "-c:v", "libx264", "-preset", "veryfast",
                       "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                   ])
@@ -590,7 +601,7 @@ jobs:
                   run([
                       "ffmpeg", "-y", "-loop", "1", "-i", str(graphic),
                       "-t", str(duration), "-vf",
-                      f"{resize},zoompan=z='min(zoom+0.0005,1.08)':d=1:s={width}x{height}:fps=30",
+                      f"{resize},zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)+sin(on/70)*20':y='ih/2-(ih/zoom/2)+cos(on/85)*12':d=1:s={width}x{height}:fps=30,eq=contrast=1.05:saturation=1.06",
                       "-an", "-c:v", "libx264", "-preset", "veryfast",
                       "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                   ])
@@ -723,13 +734,13 @@ jobs:
           if [[ "$CONTENT_FORMAT" == "SHORT" ]]; then
             WIDTH=1080
             HEIGHT=1920
-            VF="fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=36,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=190'"
+            VF="fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=36,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=190',fade=t=in:st=0:d=0.35"
             CTA_WIDTH=760
             CTA_Y=1280
           else
             WIDTH=1920
             HEIGHT=1080
-            VF="fps=30,scale=1920:1080,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55'"
+            VF="fps=30,scale=1920:1080,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55',fade=t=in:st=0:d=0.35"
             CTA_WIDTH=1180
             CTA_Y=650
           fi
