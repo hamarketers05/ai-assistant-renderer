@@ -1023,7 +1023,7 @@ jobs:
             user_authorized_skip: true,
             blocking_issues: [],
             top_improvements: ["No AI/vision review was performed. Run the Groq review on a future pass if you need that additional assurance."],
-            note: "Groq final AI review skipped at the user's request. Remaining automated technical, footage-license, 3D, thumbnail, schedule and YouTube verification gates remain mandatory."
+            note: "Groq final AI review skipped at user request. Remaining automated technical, footage-license, 3D, thumbnail, schedule and YouTube verification gates remain mandatory."
           }' > work/video_review_report.json
           jq -n '{
             review_status: "skipped",
