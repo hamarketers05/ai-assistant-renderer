@@ -89,7 +89,7 @@ jobs:
           ordered_assets = ["Find additional free, topic-matched Wikimedia Commons footage", "Add stock creator and license attribution", "Generate only evidence-supported data charts", "Edit generated narration, add pauses and script cues, and generate captions", "Generate original topic-aware background score", "Improve SEO title, description, tags, sources and chapters"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_assets, ordered_assets[1:])):
               raise SystemExit("Asset attribution, charts, narration mastering, music and SEO are out of order.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
@@ -144,25 +144,20 @@ jobs:
           for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "frame-packing=3", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB"):
               if marker.lower() not in stereo_code.lower():
                   raise SystemExit(f"Optional 2D3D safe-export integration missing: {marker}")
-          stereo_job = wf["jobs"].get("stereo-companion")
-          if not isinstance(stereo_job, dict):
-              raise SystemExit("The 2D3D companion must run in a separate job.")
-          if stereo_job.get("needs") != "render" or str(stereo_job.get("continue-on-error", "false")).lower() != "true":
-              raise SystemExit("The 3D job must run after the full render/upload job and must not block it.")
-          stereo_condition = stereo_job.get("if", "")
-          if "inputs.content_format == 'LONG_VIDEO'" not in stereo_condition or "inputs.stereo_output != 'OFF'" not in stereo_condition:
-              raise SystemExit("3D must skip Shorts and respect the OFF switch.")
-          stereo_names = [step.get("name", "") for step in stereo_job.get("steps", [])]
-          for stage in ("Generate optional 2D3D stereoscopic companion", "Save stereoscopic companion artifact and report"):
-              if stage not in stereo_names:
-                  raise SystemExit(f"Separate 2D3D job stage missing: {stage}")
-          stereo_step = stereo_job["steps"][stereo_names.index("Generate optional 2D3D stereoscopic companion")]
-          if str(stereo_step.get("continue-on-error", "false")).lower() != "true":
-              raise SystemExit("3D inference failure must not block the standard video.")
+          stereo_code = Path("tools/convert_video_3d.py").read_text(encoding="utf-8")
+          for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "frame-packing=3", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB", "--require-success"):
+              if marker.lower() not in stereo_code.lower():
+                  raise SystemExit(f"Required 2D3D conversion safeguard missing: {marker}")
           manual_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
-          for marker in ("stereo_output:", "default: SBS", "output/AI_TECH_LAB_", "_3D_*.mp4", "work/stereo_3d_report.json"):
+          for marker in ("stereo_output:", "default: SBS", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "output/AI_TECH_LAB_", "_3D_", "--require-success", "work/stereo_3d_report.json"):
               if marker not in manual_text:
-                  raise SystemExit(f"Manual workflow stereoscopic controls/artifacts missing: {marker}")
+                  raise SystemExit(f"Pre-upload stereoscopic conversion control missing: {marker}")
+          manual_names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
+          if not manual_names.index("Check existing YouTube upload") < manual_names.index("Convert final master to 3D before YouTube upload") < manual_names.index("Upload video using YouTube Data API"):
+              raise SystemExit("3D conversion must finish before the YouTube upload step.")
+          upload_step = wf["jobs"]["render"]["steps"][manual_names.index("Upload video using YouTube Data API")].get("run", "")
+          if 'VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${{ inputs.stereo_output }}.mp4"' not in upload_step:
+              raise SystemExit("YouTube upload must use the 3D output, never the standard 2D source.")
           router_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
           for marker in ("qwen/qwen3.8-27b", "video_frame_", "thumbnail_review", "near_black_frame_ratio", "decision", "next_video_rules"):
               if marker not in router_code:
