@@ -269,6 +269,61 @@ jobs:
           print("Static validation passed: research, Groq, thumbnail, audio/visual QA, upload gate, learning, and safe optional 2D3D export.")
           PY
 
+      - name: Smoke-test voice-aligned scene cadence and editing tool manifest
+        run: |
+          set -euo pipefail
+          mkdir -p work output assets
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          words = ("AI systems need reliable sources for every important claim because small details "
+                   "change quickly while clear visuals explain the technology in practice today").split()
+          tokens = (words * 6)[:120]
+          script = " ".join(word + ("." if (i + 1) % 12 == 0 else ("," if (i + 1) % 6 == 0 else ""))
+                             for i, word in enumerate(tokens))
+          Path("work/script.txt").write_text(script, encoding="utf-8")
+          timestamp_words = [{"start": round(i * 0.5, 3), "end": round(i * 0.5 + 0.4, 3), "text": word}
+                             for i, word in enumerate(tokens)]
+          Path("work/voice_word_timestamps.json").write_text(json.dumps({
+              "duration_seconds": 60.0, "word_count": len(timestamp_words), "words": timestamp_words
+          }), encoding="utf-8")
+          PY
+          python tools/scene_director.py --script work/script.txt --duration 60 --max-scenes 90 --timestamps work/voice_word_timestamps.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          scene = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
+          average = scene.get("scene_duration_seconds", {}).get("mean", 99)
+          if scene.get("exact_word_timing") is not True or scene.get("planned_visual_scenes", 0) < 12 or average > 4.5:
+              raise SystemExit(f"Voice-aligned 3-4 second scene cadence did not pass: {scene}")
+          n = int(scene["planned_visual_scenes"])
+          Path("work/voice_edit_report.json").write_text(json.dumps({"status":"passed", "timestamped_words":120}),encoding="utf-8")
+          Path("work/transitions_report.json").write_text(json.dumps({"scenes":n,"transition":"alternating cinematic xfade","rendered_duration_seconds":60}),encoding="utf-8")
+          Path("work/transition_sfx_report.json").write_text(json.dumps({"status":"generated","transition_count":n-1,"cue_lead_seconds":0.22,"source_license":"Original synthesized effects; no third-party audio samples."}),encoding="utf-8")
+          Path("work/music_report.json").write_text(json.dumps({"status":"generated","source":"original_synthesized","uses_external_samples":False}),encoding="utf-8")
+          Path("work/opencv_visual_qa.json").write_text(json.dumps({"status":"passed","sample_frames":10}),encoding="utf-8")
+          Path("work/asset_reuse_report.json").write_text(json.dumps({"status":"validated","previous_video_reuse":False,"within_video_duplicates":False}),encoding="utf-8")
+          Path("work/evidence_charts_report.json").write_text(json.dumps({"charts_created":[],"charts_requested":0}),encoding="utf-8")
+          Path("work/stereo_3d_report.json").write_text(json.dumps({"status":"disabled"}),encoding="utf-8")
+          Path("work/kokoro_audio_quality.json").write_text(json.dumps({"quality_gate":"passed"}),encoding="utf-8")
+          Path("work/thumbnail_brief.json").write_text(json.dumps({"hook":"TEST HOOK"}),encoding="utf-8")
+          Path("work/asset_sources.jsonl").write_text("".join(json.dumps({"provider":"LicenseFixture", "scene":str(i), "source_url":"https://example.org/"+str(i), "creator":"CI fixture"})+"\\n" for i in range(4)),encoding="utf-8")
+          Path("output/manifest-smoke.mp4").write_bytes(b"fixture" * 20000)
+          from PIL import Image
+          Image.new("RGB",(1280,720),(4,18,36)).save("output/manifest-smoke.jpg",quality=90)
+          PY
+          python tools/write_editing_tool_manifest.py --content-id 9876 --format SHORT --stereo-output SBS --final-video output/manifest-smoke.mp4 --thumbnail output/manifest-smoke.jpg --output work/editing_tool_manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("work/editing_tool_manifest.json").read_text(encoding="utf-8"))
+          if report.get("status") != "passed" or report.get("transition_sfx_count", 0) < 1:
+              raise SystemExit(f"Per-video editing manifest did not pass: {report}")
+          if report.get("visual_assets", {}).get("planned_voice_aligned_scenes", 0) < 12:
+              raise SystemExit(f"Actual visual asset counts were not written: {report}")
+          print("Voice-aligned scene cadence and per-video used/skipped-tool manifest smoke test passed.")
+          PY
+
       - name: Smoke-test optional stereoscopic gate without downloading models
         run: |
           set -euo pipefail
