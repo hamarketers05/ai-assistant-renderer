@@ -68,6 +68,7 @@ jobs:
             content_id:.content_id,
             content_format:.content_format,
             stereo_output:.stereo_output,
+            skip_groq_review:true,
             title:.title,
             script:.script,
             description:.description,
