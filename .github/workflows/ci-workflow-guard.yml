@@ -41,8 +41,8 @@ jobs:
           set -euo pipefail
           python -m py_compile tools/scene_director.py tools/render_transitions.py tools/make_transition_sfx.py tools/write_editing_tool_manifest.py tools/make_evidence_charts.py tools/generate_scene_art.py
           mkdir -p work scenes output assets
-          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=blue:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_test_a.mp4
-          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=yellow:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_test_b.mp4
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=blue:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_1.mp4
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=yellow:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_2.mp4
           printf '1\t0\t2.75\t2.75\tgenerated\tAI overview\tAI overview\n2\t2.75\t5.5\t2.75\tgenerated\tAI security\tAI security\n' > work/scenes.tsv
           python tools/render_transitions.py --target-duration 5.5 --transition 0.35 --output work/transition-smoke.mp4
           python tools/make_transition_sfx.py --scenes work/scenes.tsv --voice-duration 25.0 --intro-seconds 4 --content-id 9876 --output work/transition-sfx.wav
