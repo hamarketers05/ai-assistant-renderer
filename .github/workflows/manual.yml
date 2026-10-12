@@ -831,7 +831,7 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
-          import csv, os, re, subprocess
+          import csv, json, os, re, subprocess
           from pathlib import Path
 
           def run(args):
@@ -862,6 +862,33 @@ jobs:
           if not rows:
               raise SystemExit("No scenes found.")
 
+          chart_report = json.loads(Path("work/evidence_charts_report.json").read_text(encoding="utf-8"))
+          chart_files = [Path(p) for p in (chart_report.get("charts_created") or []) if Path(p).is_file()]
+          chart_details = {Path(item.get("path", "")).name: item for item in (chart_report.get("chart_details") or []) if isinstance(item, dict) and item.get("path")}
+          chart_cursor = 0
+          chart_uses = []
+          rendered_asset_records = []
+          stop_words = set("the and for with from into that this these those then than have has had are was were can could will would should about after before your you our their they them its how what when where why which while explain explained latest trend news future technology".split())
+
+          def meaningful_terms(value):
+              return {word for word in re.findall(r"[A-Za-z0-9]+", str(value).lower())
+                      if word not in stop_words and (len(word) > 2 or word in {"ai", "gpu", "cpu", "us"})}
+
+          def number_keys(value):
+              keys = set()
+              for item in re.findall(r"(?<![A-Za-z])\\d[\\d,]*(?:\\.\\d+)?%?(?![A-Za-z])", str(value)):
+                  try:
+                      keys.add(f"{float(item.replace(',', '').replace('%', '')):g}")
+                  except ValueError:
+                      pass
+              return keys
+
+          def chart_matches(scene_text, detail):
+              reference = " ".join([str(detail.get("title") or ""), *[str(x) for x in (detail.get("labels") or [])]])
+              shared = meaningful_terms(scene_text) & meaningful_terms(reference)
+              value_match = bool(number_keys(scene_text) & number_keys(" ".join(str(x) for x in (detail.get("values") or []))))
+              return len(shared) >= 2 or (len(shared) >= 1 and value_match)
+
           for i, row in enumerate(rows):
               if len(row) < 7:
                   continue
@@ -874,12 +901,23 @@ jobs:
               stock = Path(f"assets/scene_{scene}.mp4")
               target = Path(f"scenes/scene_{scene}.mp4")
               graphic = Path(f"assets/generated_scene_{scene}.png") if Path(f"assets/generated_scene_{scene}.png").exists() else Path(f"assets/generated_{(i % 6) + 1}.png")
-              chart = Path(f"assets/evidence_chart_{(i % 4) + 1}.png")
-              if chart.exists() and any(token in (row[4] + " " + row[5]).lower() for token in ("chart", "graph", "statistic", "data visualization", "evidence chart")):
-                  graphic = chart
+              chart_selected = False
+              chart_name = ""
+              scene_text = " ".join(str(x) for x in row[4:7])
+              for candidate in range(chart_cursor, len(chart_files)):
+                  candidate_path = chart_files[candidate]
+                  detail = chart_details.get(candidate_path.name, {})
+                  if chart_matches(scene_text, detail):
+                      graphic = candidate_path
+                      chart_selected = True
+                      chart_name = candidate_path.name
+                      chart_uses.append({"scene": scene, "chart": chart_name, "title": str(detail.get("title") or "")})
+                      chart_cursor = candidate + 1
+                      break
 
               resize = shot_filter(i)
-              if stock.exists() and stock.stat().st_size > 10000:
+              has_stock = stock.exists() and stock.stat().st_size > 10000
+              if not chart_selected and has_stock:
                   overlay = Path(f"assets/scene_overlay_{scene}.png")
                   if overlay.exists():
                       run([
@@ -910,9 +948,18 @@ jobs:
               if not target.exists() or target.stat().st_size < 1000:
                   raise SystemExit(f"Scene render failed: {scene}")
 
+              rendered_asset_records.append({
+                  "scene": scene,
+                  "asset_type": "evidence_chart" if chart_selected else ("licensed_stock_broll" if has_stock else "python_pillow_scene"),
+                  "evidence_chart": chart_name or None,
+                  "hud_overlay_applied": bool((not chart_selected) and has_stock and Path(f"assets/scene_overlay_{scene}.png").is_file()),
+                  "color_grade": "FFmpeg cinematic contrast/teal-warm balance/soft grain",
+                  "motion": "Ken Burns/slow drift on scene imagery",
+              })
+
               # Add a restrained, topic-matched 3D hero to the opening scene only.
               # Original footage, narration, and later scenes remain untouched.
-              if i == 0 and Path("assets/ai_security_3d_hero.png").exists():
+              if i == 0 and not chart_selected and Path("assets/ai_security_3d_hero.png").exists():
                   temp_target = target.with_name(target.stem + "_3d.mp4")
                   run([
                       "ffmpeg", "-y", "-i", str(target), "-loop", "1", "-i", "assets/ai_security_3d_hero.png",
@@ -923,6 +970,20 @@ jobs:
                   ])
                   temp_target.replace(target)
                   print(f"Applied 3D hero overlay to opening scene {scene}.")
+
+          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({
+              "status": "passed" if len(rendered_asset_records) == len([r for r in rows if len(r) >= 7]) else "partial",
+              "rendered_scene_count": len(rendered_asset_records),
+              "evidence_chart_files_generated": len(chart_files),
+              "evidence_charts_used": len(chart_uses),
+              "evidence_charts_unused": max(0, len(chart_files) - len(chart_uses)),
+              "chart_uses": chart_uses,
+              "licensed_stock_broll_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "licensed_stock_broll"),
+              "python_pillow_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "python_pillow_scene"),
+              "transparent_hud_overlay_applied_count": sum(1 for x in rendered_asset_records if x["hud_overlay_applied"]),
+              "scenes": rendered_asset_records,
+          }, indent=2, ensure_ascii=False), encoding="utf-8")
+          print(json.dumps({"rendered_scenes": len(rendered_asset_records), "charts_used": len(chart_uses), "hud_overlays_applied": sum(1 for x in rendered_asset_records if x["hud_overlay_applied"])}))
 
           with open("work/concat.txt", "w", encoding="utf-8") as out:
               for row in rows:
@@ -1228,6 +1289,7 @@ jobs:
             work/captions.srt
             work/music_report.json
             work/evidence_charts_report.json
+            work/rendered_scene_assets_report.json
             work/brand_assets_report.json
             work/seo_report.json
             work/video_review_report.json
@@ -1440,6 +1502,7 @@ jobs:
           path: |
             work/editing_tool_manifest.json
             work/transition_sfx_report.json
+            work/rendered_scene_assets_report.json
           if-no-files-found: error
           retention-days: 30
 
