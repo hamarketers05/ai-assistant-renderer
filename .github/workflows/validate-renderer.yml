@@ -144,8 +144,8 @@ jobs:
               if marker.lower() not in thumbnail_code.lower():
                   raise SystemExit(f"Python/Pillow 3D pop-out thumbnail feature missing: {marker}")
           renderer_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
-          if "black-forest-labs/FLUX.1-schnell" in thumbnail_code or "HF_TOKEN:" in renderer_text:
-              raise SystemExit("FLUX must be removed; thumbnails must be local Python/Pillow only.")
+          if "InferenceClient" in thumbnail_code or "huggingface_hub" in thumbnail_code or "HF_TOKEN:" in renderer_text:
+              raise SystemExit("Thumbnail generation must be local Python/Pillow only; no remote image API or token.")
           kokoro_code = Path("tools/generate_kokoro_voice.py").read_text(encoding="utf-8")
           if "KPipeline" not in kokoro_code or "af_heart" not in kokoro_code:
               raise SystemExit("Kokoro American-English voice generator is missing.")
