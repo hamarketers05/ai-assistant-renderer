@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Free, local voice-editing stage for AI Tech Lab's manually supplied narration.
+"""Free, local voice-editing stage for AI Tech Lab's automatically generated narration.
 
-Cleans the recording, inserts punctuation-aware pauses, applies light script-cue
-level shaping, and generates captions from the edited timeline. It does not
-synthesize or replace the user's required manual voice recording.
+Cleans generated narration, inserts punctuation-aware pauses, applies light script-cue
+level shaping, and generates captions from the edited timeline. Speech synthesis runs
+upstream; this local stage uses no paid speech API.
 """
 import json
 import re
@@ -110,9 +110,9 @@ def emit_captions(words, shifts):
 def main():
     WORK.mkdir(parents=True, exist_ok=True)
     if not SOURCE.is_file() or SOURCE.stat().st_size < 10_000:
-        raise SystemExit("Manual voice audio is missing or too small; rendering is blocked.")
+        raise SystemExit("Generated narration audio is missing or too small; rendering is blocked.")
     if not SCRIPT_PATH.is_file() or not SCRIPT_PATH.read_text(encoding="utf-8").strip():
-        raise SystemExit("The English script is missing; voice editing is blocked.")
+        raise SystemExit("The English script is missing; narration editing is blocked.")
 
     script = SCRIPT_PATH.read_text(encoding="utf-8").strip()
     script_sentences = [
@@ -134,7 +134,7 @@ def main():
 
     audio = AudioSegment.from_wav(str(CLEAN))
     if len(audio) < 30_000:
-        raise SystemExit("Manual voice audio is under 30 seconds; QA blocks production.")
+        raise SystemExit("Narration audio is under 30 seconds; QA blocks production.")
     if audio.dBFS == float("-inf") or audio.dBFS < -55:
         raise SystemExit("Voice audio is silent or too quiet; production is blocked.")
 
