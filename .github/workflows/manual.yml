@@ -848,6 +848,43 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Require script-relevant licensed footage before upload
+        run: |
+          set -euo pipefail
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          source_file = Path("work/asset_sources.jsonl")
+          records = []
+          if source_file.exists():
+              for line in source_file.read_text(encoding="utf-8").splitlines():
+                  try:
+                      item = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if item.get("provider") and item.get("creator") and item.get("source_url"):
+                      records.append(item)
+
+          rendered = list(Path("assets").glob("scene_*.mp4"))
+          used = []
+          for item in records:
+              scene = str(item.get("scene", ""))
+              if scene and Path(f"scenes/scene_{scene}.mp4").exists():
+                  used.append(item)
+
+          print(json.dumps({
+              "licensed_attributed_clips": len(records),
+              "downloaded_scene_videos": len(rendered),
+              "clips_used_in_render": len(used)
+          }))
+          if len(used) < 4:
+              raise SystemExit(
+                  "UPLOAD BLOCKED: fewer than four verified, attributed stock clips were actually used. "
+                  "Fix media sourcing first; generated cards alone do not meet premium-video requirements."
+              )
+          PY
+
       - name: Check existing YouTube upload
         id: youtube_state
         env:
