@@ -515,6 +515,13 @@ jobs:
           print("Original visual assets validated.")
           PY
 
+      - name: Generate only evidence-supported data charts
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/make_evidence_charts.py
+          test -s work/evidence_charts_report.json
+          cat work/evidence_charts_report.json
+
       - name: Render scenes
         run: |
           set -euo pipefail
@@ -636,13 +643,6 @@ jobs:
           test -s work/music.wav
           test -s work/music_report.json
 
-      - name: Generate only evidence-supported data charts
-        run: |
-          set -euo pipefail
-          .venv/bin/python tools/make_evidence_charts.py
-          test -s work/evidence_charts_report.json
-          cat work/evidence_charts_report.json
-
       - name: Improve SEO title, description, tags, sources and chapters
         run: |
           set -euo pipefail
@@ -725,7 +725,7 @@ jobs:
             -movflags +faststart work/branded_visual.mp4
 
           # Original, generated background music is kept under narration using side-chain ducking.
-          ffmpeg -y -i work/branded_visual.mp4 -i work/voice_edited.wav -i work/music.wav \
+          ffmpeg -y -i work/branded_visual.mp4 -i work/voice_edited.wav -stream_loop -1 -i work/music.wav \
             -filter_complex "[1:a]adelay=4000|4000,asetpts=PTS-STARTPTS[voice];[2:a]volume=0.18,asetpts=PTS-STARTPTS[music];[music][voice]sidechaincompress=threshold=0.025:ratio=10:attack=20:release=420[ducked];[voice][ducked]amix=inputs=2:duration=longest:dropout_transition=0,loudnorm=I=-14:TP=-1.0:LRA=11[a]" \
             -map 0:v:0 -map "[a]" -t "$TOTAL_DURATION" \
             -c:v copy -c:a aac -b:a 192k -movflags +faststart "$VIDEO"
