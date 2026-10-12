@@ -1098,7 +1098,7 @@ jobs:
             done
           fi
 
-      - name: Enforce final review policy
+      - name: Block upload if final quality review found critical issues
         env:
           SKIP_GROQ_REVIEW: ${{ inputs.skip_groq_review }}
         run: |
