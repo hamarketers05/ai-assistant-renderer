@@ -39,10 +39,11 @@ def load_history():
         raise SystemExit("Visual-asset history is corrupt; refusing to assume assets are unique.")
     return data
 
-def read_manifest():
-    if not MANIFEST.exists(): return []
+def read_manifest(path=MANIFEST):
+    path=Path(path)
+    if not path.exists(): return []
     out=[]
-    for line in MANIFEST.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip(): continue
         try: item=json.loads(line)
         except json.JSONDecodeError: raise SystemExit("Asset manifest contains invalid JSON; blocking upload.")
@@ -95,6 +96,42 @@ def validate(content_id):
     if len(accepted)<MIN_LICENSED_CLIPS:
         raise SystemExit(f"VISUAL NOVELTY GATE BLOCKED: {len(accepted)} new relevant licensed clips remain; {MIN_LICENSED_CLIPS} required.")
 
+def seed(content_id, manifest_path):
+    history=load_history()
+    if history.get("used"):
+        print(json.dumps({"status":"history_already_seeded","assets":len(history["used"])}))
+        return
+    source=Path(manifest_path)
+    if not source.is_file():
+        raise SystemExit(f"Cannot seed repeat protection: prior asset manifest is missing: {source}")
+    prior_records=read_manifest(source)
+    if not prior_records:
+        raise SystemExit("Cannot seed repeat protection: prior successful video manifest is empty.")
+    used=[]; seen=set()
+    for item in prior_records:
+        keys=identity(item)
+        # Existing video manifests may lack new relevance scores, but the assets
+        # still count as used. Record every stable identity so future reuse is blocked.
+        if not keys:
+            continue
+        if keys & seen:
+            continue
+        record=dict(item)
+        record["content_id"]=str(content_id)
+        record["history_source"]="seeded_from_previous_verified_renderer_artifact"
+        used.append(record)
+        seen.update(keys)
+    if not used:
+        raise SystemExit("Cannot seed repeat protection: prior manifest has no stable asset identities.")
+    history["version"]=1
+    history["used"]=used
+    history["updated_at_utc"]=datetime.now(timezone.utc).isoformat(timespec="seconds")
+    HISTORY.parent.mkdir(parents=True,exist_ok=True)
+    HISTORY.write_text(json.dumps(history,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+    save_report({"status":"seeded_from_previous_verified_upload","content_id":str(content_id),
+                 "seeded_assets":len(used),"history_file":str(HISTORY),
+                 "source_manifest":str(source),"duplicate_guard":"enabled_before_next_upload"})
+
 def persist(content_id):
     history=load_history(); used=history.setdefault("used",[]); already=set()
     for item in used: already.update(identity(item))
@@ -114,9 +151,15 @@ def persist(content_id):
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument("--mode",choices=("validate","persist"),required=True)
+    p.add_argument("--mode",choices=("seed","validate","persist"),required=True)
     p.add_argument("--content-id",required=True)
+    p.add_argument("--manifest",default="work/previous_assets.jsonl")
     a=p.parse_args()
-    validate(a.content_id) if a.mode=="validate" else persist(a.content_id)
+    if a.mode=="validate":
+        validate(a.content_id)
+    elif a.mode=="persist":
+        persist(a.content_id)
+    else:
+        seed(a.content_id,a.manifest)
 
 if __name__=="__main__": main()
