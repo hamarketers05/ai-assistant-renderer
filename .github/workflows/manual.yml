@@ -1195,9 +1195,11 @@ jobs:
         if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' && inputs.stereo_output == 'SBS'
         run: |
           set -euo pipefail
+          .venv/bin/pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torchvision
+          .venv/bin/pip install --disable-pip-version-check --no-cache-dir 'timm>=1.0.9,<2'
           .venv/bin/python tools/convert_video_midas_sbs.py --check-only --report work/midas_activation_report.json
           jq -e '.status == "success" and .engine == "MiDaS AI" and .model == "MiDaS_small" and .activation_inference == "passed"' work/midas_activation_report.json >/dev/null
-          echo "Pinned MiDaS AI model loaded and inference-tested. Final master is ready for FFmpeg SBS conversion."
+          echo "Pinned MiDaS AI model and dependencies installed, loaded and inference-tested. Final master is ready for FFmpeg SBS conversion."
 
       - name: Convert final master to 3D before YouTube upload
         if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO'
