@@ -65,7 +65,7 @@ jobs:
   render:
     name: Render AI Tech Lab Video
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     env:
       CONTENT_ID: ${{ inputs.content_id }}
@@ -1206,7 +1206,7 @@ jobs:
             --content-format "$CONTENT_FORMAT" \
             --report work/stereo_3d_report.json \
             --max-duration-seconds 480 \
-            --max-conversion-seconds 1800 \
+            --max-conversion-seconds 3600 \
             --require-success
           jq -e '.status == "success" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
           test -s "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
