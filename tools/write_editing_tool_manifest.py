@@ -50,6 +50,7 @@ def main() -> None:
         Path("work/transition_sfx_report.json"),
         Path("work/music_report.json"),
         Path("work/opencv_visual_qa.json"),
+        Path("work/rendered_scene_assets_report.json"),
     ]
     missing = [str(p) for p in required_paths if not p.is_file()]
     if not final_video.is_file() or final_video.stat().st_size < 100_000:
@@ -65,6 +66,7 @@ def main() -> None:
     sfx = read_json(Path("work/transition_sfx_report.json"))
     music = read_json(Path("work/music_report.json"))
     visual_qa = read_json(Path("work/opencv_visual_qa.json"))
+    scene_assets = read_json(Path("work/rendered_scene_assets_report.json"))
     reuse = read_json(Path("work/asset_reuse_report.json"))
     evidence = read_json(Path("work/evidence_charts_report.json"))
     stereo = read_json(Path("work/stereo_3d_report.json"))
@@ -76,7 +78,10 @@ def main() -> None:
     transition_count = int(transitions.get("scenes", scene_count)) - 1
     generated_scene_images = len(list(Path("assets").glob("generated_scene_*.png")))
     generated_hud_overlays = len(list(Path("assets").glob("scene_overlay_*.png")))
-    evidence_charts = list(evidence.get("charts_created") or [])
+    evidence_charts_generated = list(evidence.get("charts_created") or [])
+    evidence_charts_used = int(scene_assets.get("evidence_charts_used", 0))
+    hud_overlays_applied = int(scene_assets.get("transparent_hud_overlay_applied_count", 0))
+    stock_scene_count = int(scene_assets.get("licensed_stock_broll_scene_count", 0))
     if voice.get("status") != "passed":
         raise SystemExit("Editing manifest blocked: automated voice-editing QA did not pass.")
     if scenes.get("exact_word_timing") is not True or scene_count < 8:
@@ -91,6 +96,10 @@ def main() -> None:
         raise SystemExit("Editing manifest blocked: unique-media guard did not pass.")
     if not visual_qa:
         raise SystemExit("Editing manifest blocked: final visual QA report is absent.")
+    if scene_assets.get("status") != "passed" or int(scene_assets.get("rendered_scene_count", -1)) != scene_count:
+        raise SystemExit("Editing manifest blocked: actual rendered scene/source manifest is missing or incomplete.")
+    if evidence_charts_used < 0 or evidence_charts_used > len(evidence_charts_generated):
+        raise SystemExit("Editing manifest blocked: chart use count exceeds the evidence chart assets generated.")
 
     is_short = args.format == "SHORT"
     stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
@@ -108,7 +117,7 @@ def main() -> None:
         {"tool": "Ken Burns / camera drift", "status": "used", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills", "settings": "generated stills zoom to 1.08; stock framing varies about 1.06-1.105 with slow x/y drift and subtle roll"},
         {"tool": "Cinematic color grade", "status": "used", "purpose": "restrained contrast/saturation, cool teal-blue shadows, warmer highlights, sharpening, soft vignette and subtle temporal grain", "settings": "contrast=1.10; saturation=1.10; gamma=1.015; cool shadows / warm highlights via colorbalance; unsharp=0.45; vignette=PI/5; noise=1.2 temporal"},
         {"tool": "Film grain", "status": "used", "purpose": "very light FFmpeg grain, kept subtle for technology detail"},
-        {"tool": "Neon HUD / scene overlay", "status": "used", "purpose": "per-scene transparent topic label, cyan glow and lower-third overlay"},
+        {"tool": "Neon HUD / scene overlay", "status": "used" if hud_overlays_applied > 0 else "skipped", "purpose": "transparent topic label, cyan glow and lower-third applied to licensed B-roll where a matching scene overlay exists", "generated_overlay_files": generated_hud_overlays, "applied_to_stock_scenes": hud_overlays_applied, "stock_scenes_with_footage": stock_scene_count, "skip_reason": None if hud_overlays_applied > 0 else "No licensed B-roll scene qualified for a separate transparent overlay; generated Pillow scenes retain their own built-in HUD/diagram design."},
         {"tool": "Crossfade / push / digital mosaic transitions", "status": "used", "purpose": "short FFmpeg xfade transitions; occasional pixelize/zoom transitions", "transition_report": transitions.get("transition_types", [])},
         {"tool": "Original procedural transition SFX", "status": "used", "purpose": "quiet whoosh + digital tick ahead of each rendered scene transition", "transition_count": int(sfx.get("transition_count", 0)), "cue_lead_seconds": sfx.get("cue_lead_seconds", 0.22), "source_license": sfx.get("source_license")},
         {"tool": "Original topic-aware music", "status": "used", "purpose": "locally synthesized score with voice ducking"},
@@ -116,7 +125,7 @@ def main() -> None:
         {"tool": "Premium thumbnail", "status": "used" if thumb is not None else "unverified", "purpose": "1280x720 Pillow composition with 3D pop-out, glow and short title text", "brief_source": "Groq brief" if thumbnail_brief.get("hook") else "local fallback"},
         {"tool": "MiDaS + FFmpeg stereoscopic render", "status": "used" if (not is_short and stereo.get("status") == "success") else ("not_applicable" if is_short else "unverified"), "purpose": "3D depth and SBS output before upload", "stereo_mode": args.stereo_output},
         {"tool": "Pinned Rec.709 Kodak 2383 D55 LUT", "status": "used" if sbs_lut_used else "not_applicable", "purpose": "integrity-verified LUT transform in the SBS conversion stage", "integrity_verified": sbs_lut_used, "rights_note": "The existing source repository's commercial license was not independently verified; checksum integrity is not proof of usage rights."},
-        {"tool": "Evidence-supported charts", "status": "used" if len(evidence.get("charts_created") or []) > 0 else "skipped", "chart_count": len(evidence.get("charts_created") or []), "reason": "only chart claims backed by script/source evidence are graphed; no statistics are invented"},
+        {"tool": "Evidence-supported charts", "status": "used" if evidence_charts_used > 0 else "skipped", "chart_count": evidence_charts_used, "generated_chart_count": len(evidence_charts_generated), "unused_chart_count": max(0, len(evidence_charts_generated) - evidence_charts_used), "reason": "only source-backed charts with a topic/number match to the scene are included; no statistics are invented"},
         {"tool": "Commercial-use stock clips", "status": "used", "source_manifest_entries": licensed_clips, "providers": provider_counts, "note": "Only entries passing the separate license and relevance gates are eligible for delivery."},
         {"tool": "FLUX.1 [schnell]", "status": "skipped", "reason": "Official weights are Apache-2.0, but this standard GitHub-hosted CPU job has no attached GPU; the 12B-parameter model is not reliable for a zero-cost per-video CPU render. Existing original Pillow art and licensed B-roll remain the fallback."},
         {"tool": "ComfyUI + Stable Video Diffusion / AnimateDiff", "status": "skipped", "reason": "GPU-heavy model runtimes and large checkpoints are not a reliable fit for the current free hosted runner. FFmpeg motion is active instead; no paid inference/API is used."},
@@ -135,8 +144,12 @@ def main() -> None:
             warnings.append("The pinned external Kodak 2383 D55 LUT checksum is verified, but its upstream commercial-use license remains unverified.")
     if not evidence:
         warnings.append("Evidence chart report is missing; charts must not be inferred from unsupported statistics.")
-    elif not (evidence.get("charts_created") or []):
+    elif not evidence_charts_generated:
         warnings.append("No evidence chart was generated; the script did not contain enough source-linked numeric data to justify a chart.")
+    elif evidence_charts_used == 0:
+        warnings.append("Evidence charts were generated but none matched a narrated scene well enough to insert safely; no unrelated chart was forced into the final video.")
+    if hud_overlays_applied == 0:
+        warnings.append("No separate transparent HUD overlay was applied to stock B-roll in this run; generated Pillow scenes include their own topic-matched graphic styling.")
     if licensed_clips < 4:
         raise SystemExit(f"Editing manifest blocked: only {licensed_clips} source-manifest entries; existing commercial-use gate requires at least four.")
     result = {
@@ -150,10 +163,14 @@ def main() -> None:
         "visual_assets": {
             "planned_voice_aligned_scenes": scene_count,
             "generated_topic_matched_images": generated_scene_images,
-            "transparent_hud_overlays": generated_hud_overlays,
-            "evidence_supported_charts": len(evidence_charts),
+            "transparent_hud_overlays_generated": generated_hud_overlays,
+            "transparent_hud_overlays_applied": hud_overlays_applied,
+            "evidence_charts_generated": len(evidence_charts_generated),
+            "evidence_charts_used": evidence_charts_used,
             "licensed_stock_source_records": licensed_clips,
+            "licensed_stock_broll_scenes_used": stock_scene_count,
             "provider_source_counts": provider_counts,
+            "scene_asset_report": "work/rendered_scene_assets_report.json",
             "transition_sfx_events": int(sfx.get("transition_count", 0)),
         },
         "average_scene_seconds": avg_scene_seconds,
