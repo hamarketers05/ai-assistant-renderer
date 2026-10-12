@@ -305,12 +305,12 @@ Preserve and sharpen the script's Personal Persona: keep a recognizable editoria
     (outdir / "tags.txt").write_text(",".join(normalized_tags), encoding="utf-8")
     (outdir / "hook_audit.json").write_text(json.dumps(package["hook_audit"], indent=2, ensure_ascii=False), encoding="utf-8")
     summary = {
-        "status": "SCRIPT_PACKAGE_READY_FOR_MANUAL_VOICE_APPROVAL", "title": title,
+        "status": "SCRIPT_PACKAGE_READY_FOR_KOKORO_VOICE_PRODUCTION", "title": title,
         "script_words": package["script_word_count"], "hook_score": hook_score,
         "trend_signals": len(trends), "usable_tavily_sources": len(sources),
         "source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]),
         "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"]),
-        "next_gate": "Human approves script, then supplies approved narration audio; renderer must not synthesize a replacement voice."}
+        "next_gate": "Kokoro automatically generates American-English narration; audio QA must pass before rendering."}
     (outdir / "research_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
 
