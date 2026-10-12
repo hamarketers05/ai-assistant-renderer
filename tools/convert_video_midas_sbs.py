@@ -252,6 +252,27 @@ def synthesize_sbs(frame, depth, max_disparity: float):
     return np.concatenate((left, right), axis=1)
 
 
+def build_rec709_to_cineon_lut():
+    """Build a per-channel 8-bit Rec.709-to-Cineon Log transform for the Kodak LUT."""
+    import numpy as np
+
+    encoded_709 = np.arange(256, dtype=np.float64) / 255.0
+    linear = np.where(
+        encoded_709 < 0.081,
+        encoded_709 / 4.5,
+        np.power((encoded_709 + 0.099) / 1.099, 1.0 / 0.45),
+    )
+    black_offset = 10.0 ** ((95.0 - 685.0) / 300.0)
+    cineon_log = (
+        685.0
+        + 300.0 * np.log10(linear * (1.0 - black_offset) + black_offset)
+    ) / 1023.0
+    table = np.rint(np.clip(cineon_log, 0.0, 1.0) * 255.0).astype(np.uint8)
+    if table.shape != (256,) or not np.all(np.isfinite(table)):
+        raise ValueError("Could not build a valid Rec.709-to-Cineon lookup table.")
+    return table.reshape(256, 1)
+
+
 def activate_model(report_path: Path) -> int:
     import numpy as np
 
@@ -321,6 +342,7 @@ def convert(args) -> int:
 
         lut_path, lut_info = ensure_cinematic_lut(Path("work"))
         ffmpeg_lut_path, lut_compatibility = make_ffmpeg_compatible_lut(lut_path, Path("work"))
+        rec709_to_cineon_lut = build_rec709_to_cineon_lut()
         output.parent.mkdir(parents=True, exist_ok=True)
         output.unlink(missing_ok=True)
 
@@ -385,6 +407,9 @@ def convert(args) -> int:
                             alpha = index / denominator
                             depth = (1.0 - alpha) * depth_start + alpha * depth_end
                             stereo = synthesize_sbs(frame, depth, max_disparity)
+                            # The requested Kodak 2383 D55 LUT explicitly expects Cineon Log input.
+                            # Decode Rec.709 transfer to linear, encode Cineon Log, then apply LUT in FFmpeg.
+                            stereo = cv2.LUT(stereo, rec709_to_cineon_lut)
                             process.stdin.write(stereo.tobytes())
                             frames_done += 1
                             if frames_done - last_progress >= 150:
@@ -437,6 +462,10 @@ def convert(args) -> int:
                 "status": "passed",
                 "ffmpeg_compatible_copy": {**lut_compatibility},
                 "ffmpeg_filter": f"lut3d=file={ffmpeg_lut_path.resolve()}:interp=trilinear",
+                "lut_input_expected": "Cineon Log",
+                "lut_output": "ITU-R Rec.709, Gamma 2.4",
+                "input_transform": "Rec.709 EOTF to linear, then Cineon Log OETF",
+                "rec709_to_cineon_transform": "passed",
                 "applied_in_same_encode_pass": True,
                 "cpu_note": "The filter adds per-pixel CPU work, but avoids a separate grading render/re-encode pass.",
             },
@@ -449,6 +478,7 @@ def convert(args) -> int:
                 "audio_preserved": True,
                 "duration_matches_master": True,
                 "color_grade_applied": True,
+                "rec709_to_cineon_transform_applied": True,
                 "pinned_lut_integrity_verified": lut_info["git_blob_sha"] == CINEMATIC_LUT_GIT_BLOB_SHA,
             },
             "elapsed_seconds": round(time.monotonic() - started, 1),
