@@ -1099,7 +1099,7 @@ jobs:
           echo "video_id=$(jq -r '.video_id // empty' work/state.json)" >> "$GITHUB_OUTPUT"
 
       - name: Convert final master to 3D before YouTube upload
-        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO'
         env:
           STEREO_OUTPUT: ${{ inputs.stereo_output }}
         run: |
@@ -1120,7 +1120,7 @@ jobs:
           echo "3D output passed stream, audio, duration and geometry checks; only this 3D file may be uploaded."
 
       - name: Save verified 3D upload artifact
-        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO'
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-3d-ready-${{ inputs.content_id }}
@@ -1204,7 +1204,11 @@ jobs:
         if: steps.youtube_state.outputs.already_uploaded != 'true'
         run: |
           set -euo pipefail
-          VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${{ inputs.stereo_output }}.mp4"
+          if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
+            VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${{ inputs.stereo_output }}.mp4"
+          else
+            VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          fi
           test -s "$VIDEO"
           SIZE=$(stat -c%s "$VIDEO")
 
