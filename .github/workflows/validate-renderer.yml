@@ -77,7 +77,7 @@ jobs:
           if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[6]) < names.index(required[7]) < names.index(required[8])):
               raise SystemExit("Research assets, SEO, brand intro, render QA and upload guard are out of order.")
           voice = wf["jobs"]["render"]["steps"][names.index(required[0])].get("run", "")
-          if "auto_tts_full.wav" not in voice or "auto_tts_full.mp3" not in voice:
+          if "auto_tts_full." not in voice or "for EXT in wav mp3" not in voice:
               raise SystemExit("Renderer must accept both supported automatic TTS audio formats.")
           render = wf["jobs"]["render"]["steps"][names.index(required[6])].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14"):
