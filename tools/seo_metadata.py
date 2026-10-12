@@ -132,6 +132,9 @@ def extract_sources():
 def main():
     global DESCRIPTION
     title = clean_title(TITLE)
+    if FMT == "SHORT" and "#shorts" not in title.lower():
+        suffix = " #Shorts"
+        title = title[:100-len(suffix)].rstrip(" -:|") + suffix
     # Keep meaningful LLM-produced copy and source/asset credits; only add a structured,
     # searchable section if it is missing.
     topic = title.strip()
@@ -157,6 +160,8 @@ def main():
         DESCRIPTION += "\n\nSubscribe to AI Tech Lab for evidence-led AI news and future technology explainers."
     if not re.search(r"(?i)#AItechnology|#ArtificialIntelligence", DESCRIPTION):
         DESCRIPTION += "\n\n#ArtificialIntelligence #FutureTechnology #AITechLab"
+    if FMT == "SHORT" and "#shorts" not in DESCRIPTION.lower():
+        DESCRIPTION += "\n#Shorts"
 
     existing = [x.strip() for x in re.split(r"[,\n]", RAW_TAGS) if x.strip()]
     meta_tags = get_nested(MANIFEST, ("tags", "keywords", "primary_keyword", "focus_keyword"))
