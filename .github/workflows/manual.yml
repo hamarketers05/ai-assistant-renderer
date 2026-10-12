@@ -78,7 +78,7 @@ jobs:
           fi
           python3 -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper
+          .venv/bin/pip install numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper huggingface_hub
           # Faster-Whisper 1.2.1 still passes metadata_errors to av.open; PyAV 19 removed that argument.
           .venv/bin/pip install 'av<19'
           .venv/bin/python -c 'import av; major=int(av.__version__.split(".")[0]); assert major < 19, av.__version__; print("PyAV/Faster-Whisper compatibility confirmed:", av.__version__)'
@@ -746,6 +746,7 @@ jobs:
       - name: Assemble final video and thumbnail
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           set -euo pipefail
           AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration \
