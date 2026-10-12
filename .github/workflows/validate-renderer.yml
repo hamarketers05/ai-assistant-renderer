@@ -71,7 +71,6 @@ jobs:
               "Assemble final video and thumbnail",
               "QA rendered production",
               "Verify narration, music, captions, and premium thumbnail assets",
-              "Generate optional 2D3D stereoscopic companion without replacing standard master",
               "Groq router reviews rendered video, visual match, audio assets and thumbnail",
               "Save video artifacts",
               "Persist final QA feedback for the next video",
@@ -90,7 +89,7 @@ jobs:
           ordered_assets = ["Find additional free, topic-matched Wikimedia Commons footage", "Add stock creator and license attribution", "Generate only evidence-supported data charts", "Edit generated narration, add pauses and script cues, and generate captions", "Generate original topic-aware background score", "Improve SEO title, description, tags, sources and chapters"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_assets, ordered_assets[1:])):
               raise SystemExit("Asset attribution, charts, narration mastering, music and SEO are out of order.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Generate optional 2D3D stereoscopic companion without replacing standard master", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
@@ -145,11 +144,23 @@ jobs:
           for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "frame-packing=3", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB"):
               if marker.lower() not in stereo_code.lower():
                   raise SystemExit(f"Optional 2D3D safe-export integration missing: {marker}")
-          stereo_step = names.index("Generate optional 2D3D stereoscopic companion without replacing standard master")
-          if wf["jobs"]["render"]["steps"][stereo_step].get("continue-on-error", "false").lower() != "true":
-              raise SystemExit("Optional 3D export must never block the standard 2D production path.")
+          stereo_job = wf["jobs"].get("stereo-companion")
+          if not isinstance(stereo_job, dict):
+              raise SystemExit("The 2D3D companion must run in a separate job.")
+          if stereo_job.get("needs") != "render" or str(stereo_job.get("continue-on-error", "false")).lower() != "true":
+              raise SystemExit("The 3D job must run after the full render/upload job and must not block it.")
+          stereo_condition = stereo_job.get("if", "")
+          if "inputs.content_format == 'LONG_VIDEO'" not in stereo_condition or "inputs.stereo_output != 'OFF'" not in stereo_condition:
+              raise SystemExit("3D must skip Shorts and respect the OFF switch.")
+          stereo_names = [step.get("name", "") for step in stereo_job.get("steps", [])]
+          for stage in ("Generate optional 2D3D stereoscopic companion", "Save stereoscopic companion artifact and report"):
+              if stage not in stereo_names:
+                  raise SystemExit(f"Separate 2D3D job stage missing: {stage}")
+          stereo_step = stereo_job["steps"][stereo_names.index("Generate optional 2D3D stereoscopic companion")]
+          if str(stereo_step.get("continue-on-error", "false")).lower() != "true":
+              raise SystemExit("3D inference failure must not block the standard video.")
           manual_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
-          for marker in ("stereo_output:", "default: OFF", "output/AI_TECH_LAB_", "_3D_*.mp4", "work/stereo_3d_report.json"):
+          for marker in ("stereo_output:", "default: SBS", "output/AI_TECH_LAB_", "_3D_*.mp4", "work/stereo_3d_report.json"):
               if marker not in manual_text:
                   raise SystemExit(f"Manual workflow stereoscopic controls/artifacts missing: {marker}")
           router_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
@@ -198,7 +209,7 @@ jobs:
           assert report["status"] == "disabled"
           assert report["main_video_untouched"] is True
           assert not Path("work/must-not-be-created.mp4").exists()
-          print("2D3D is isolated, off by default, and does not replace the standard master.")
+          print("2D3D is isolated, respects the OFF switch, and never replaces the standard master.")
           PY
 
       - name: Generate original branded assets for landscape and portrait
