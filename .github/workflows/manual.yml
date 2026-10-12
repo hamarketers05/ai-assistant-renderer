@@ -1068,7 +1068,7 @@ jobs:
             WIDTH=1920
             HEIGHT=1080
             BARS=",drawbox=x=0:y=0:w=iw:h=131:color=black:t=fill,drawbox=x=0:y=949:w=iw:h=131:color=black:t=fill"
-            VF="fps=30,scale=1920:1080,setsar=1${BARS},subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55',fade=t=in:st=0:d=0.35"
+            VF="fps=30,scale=1920:1080,setsar=1${BARS},subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=170',fade=t=in:st=0:d=0.35"
             CTA_WIDTH=1180
             CTA_Y=650
           fi
