@@ -130,6 +130,16 @@ jobs:
           for marker in ("videos.list", "mostPopular", "Tavily Search API", "research_queries", "hook_score < 7", "previous_video_feedback", "SCRIPT_PACKAGE_READY_FOR_MANUAL_VOICE_APPROVAL", "YOUTUBE_ACCESS_TOKEN"):
               if marker not in research_code:
                   raise SystemExit(f"Daily research implementation missing: {marker}")
+          for marker in ("PERSONAL PERSONA", "unique predictions", "hot takes", "personal opinions", "futuristic theories", "clearly distinguish opinions and forecasts from verified facts"):
+              if marker.lower() not in research_code.lower():
+                  raise SystemExit(f"Human-sounding, evidence-aware Personal Persona prompt missing: {marker}")
+          thumbnail_code = Path("tools/make_premium_thumbnail.py").read_text(encoding="utf-8")
+          for marker in ("HF_TOKEN", "InferenceClient", "black-forest-labs/FLUX.1-schnell", "image_provider", "local_python_fallback"):
+              if marker not in thumbnail_code:
+                  raise SystemExit(f"FLUX + Python thumbnail integration missing: {marker}")
+          renderer_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
+          if "HF_TOKEN: " + "$" + "{{ secrets.HF_TOKEN }}" not in renderer_text:
+              raise SystemExit("Renderer must pass an optional HF_TOKEN for FLUX thumbnails.")
           router_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
           for marker in ("qwen/qwen3.8-27b", "video_frame_", "thumbnail_review", "near_black_frame_ratio", "decision", "next_video_rules"):
               if marker not in router_code:
