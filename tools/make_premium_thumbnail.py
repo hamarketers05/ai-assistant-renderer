@@ -86,14 +86,86 @@ def draw_shield(img):
     d.rounded_rectangle((993,379,1007,407),radius=6,fill=(255,207,80,255))
     d.line(front[:3],fill=(215,251,255,255),width=4)
 
+def draw_robot(img):
+    glow=Image.new("RGBA",img.size,(0,0,0,0)); gd=ImageDraw.Draw(glow)
+    gd.ellipse((770,115,1220,595),fill=(255,150,40,100))
+    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(44)))
+    d=ImageDraw.Draw(img,"RGBA")
+    back=[(892,220),(1010,168),(1126,226),(1110,390),(1008,474),(900,392)]
+    side=[(x+24,y+22) for x,y in back]
+    d.polygon(side,fill=(2,18,45,255),outline=(0,78,130,255))
+    d.polygon([back[0],back[1],side[1],side[0]],fill=(211,113,29,255))
+    d.polygon([back[1],back[2],side[2],side[1]],fill=(128,76,34,255))
+    d.polygon(back,fill=(10,38,66,255),outline=(83,226,255,255))
+    d.rounded_rectangle((918,257,1101,378),radius=28,fill=(4,15,33,255),outline=(255,207,80,255),width=5)
+    for x in (957,1062):
+        d.ellipse((x-21,294,x+21,336),fill=(5,100,155,255),outline=(110,243,255,255),width=4)
+        d.ellipse((x-8,306,x+8,322),fill=(255,230,120,255))
+    d.line((957,355,1065,355),fill=(80,210,255,255),width=7)
+    for x in range(900,1110,35):
+        d.line((x,215,x,177-(x%3)*6),fill=(54,214,255,180),width=3)
+        d.ellipse((x-4,170-(x%3)*6,x+4,178-(x%3)*6),fill=(255,207,80,255))
+
+def draw_network(img):
+    glow=Image.new("RGBA",img.size,(0,0,0,0)); gd=ImageDraw.Draw(glow)
+    gd.ellipse((770,105,1220,600),fill=(0,190,255,110))
+    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(42)))
+    d=ImageDraw.Draw(img,"RGBA")
+    nodes=[(845,245),(955,180),(1080,216),(1150,315),(1090,430),(965,485),(850,405),(975,330)]
+    edges=[(0,1),(1,2),(2,3),(3,4),(4,5),(5,6),(6,0),(0,7),(1,7),(2,7),(3,7),(4,7),(5,7),(6,7)]
+    for a,b in edges:
+        x1,y1=nodes[a]; x2,y2=nodes[b]
+        for off in range(6,0,-1):
+            d.line((x1+off,y1+off,x2+off,y2+off),fill=(0,25+off*5,65+off*8,130),width=7)
+        d.line((x1,y1,x2,y2),fill=(65,224,255,235),width=4)
+    for i,(x,y) in enumerate(nodes):
+        r=19 if i==7 else 13
+        d.ellipse((x-r-8,y-r-8,x+r+8,y+r+8),fill=(0,180,245,55))
+        d.ellipse((x-r,y-r,x+r,y+r),fill=(5,37,68,255),outline=(255,207,80,255) if i==7 else (95,240,255,255),width=5)
+
+def draw_datacenter(img):
+    glow=Image.new("RGBA",img.size,(0,0,0,0)); gd=ImageDraw.Draw(glow)
+    gd.ellipse((765,110,1225,605),fill=(0,165,255,105))
+    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(48)))
+    d=ImageDraw.Draw(img,"RGBA")
+    for i in range(3):
+        x=835+i*112
+        back=[(x,220),(x+82,185),(x+82,440),(x,474)]
+        side=[(a+20,b+17) for a,b in back]
+        d.polygon(side,fill=(1,15,40,255),outline=(0,90,145,255))
+        d.polygon(back,fill=(7,42,77,255),outline=(55,225,255,255),width=4)
+        d.polygon([(x,220),(x+82,185),(x+102,202),(x+20,237)],fill=(20,100,160,255))
+        for y in (265,320,375,430):
+            d.rounded_rectangle((x+13,y,x+61,y+18),radius=5,fill=(255,207,80,235),outline=(120,245,255,255),width=2)
+            d.ellipse((x+67,y+4,x+74,y+11),fill=(90,255,175,255))
+
+def draw_globe(img):
+    glow=Image.new("RGBA",img.size,(0,0,0,0)); gd=ImageDraw.Draw(glow)
+    gd.ellipse((765,115,1225,595),fill=(0,205,255,110))
+    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(44)))
+    d=ImageDraw.Draw(img,"RGBA")
+    d.ellipse((845,185,1145,485),fill=(4,36,75,255),outline=(105,240,255,255),width=7)
+    d.ellipse((895,185,1095,485),outline=(50,193,240,220),width=4)
+    d.ellipse((845,255,1145,415),outline=(50,193,240,220),width=4)
+    d.arc((845,185,1145,485),250,290,fill=(255,207,80,255),width=7)
+    d.arc((845,185,1145,485),70,110,fill=(255,207,80,255),width=7)
+    for x,y in ((920,270),(1040,310),(980,390),(1080,410)):
+        d.ellipse((x-8,y-8,x+8,y+8),fill=(255,207,80,255))
+        d.line((x,y,x+44,y-33),fill=(75,236,255,220),width=3)
+
 def headline_for(title):
     low=title.lower()
-    if "agent" in low and any(x in low for x in ("security","safe","test","guard","risk")): return ["AI AGENTS","NEED GUARDRAILS"]
+    if "agent" in low and any(x in low for x in ("security","safe","test","guard","risk","safety")): return ["AI AGENTS","NEED GUARDRAILS"]
     if any(x in low for x in ("local ai","into your pc","on-device","on device","offline ai")): return ["AI IS MOVING","INTO YOUR PC"]
     if any(x in low for x in ("cybersecurity","cyber security","hack","privacy","security")): return ["YOUR AI","YOUR SECURITY?"]
     if any(x in low for x in ("robot","humanoid")): return ["THE NEXT","AI ROBOTS"]
     if any(x in low for x in ("agent","automation")): return ["AI AGENTS","CHANGE EVERYTHING"]
+    if any(x in low for x in ("cloud","server","data center","datacenter")): return ["INSIDE THE","AI DATA CENTER"]
+    if any(x in low for x in ("network","neural","training","model")): return ["INSIDE THE","AI BRAIN"]
     if any(x in low for x in ("chip","gpu","processor")): return ["THE AI CHIP","RACE"]
+    if any(x in low for x in ("job","workforce","career","employment")): return ["AI IS CHANGING","THE WORKPLACE"]
+    if any(x in low for x in ("health","medical","doctor","hospital")): return ["AI IN","HEALTHCARE"]
+    if any(x in low for x in ("smartphone","phone","mobile","app")): return ["AI IN","YOUR POCKET"]
     words=re.findall(r"[A-Za-z0-9]+",re.sub(r"(?i)^AI Tech Lab\s*[:|—-]?\s*","",title).upper())[:7]
     if len(words)<=3: return [" ".join(words or ["FUTURE TECHNOLOGY"])]
     cut=math.ceil(len(words)/2); return [" ".join(words[:cut])," ".join(words[cut:])]
@@ -102,10 +174,18 @@ def make(title,output,hook=None,focus="",visual_reason=""):
     img=background()
     subject=Image.new("RGBA",(W,H),(0,0,0,0))
     low=(str(focus)+" "+title).lower()
-    if any(x in low for x in ("security","shield","safe","test","guard","risk")):
-        draw_shield(subject); visual_focus=focus or "security shield"
+    if any(x in low for x in ("security","shield","safe","test","guard","risk","privacy","hack")):
+        draw_shield(subject); visual_focus="security shield"
+    elif any(x in low for x in ("robot","humanoid","hand")):
+        draw_robot(subject); visual_focus="robot hand"
+    elif any(x in low for x in ("network","neural","model","training","agent","workflow")):
+        draw_network(subject); visual_focus="neural network"
+    elif any(x in low for x in ("cloud","server","data center","datacenter")):
+        draw_datacenter(subject); visual_focus="data center"
+    elif any(x in low for x in ("globe","global","world","internet")):
+        draw_globe(subject); visual_focus="digital globe"
     else:
-        draw_chip(subject); visual_focus=focus or "AI chip"
+        draw_chip(subject); visual_focus="AI chip"
     img.alpha_composite(subject)
     d=ImageDraw.Draw(img,"RGBA")
     d.rectangle((0,0,W,86),fill=(0,0,0,255)); d.rectangle((0,634,W,H),fill=(0,0,0,255))
@@ -114,13 +194,25 @@ def make(title,output,hook=None,focus="",visual_reason=""):
     pd.rounded_rectangle((38,104,716,596),radius=32,fill=(1,8,24,226),outline=(45,210,250,185),width=3)
     img.alpha_composite(panel.filter(ImageFilter.GaussianBlur(.4))); d=ImageDraw.Draw(img,"RGBA")
     d.text((78,124),"AI TECH LAB  /  FUTURE INTELLIGENCE",font=font(22),fill=CYAN+(255,))
-    lines=headline_for(hook or title); fs=76 if len(lines)==2 and max(map(len,lines))<=14 else 62
+    lines=headline_for(title); fs=76 if len(lines)==2 and max(map(len,lines))<=14 else 62
     while fs>44 and any(d.textbbox((0,0),line,font=font(fs))[2]>590 for line in lines): fs-=2
     f=font(fs); y=235 if len(lines)==2 else 255
     for i,line in enumerate(lines[:3]):
-        d.text((78,y+i*(fs+22)),line,font=f,fill=(GOLD if i==len(lines)-1 else WHITE)+(255,),stroke_width=2,stroke_fill=(0,0,0,210))
+        line_y=y+i*(fs+22)
+        # "8D-style" is a premium multilayer extrusion treatment, not a literal display format.
+        for depth in range(12,0,-1):
+            dx=depth*1.45; dy=depth*1.05
+            d.text((78+dx,line_y+dy),line,font=f,fill=(0,12+depth*2,32+depth*5,255),
+                   stroke_width=2,stroke_fill=(0,90,145,255))
+        d.text((75,line_y-2),line,font=f,fill=(0,185,235,120),stroke_width=5,stroke_fill=(0,185,235,90))
+        d.text((78,line_y),line,font=f,fill=(GOLD if i==len(lines)-1 else WHITE)+(255,),
+               stroke_width=2,stroke_fill=(0,0,0,235))
     d.rounded_rectangle((78,504,418,563),radius=17,fill=(9,186,227,248),outline=(180,246,255,255),width=2)
-    d.text((101,518),"WHAT CHANGES NEXT?",font=font(22),fill=NAVY+(255,))
+    badge=(hook or "THE KEY TAKEAWAY").upper()[:24]
+    badge_font=font(20)
+    while d.textbbox((0,0),badge,font=badge_font)[2]>300 and badge_font.size>15:
+        badge_font=font(badge_font.size-1)
+    d.text((101,518),badge,font=badge_font,fill=NAVY+(255,))
     d.text((80,655),"RESEARCH  •  REAL-WORLD IMPACT  •  WHAT TO KNOW",font=font(17),fill=(181,216,239,255))
     scaled=subject.resize((int(W*1.6),int(H*1.6)),Image.Resampling.LANCZOS)
     img.alpha_composite(scaled.crop((600,165,600+W,165+H)))
@@ -129,7 +221,7 @@ def make(title,output,hook=None,focus="",visual_reason=""):
     with Image.open(output) as check:
         if check.size!=(1280,720): raise SystemExit(f"Thumbnail dimensions invalid: {check.size}")
         check.verify()
-    return {"provider":"Python/Pillow only","effect":"layered 3D pop-out across cinematic bars","visual_focus":visual_focus}
+    return {"provider":"Python/Pillow only","effect":"8D-style multilayer text extrusion, topic-specific 3D hero, cinematic lighting and pop-out across bars","visual_focus":visual_focus}
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument("--title-file",default="work/title.txt"); p.add_argument("--output",required=True); p.add_argument("--brief-file",default="work/thumbnail_brief.json")
