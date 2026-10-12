@@ -90,7 +90,8 @@ def main() -> None:
         raise SystemExit("Editing manifest blocked: final visual QA report is absent.")
 
     is_short = args.format == "SHORT"
-    sbs_lut_used = bool(stereo.get("color_grade_applied") and stereo.get("pinned_lut_integrity_verified"))
+    stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
+    sbs_lut_used = bool(stereo_quality.get("color_grade_applied") and stereo_quality.get("pinned_lut_integrity_verified"))
     licensed_clips = sum(provider_counts.values())
     avg_scene_seconds = round(float(scenes.get("scene_duration_seconds", {}).get("mean", 0)), 2)
     tools = [
@@ -112,7 +113,7 @@ def main() -> None:
         {"tool": "Premium thumbnail", "status": "used" if thumb is not None else "unverified", "purpose": "1280x720 Pillow composition with 3D pop-out, glow and short title text", "brief_source": "Groq brief" if thumbnail_brief.get("hook") else "local fallback"},
         {"tool": "MiDaS + FFmpeg stereoscopic render", "status": "used" if (not is_short and stereo.get("status") == "success") else ("not_applicable" if is_short else "unverified"), "purpose": "3D depth and SBS output before upload", "stereo_mode": args.stereo_output},
         {"tool": "Pinned Rec.709 Kodak 2383 D55 LUT", "status": "used" if sbs_lut_used else "not_applicable", "purpose": "integrity-verified LUT transform in the SBS conversion stage", "integrity_verified": sbs_lut_used, "rights_note": "The existing source repository's commercial license was not independently verified; checksum integrity is not proof of usage rights."},
-        {"tool": "Evidence-supported charts", "status": "used" if evidence.get("charts_generated", evidence.get("generated_count", 0)) else "skipped", "reason": "only chart claims backed by script/source evidence are graphed; no statistics are invented"},
+        {"tool": "Evidence-supported charts", "status": "used" if len(evidence.get("charts_created") or []) > 0 else "skipped", "chart_count": len(evidence.get("charts_created") or []), "reason": "only chart claims backed by script/source evidence are graphed; no statistics are invented"},
         {"tool": "Commercial-use stock clips", "status": "used", "source_manifest_entries": licensed_clips, "providers": provider_counts, "note": "Only entries passing the separate license and relevance gates are eligible for delivery."},
         {"tool": "FLUX.1 [schnell]", "status": "skipped", "reason": "Official weights are Apache-2.0, but this standard GitHub-hosted CPU job has no attached GPU; the 12B-parameter model is not reliable for a zero-cost per-video CPU render. Existing original Pillow art and licensed B-roll remain the fallback."},
         {"tool": "ComfyUI + Stable Video Diffusion / AnimateDiff", "status": "skipped", "reason": "GPU-heavy model runtimes and large checkpoints are not a reliable fit for the current free hosted runner. FFmpeg motion is active instead; no paid inference/API is used."},
@@ -128,6 +129,8 @@ def main() -> None:
         warnings.append("SBS report did not confirm both LUT application and pinned-file integrity.")
     if not evidence:
         warnings.append("Evidence chart report is missing; charts must not be inferred from unsupported statistics.")
+    elif not (evidence.get("charts_created") or []):
+        warnings.append("No evidence chart was generated; the script did not contain enough source-linked numeric data to justify a chart.")
     if licensed_clips < 4:
         raise SystemExit(f"Editing manifest blocked: only {licensed_clips} source-manifest entries; existing commercial-use gate requires at least four.")
     result = {
