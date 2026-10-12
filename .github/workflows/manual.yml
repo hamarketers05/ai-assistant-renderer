@@ -106,6 +106,21 @@ jobs:
           [[ "$CONTENT_FORMAT" == "LONG_VIDEO" || "$CONTENT_FORMAT" == "SHORT" ]] || { echo "Unsupported video format."; exit 1; }
           test -n "$INPUT_TITLE"
           test "${#INPUT_SCRIPT}" -ge 300
+          test -n "$INPUT_PUBLISH_AT" || { echo "SCHEDULE GATE: publish_at is required; refusing an unscheduled/private-only upload."; exit 1; }
+          python3 - "$INPUT_PUBLISH_AT" <<'PY'
+          import sys
+          from datetime import datetime, timezone, timedelta
+          raw = sys.argv[1].strip()
+          try:
+              dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+          except ValueError:
+              raise SystemExit("SCHEDULE GATE: publish_at must be ISO 8601 with a timezone.")
+          if dt.tzinfo is None:
+              raise SystemExit("SCHEDULE GATE: publish_at must include Z or a timezone offset.")
+          if dt.astimezone(timezone.utc) <= datetime.now(timezone.utc) + timedelta(minutes=2):
+              raise SystemExit("SCHEDULE GATE: publish_at must be at least 2 minutes in the future.")
+          print("Future scheduled-publication time validated.")
+          PY
           test -n "$WORKER_URL"
           test -n "$WORKER_TOKEN"
           test -n "$SUPABASE_URL"
