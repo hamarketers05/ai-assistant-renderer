@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -71,6 +71,7 @@ jobs:
               "Assemble final video and thumbnail",
               "QA rendered production",
               "Verify narration, music, captions, and premium thumbnail assets",
+              "Generate optional 2D3D stereoscopic companion without replacing standard master",
               "Groq router reviews rendered video, visual match, audio assets and thumbnail",
               "Save video artifacts",
               "Persist final QA feedback for the next video",
@@ -89,7 +90,7 @@ jobs:
           ordered_assets = ["Find additional free, topic-matched Wikimedia Commons footage", "Add stock creator and license attribution", "Generate only evidence-supported data charts", "Edit generated narration, add pauses and script cues, and generate captions", "Generate original topic-aware background score", "Improve SEO title, description, tags, sources and chapters"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_assets, ordered_assets[1:])):
               raise SystemExit("Asset attribution, charts, narration mastering, music and SEO are out of order.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Generate optional 2D3D stereoscopic companion without replacing standard master", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
@@ -140,6 +141,17 @@ jobs:
           renderer_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
           if "HF_TOKEN: " + "$" + "{{ secrets.HF_TOKEN }}" not in renderer_text:
               raise SystemExit("Renderer must pass an optional HF_TOKEN for FLUX thumbnails.")
+          stereo_code = Path("tools/convert_video_3d.py").read_text(encoding="utf-8")
+          for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB"):
+              if marker.lower() not in stereo_code.lower():
+                  raise SystemExit(f"Optional 2D3D safe-export integration missing: {marker}")
+          stereo_step = names.index("Generate optional 2D3D stereoscopic companion without replacing standard master")
+          if "continue-on-error: true" not in wf["jobs"]["render"]["steps"][stereo_step].get("continue-on-error", "false"):
+              raise SystemExit("Optional 3D export must never block the standard 2D production path.")
+          manual_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
+          for marker in ("stereo_output:", "default: OFF", "output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4", "work/stereo_3d_report.json"):
+              if marker not in manual_text:
+                  raise SystemExit(f"Manual workflow stereoscopic controls/artifacts missing: {marker}")
           router_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
           for marker in ("qwen/qwen3.8-27b", "video_frame_", "thumbnail_review", "near_black_frame_ratio", "decision", "next_video_rules"):
               if marker not in router_code:
@@ -162,7 +174,31 @@ jobs:
               {"title":"Duplicate","url":"https://example.org/a","content":"Duplicate"},
               {"title":"Not secure","url":"http://example.org/b","content":"B"}])
           assert len(source_fixture) == 1 and source_fixture[0]["title"] == "Official evidence"
-          print("Static validation passed: YouTube trend discovery, Tavily research, Groq writing/hook audit, topic thumbnail, visual/audio review, upload gate, and next-video learning.")
+          import subprocess, sys, tempfile
+          with tempfile.TemporaryDirectory() as td:
+              report = Path(td) / "stereo-off.json"
+              unused_input = Path(td) / "does-not-exist.mp4"
+              unused_output = Path(td) / "must-not-be-created.mp4"
+              subprocess.run([sys.executable, "tools/convert_video_3d.py", "--input", str(unused_input), "--output", str(unused_output), "--mode", "OFF", "--report", str(report)], check=True)
+              result = __import__("json").loads(report.read_text(encoding="utf-8"))
+              assert result["status"] == "disabled" and result["main_video_untouched"] is True
+              assert not unused_output.exists()
+          print("Static validation passed: research, Groq, thumbnail, audio/visual QA, upload gate, learning, and safe optional 2D3D export.")
+          PY
+
+      - name: Smoke-test optional stereoscopic gate without downloading models
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          python tools/convert_video_3d.py --input work/not-present.mp4 --output work/must-not-be-created.mp4 --mode OFF --report work/stereo_3d_off_smoke.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("work/stereo_3d_off_smoke.json").read_text(encoding="utf-8"))
+          assert report["status"] == "disabled"
+          assert report["main_video_untouched"] is True
+          assert not Path("work/must-not-be-created.mp4").exists()
+          print("2D3D is isolated, off by default, and does not replace the standard master.")
           PY
 
       - name: Generate original branded assets for landscape and portrait
