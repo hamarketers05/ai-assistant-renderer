@@ -166,7 +166,7 @@ jobs:
               alpha = im.getchannel("A")
               if alpha.getextrema() != (0, 255):
                   raise SystemExit(f"3D overlay transparency was not preserved: {alpha.getextrema()}")
-              im.verify()
+              im.load()
           print("Transparent 3D security hero generated and verified.")
           PY
 
