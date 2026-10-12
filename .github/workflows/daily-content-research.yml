@@ -98,7 +98,7 @@ jobs:
           print("Groq-specific creative brief and locally rendered thumbnail passed validation.")
           PY
 
-      - name: Publish research package artifact for human script and voice approval
+      - name: Publish research package artifact for Kokoro voice production
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-research-${{ github.run_id }}
