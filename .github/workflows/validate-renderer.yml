@@ -59,7 +59,7 @@ jobs:
           wf = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
           names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
           required = [
-              "Fetch and validate approved narration",
+              "Validate Kokoro narration before scene timing",
               "Build sentence-by-sentence visual direction",
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
@@ -97,12 +97,12 @@ jobs:
                   raise SystemExit(f"Required tool is missing: {path}")
           if not (names.index("Find additional free, topic-matched Wikimedia Commons footage") < names.index("Improve SEO title, description, tags, sources and chapters") < names.index("Create AI Tech Lab branded intro and subscribe popup") < names.index("Assemble final video and thumbnail")):
               raise SystemExit("Research assets, SEO, brand intro and rendering are out of order.")
-          voice = wf["jobs"]["render"]["steps"][names.index(required[0])].get("run", "")
-          if '[[ "$AUDIO_URL" == https://* ]]' not in voice or "ffprobe -v error voice_input" not in voice:
-              raise SystemExit("Renderer must require and validate manually approved narration audio.")
-          gate = wf["jobs"]["render"]["steps"][names.index("Validate configuration and approved voice gate")].get("run", "")
-          if "APPROVED VOICE GATE" not in gate or '[[ "$AUDIO_URL" == https://* ]]' not in gate:
-              raise SystemExit("Approved voice URL must be enforced before production-manifest creation.")
+          voice = wf["jobs"]["render"]["steps"][names.index("Validate Kokoro narration before scene timing")].get("run", "")
+          if "work/kokoro_tts_report.json" not in voice or "quality_gate" not in voice:
+              raise SystemExit("Kokoro narration must pass automated quality validation before scene timing.")
+          gate = wf["jobs"]["render"]["steps"][names.index("Validate configuration and Kokoro voice pipeline")].get("run", "")
+          if "work/script.txt" not in gate:
+              raise SystemExit("Original script must be staged before Kokoro narration generation.")
           render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
@@ -120,26 +120,32 @@ jobs:
           research_names = [step.get("name", "") for step in research_wf["jobs"]["research-and-script"]["steps"]]
           if not any(item.get("cron") == "0 14 * * *" for item in research_wf.get("on", {}).get("schedule", [])):
               raise SystemExit("Daily US topic research schedule is missing.")
-          if not all(x in research_names for x in ["Verify free-provider configuration", "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq", "Ask Groq for a topic-specific thumbnail brief and render the preview", "Publish research package artifact for human script and voice approval"]):
+          if not all(x in research_names for x in ["Verify free-provider configuration", "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq", "Ask Groq for a topic-specific thumbnail brief and render the preview", "Publish research package artifact for Kokoro voice production"]):
               raise SystemExit("Daily research stages are missing or out of order.")
           if not all(x in Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8") for x in ["WORKER_AUTH_TOKEN", "TAVILY_API_KEY", "GROQ_API_KEY", "openai/gpt-oss-20b", "/youtube/access-token"]):
               raise SystemExit("Daily topic workflow is not configured for YouTube v3 + Tavily + Groq.")
           if not all(research_names.index(a) < research_names.index(b) for a,b in zip(research_names[1:], research_names[2:])):
               raise SystemExit("Daily research steps are not ordered.")
           research_code = Path("tools/daily_content_research.py").read_text(encoding="utf-8")
-          for marker in ("videos.list", "mostPopular", "Tavily Search API", "research_queries", "hook_score < 7", "previous_video_feedback", "SCRIPT_PACKAGE_READY_FOR_MANUAL_VOICE_APPROVAL", "YOUTUBE_ACCESS_TOKEN"):
+          for marker in ("videos.list", "mostPopular", "Tavily Search API", "research_queries", "hook_score < 7", "previous_video_feedback", "SCRIPT_PACKAGE_READY_FOR_KOKORO_VOICE_PRODUCTION", "YOUTUBE_ACCESS_TOKEN"):
               if marker not in research_code:
                   raise SystemExit(f"Daily research implementation missing: {marker}")
           for marker in ("PERSONAL PERSONA", "unique predictions", "hot takes", "personal opinions", "futuristic theories", "clearly distinguish opinions and forecasts from verified facts"):
               if marker.lower() not in research_code.lower():
                   raise SystemExit(f"Human-sounding, evidence-aware Personal Persona prompt missing: {marker}")
           thumbnail_code = Path("tools/make_premium_thumbnail.py").read_text(encoding="utf-8")
-          for marker in ("HF_TOKEN", "InferenceClient", "black-forest-labs/FLUX.1-schnell", "image_provider", "local_python_fallback"):
-              if marker not in thumbnail_code:
-                  raise SystemExit(f"FLUX + Python thumbnail integration missing: {marker}")
+          for marker in ("Python/Pillow only", "cinematic bars", "popout", "draw_chip", "draw_shield", "Image.Resampling.LANCZOS"):
+              if marker.lower() not in thumbnail_code.lower():
+                  raise SystemExit(f"Python/Pillow 3D pop-out thumbnail feature missing: {marker}")
           renderer_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
-          if "HF_TOKEN: " + "$" + "{{ secrets.HF_TOKEN }}" not in renderer_text:
-              raise SystemExit("Renderer must pass an optional HF_TOKEN for FLUX thumbnails.")
+          if "black-forest-labs/FLUX.1-schnell" in thumbnail_code or "HF_TOKEN:" in renderer_text:
+              raise SystemExit("FLUX must be removed; thumbnails must be local Python/Pillow only.")
+          kokoro_code = Path("tools/generate_kokoro_voice.py").read_text(encoding="utf-8")
+          if "KPipeline" not in kokoro_code or "af_heart" not in kokoro_code:
+              raise SystemExit("Kokoro American-English voice generator is missing.")
+          for marker in ("Generate, master and validate Kokoro narration", "manual_voice_approval_required", "quality_gate", "ai-assistant-audio", "work/kokoro_audio_quality.json"):
+              if marker not in renderer_text:
+                  raise SystemExit(f"Kokoro auto-voice integration missing: {marker}")
           stereo_code = Path("tools/convert_video_3d.py").read_text(encoding="utf-8")
           for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "frame-packing=3", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB"):
               if marker.lower() not in stereo_code.lower():
