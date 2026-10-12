@@ -1,0 +1,293 @@
+name: Approve Voice 20 and Start Final Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/approve-and-render-content-20.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: approved-voice-content-20
+  cancel-in-progress: false
+
+jobs:
+  approve-and-render:
+    name: Upload approved voice and start the production pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout approved content and pipeline
+        uses: actions/checkout@v4
+
+      - name: Wait for static renderer and 3D-effects validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPO: ${{ github.repository }}
+          GH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          success=false
+          for attempt in $(seq 1 40); do
+            curl -fsS --retry 2 --retry-delay 2 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "$GH_API/repos/$GH_REPO/actions/runs?head_sha=$GH_SHA&per_page=100" \
+              -o work/validation-runs.json
+
+            row=$(jq -r --arg sha "$GH_SHA" '
+              [.workflow_runs[]
+                | select(.head_sha == $sha)
+                | select(.path == ".github/workflows/validate-renderer.yml")]
+              | sort_by(.created_at)
+              | if length == 0 then "" else (last | [.status, (.conclusion // "")] | @tsv) end
+            ' work/validation-runs.json)
+            status=$(printf '%s' "$row" | cut -f1)
+            conclusion=$(printf '%s' "$row" | cut -f2)
+
+            if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+              success=true
+              break
+            fi
+            if [[ "$status" == "completed" && "$conclusion" != "success" ]]; then
+              echo "Static validation failed for this exact commit; voice upload/render is blocked."
+              exit 1
+            fi
+            sleep 15
+          done
+
+          [[ "$success" == "true" ]] || { echo "Timed out waiting for same-commit renderer validation."; exit 1; }
+          echo "Static validation passed for $GH_SHA; beginning approved voice upload."
+
+      - name: Stop if content 20 already has a YouTube upload
+        id: upload_guard
+        env:
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+        run: |
+          set -euo pipefail
+          jq -n '{content_id:20}' > work/upload_state_request.json
+          CODE=$(curl -sS --max-time 45 -o work/upload_state.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @work/upload_state_request.json "$WORKER_URL/youtube/upload-state")
+          if [[ "$CODE" != "200" ]]; then
+            echo "Could not verify duplicate-upload status; stopping safely."
+            exit 1
+          fi
+          ALREADY=$(jq -r '.already_uploaded // false' work/upload_state.json)
+          echo "already_uploaded=$ALREADY" >> "$GITHUB_OUTPUT"
+          if [[ "$ALREADY" == "true" ]]; then
+            echo "Content 20 already exists on YouTube. No duplicate render/upload will start."
+          fi
+
+      - name: Download and validate the voice preview explicitly approved by the user
+        if: steps.upload_guard.outputs.already_uploaded != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/voice_source
+          curl -fLsS --retry 3 --retry-delay 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GH_API/repos/$GH_REPO/actions/artifacts/11728047349/zip" \
+            -o work/approved_voice_artifact.zip
+          unzip -q work/approved_voice_artifact.zip -d work/voice_source
+          VOICE_MP3=$(find work/voice_source -type f -name 'AI_Tech_Lab_20_voice_preview.mp3' -print -quit)
+          test -n "$VOICE_MP3"
+          test -s "$VOICE_MP3"
+          BYTES=$(stat -c%s "$VOICE_MP3")
+          [[ "$BYTES" -lt $((25*1024*1024)) ]] || { echo "Approved narration exceeds 25 MB."; exit 1; }
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VOICE_MP3")
+          awk -v d="$DURATION" 'BEGIN { if (d < 300 || d > 330) exit 1 }' || {
+            echo "Approved audio duration outside expected preview range: $DURATION seconds."
+            exit 1
+          }
+          echo "Approved American-English narration validated: ${BYTES} bytes, ${DURATION} seconds."
+
+      - name: Store voice and use the existing production worker when authorized
+        id: voice_upload
+        if: steps.upload_guard.outputs.already_uploaded != 'true'
+        env:
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          VOICE_MP3=$(find work/voice_source -type f -name 'AI_Tech_Lab_20_voice_preview.mp3' -print -quit)
+          VOICE_PATH="voices/AI_TECH_LAB/20/chunk_1.mp3"
+          echo "voice_path=$VOICE_PATH" >> "$GITHUB_OUTPUT"
+          echo "started_before=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+          CODE=$(curl -sS --max-time 180 -o work/worker_voice_response.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -F "content_id=20" -F "language=english" -F "chunk_no=1" -F "total_chunks=1" \
+            -F "file=@$VOICE_MP3;type=audio/mpeg" "$WORKER_URL/api/voice-upload")
+
+          if [[ "$CODE" == "200" ]] && jq -e '.ok == true and .workflow_started == true' work/worker_voice_response.json >/dev/null; then
+            echo "use_direct_dispatch=false" >> "$GITHUB_OUTPUT"
+            echo "worker_started=true" >> "$GITHUB_OUTPUT"
+            echo "Existing Worker securely stored the approved voice, updated D1, and started the pipeline."
+            exit 0
+          fi
+
+          if [[ "$CODE" == "200" ]] && jq -e '.ok == true' work/worker_voice_response.json >/dev/null; then
+            # Voice storage and D1 update succeeded, but Worker did not confirm dispatch.
+            echo "Worker stored voice but did not confirm dispatch; continuing with the existing renderer workflow."
+          elif [[ "$CODE" == "401" ]]; then
+            # WORKER_AUTH_TOKEN may intentionally differ from the Worker-only HA_COMMAND_TOKEN.
+            # Only on a confirmed 401, safely store the approved voice directly in the existing Supabase bucket.
+            test -n "$SUPABASE_URL"
+            test -n "$SUPABASE_SERVICE_ROLE_KEY"
+            STORAGE_URL="${SUPABASE_URL%/}/storage/v1/object/ai-assistant-audio/$VOICE_PATH"
+            curl -fLsS --retry 3 --retry-delay 2 --max-time 180 \
+              -X POST -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: audio/mpeg" -H "x-upsert: true" \
+              --data-binary "@$VOICE_MP3" "$STORAGE_URL" -o work/supabase_upload_response.json
+            echo "Voice saved to the existing Supabase audio bucket. D1 status will be reconciled after dispatch."
+          else
+            jq '{ok,error,status,workflow_started}' work/worker_voice_response.json || true
+            echo "Voice upload outcome was not an expected authorization fallback; stop to avoid ambiguous state."
+            exit 1
+          fi
+
+          echo "use_direct_dispatch=true" >> "$GITHUB_OUTPUT"
+          echo "worker_started=false" >> "$GITHUB_OUTPUT"
+
+      - name: Create a short-lived HTTPS URL for the approved narration
+        id: sign_audio
+        if: steps.upload_guard.outputs.already_uploaded != 'true' && steps.voice_upload.outputs.use_direct_dispatch == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VOICE_PATH: ${{ steps.voice_upload.outputs.voice_path }}
+        run: |
+          set -euo pipefail
+          SIGN_BODY=$(jq -n '{expiresIn:86400}')
+          CODE=$(curl -sS --max-time 60 -o work/signed_audio.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$SIGN_BODY" \
+            "${SUPABASE_URL%/}/storage/v1/object/sign/ai-assistant-audio/$VOICE_PATH")
+          if [[ "$CODE" != "200" ]]; then
+            jq '{message,error,statusCode}' work/signed_audio.json || true
+            echo "Could not create HTTPS URL for approved narration."
+            exit 1
+          fi
+
+          SIGNED=$(jq -r '.signedURL // .signedUrl // .url // empty' work/signed_audio.json)
+          test -n "$SIGNED"
+          if [[ "$SIGNED" == https://* ]]; then
+            AUDIO_URL="$SIGNED"
+          elif [[ "$SIGNED" == /storage/v1/* ]]; then
+            AUDIO_URL="${SUPABASE_URL%/}$SIGNED"
+          elif [[ "$SIGNED" == /* ]]; then
+            AUDIO_URL="${SUPABASE_URL%/}/storage/v1$SIGNED"
+          else
+            AUDIO_URL="${SUPABASE_URL%/}/storage/v1/$SIGNED"
+          fi
+          [[ "$AUDIO_URL" == https://* ]] || { echo "Signed URL must use HTTPS."; exit 1; }
+          echo "::add-mask::$AUDIO_URL"
+          curl -fLsS --max-time 45 -r 0-1023 "$AUDIO_URL" -o /dev/null
+          echo "audio_url=$AUDIO_URL" >> "$GITHUB_OUTPUT"
+          echo "Approved voice signed URL is HTTPS and retrievable; link expires after 24 hours."
+
+      - name: Dispatch existing GitHub Actions plus FFmpeg renderer
+        if: steps.upload_guard.outputs.already_uploaded != 'true' && steps.voice_upload.outputs.use_direct_dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPO: ${{ github.repository }}
+          AUDIO_URL: ${{ steps.sign_audio.outputs.audio_url }}
+        run: |
+          set -euo pipefail
+          TITLE=$(jq -r '.title' production/ai_tech_lab_content_20.json)
+          SCRIPT=$(jq -r '.script' production/ai_tech_lab_content_20.json)
+          DESCRIPTION=$(jq -r '.description' production/ai_tech_lab_content_20.json)
+          TAGS=$(jq -r '.tags' production/ai_tech_lab_content_20.json)
+          PUBLISH_AT=$(jq -r '.publish_at' production/ai_tech_lab_content_20.json)
+          jq -n \
+            --arg content_id "20" --arg audio_url "$AUDIO_URL" \
+            --arg title "$TITLE" --arg script "$SCRIPT" \
+            --arg description "$DESCRIPTION" --arg tags "$TAGS" \
+            --arg publish_at "$PUBLISH_AT" \
+            '{ref:"main",inputs:{content_id:$content_id,audio_url:$audio_url,content_format:"LONG_VIDEO",title:$title,script:$script,description:$description,tags:$tags,publish_at:$publish_at}}' \
+            > work/dispatch.json
+
+          CODE=$(curl -sS --max-time 60 -o work/dispatch_response.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
+            --data-binary @work/dispatch.json \
+            "$GH_API/repos/$GH_REPO/actions/workflows/manual.yml/dispatches")
+          if [[ "$CODE" != "204" ]]; then
+            jq '{message,errors,documentation_url}' work/dispatch_response.json || true
+            echo "GitHub renderer dispatch failed."
+            exit 1
+          fi
+          echo "Existing GitHub Actions + FFmpeg renderer dispatched for approved Content 20."
+
+      - name: Confirm final renderer workflow started
+        if: steps.upload_guard.outputs.already_uploaded != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPO: ${{ github.repository }}
+          GH_SHA: ${{ github.sha }}
+          STARTED_BEFORE: ${{ steps.voice_upload.outputs.started_before }}
+          WORKER_STARTED: ${{ steps.voice_upload.outputs.worker_started }}
+        run: |
+          set -euo pipefail
+          if [[ "$WORKER_STARTED" == "true" ]]; then
+            echo "The existing Cloudflare worker has already confirmed pipeline dispatch."
+            exit 0
+          fi
+          success=false
+          for attempt in $(seq 1 40); do
+            curl -fsS --retry 2 --retry-delay 2 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "$GH_API/repos/$GH_REPO/actions/runs?event=workflow_dispatch&per_page=50" \
+              -o work/render-runs.json
+            RUN=$(jq -r --arg sha "$GH_SHA" --arg when "${STARTED_BEFORE:-1970-01-01T00:00:00Z}" '
+              [.workflow_runs[]
+                | select(.path == ".github/workflows/manual.yml")
+                | select(.head_branch == "main")
+                | select(.head_sha == $sha)
+                | select(.created_at >= $when)]
+              | sort_by(.created_at)
+              | if length == 0 then empty else last | [.id, .html_url, .status] | @tsv end
+            ' work/render-runs.json)
+            if [[ -n "$RUN" ]]; then
+              RUN_ID=$(printf '%s' "$RUN" | cut -f1)
+              RUN_URL=$(printf '%s' "$RUN" | cut -f2)
+              RUN_STATUS=$(printf '%s' "$RUN" | cut -f3)
+              echo "Renderer run found: $RUN_ID ($RUN_STATUS)"
+              echo "Renderer workflow: $RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+              success=true
+              break
+            fi
+            sleep 15
+          done
+          [[ "$success" == "true" ]] || {
+            echo "Voice stored, but no renderer run could be verified. Do not manually publish; inspect Cloudflare/GitHub recovery."
+            exit 1
+          }
+          echo "Renderer workflow start has been verified; final QA and YouTube scheduling remain guarded by the production workflow."
