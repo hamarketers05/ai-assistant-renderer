@@ -1191,26 +1191,47 @@ jobs:
           echo "already_uploaded=$(jq -r '.already_uploaded // false' work/state.json)" >> "$GITHUB_OUTPUT"
           echo "video_id=$(jq -r '.video_id // empty' work/state.json)" >> "$GITHUB_OUTPUT"
 
+      - name: Install and activate MiDaS AI depth model for SBS
+        if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' && inputs.stereo_output == 'SBS'
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/convert_video_midas_sbs.py --check-only --report work/midas_activation_report.json
+          jq -e '.status == "success" and .engine == "MiDaS AI" and .model == "MiDaS_small" and .activation_inference == "passed"' work/midas_activation_report.json >/dev/null
+          echo "Pinned MiDaS AI model loaded and inference-tested. Final master is ready for FFmpeg SBS conversion."
+
       - name: Convert final master to 3D before YouTube upload
         if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO'
         env:
           STEREO_OUTPUT: ${{ inputs.stereo_output }}
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y git
-          .venv/bin/python tools/convert_video_3d.py \
-            --input "output/AI_TECH_LAB_${CONTENT_ID}.mp4" \
-            --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4" \
-            --mode "$STEREO_OUTPUT" \
-            --content-format "$CONTENT_FORMAT" \
-            --report work/stereo_3d_report.json \
-            --max-duration-seconds 480 \
-            --max-conversion-seconds 5400 \
-            --require-success
+          if [[ "$STEREO_OUTPUT" == "SBS" ]]; then
+            .venv/bin/python tools/convert_video_midas_sbs.py \
+              --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
+              --output "output/AI_TECH_LAB_$CONTENT_ID_3D_SBS.mp4" \
+              --mode SBS \
+              --content-format "$CONTENT_FORMAT" \
+              --report work/stereo_3d_report.json \
+              --max-duration-seconds 480 \
+              --max-conversion-seconds 5400 \
+              --require-success
+            jq -e '.engine == "MiDaS AI + FFmpeg" and .status == "success"' work/stereo_3d_report.json >/dev/null
+          else
+            sudo apt-get update
+            sudo apt-get install -y git
+            .venv/bin/python tools/convert_video_3d.py \
+              --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
+              --output "output/AI_TECH_LAB_$CONTENT_ID"_3D_"$STEREO_OUTPUT".mp4 \
+              --mode "$STEREO_OUTPUT" \
+              --content-format "$CONTENT_FORMAT" \
+              --report work/stereo_3d_report.json \
+              --max-duration-seconds 480 \
+              --max-conversion-seconds 5400 \
+              --require-success
+          fi
           jq -e '.status == "success" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
-          test -s "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
-          echo "3D output passed stream, audio, duration and geometry checks; only this 3D file may be uploaded."
+          test -s "output/AI_TECH_LAB_$CONTENT_ID"_3D_"$STEREO_OUTPUT".mp4
+          echo "Only the verified stereoscopic output is eligible for YouTube upload."
 
       - name: Save verified 3D upload artifact
         if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO'
