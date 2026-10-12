@@ -7,6 +7,10 @@ on:
         description: "Content ID"
         required: true
         type: string
+      audio_url:
+        description: "Legacy compatibility only; ignored. Kokoro generates the narration automatically."
+        required: false
+        type: string
       content_format:
         description: "AI Tech Lab video format"
         required: true
