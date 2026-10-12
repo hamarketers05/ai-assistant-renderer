@@ -74,6 +74,9 @@ def main() -> None:
 
     scene_count = int(scenes.get("planned_visual_scenes", 0))
     transition_count = int(transitions.get("scenes", scene_count)) - 1
+    generated_scene_images = len(list(Path("assets").glob("generated_scene_*.png")))
+    generated_hud_overlays = len(list(Path("assets").glob("scene_overlay_*.png")))
+    evidence_charts = list(evidence.get("charts_created") or [])
     if voice.get("status") != "passed":
         raise SystemExit("Editing manifest blocked: automated voice-editing QA did not pass.")
     if scenes.get("exact_word_timing") is not True or scene_count < 8:
@@ -102,12 +105,12 @@ def main() -> None:
         {"tool": "FFmpeg de-esser/compressor/loudness", "status": "used", "purpose": "speech cleanup, light sibilance control, compression and loudness normalization", "settings": "light de-esser; speech target -16 LUFS before final mix; final mix -14 LUFS"},
         {"tool": "FFmpeg slow stereo motion", "status": "used", "purpose": "subtle 0.08 Hz motion on the background-music bed only; speech remains centered", "settings": "15% modulation; music is side-chain ducked under narration"},
         {"tool": "Voice-aligned scene director", "status": "used", "purpose": "clause-aware scene chunks driven by final narration word timestamps", "scene_count": scene_count, "average_scene_seconds": avg_scene_seconds},
-        {"tool": "Ken Burns / camera drift", "status": "used", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills"},
-        {"tool": "Cinematic color grade", "status": "used", "purpose": "restrained contrast/saturation, teal-blue shadows, warmer highlights, sharpening and soft vignette"},
+        {"tool": "Ken Burns / camera drift", "status": "used", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills", "settings": "generated stills zoom to 1.08; stock framing varies about 1.06-1.105 with slow x/y drift and subtle roll"},
+        {"tool": "Cinematic color grade", "status": "used", "purpose": "restrained contrast/saturation, cool teal-blue shadows, warmer highlights, sharpening, soft vignette and subtle temporal grain", "settings": "contrast=1.10; saturation=1.10; gamma=1.015; cool shadows / warm highlights via colorbalance; unsharp=0.45; vignette=PI/5; noise=1.2 temporal"},
         {"tool": "Film grain", "status": "used", "purpose": "very light FFmpeg grain, kept subtle for technology detail"},
         {"tool": "Neon HUD / scene overlay", "status": "used", "purpose": "per-scene transparent topic label, cyan glow and lower-third overlay"},
         {"tool": "Crossfade / push / digital mosaic transitions", "status": "used", "purpose": "short FFmpeg xfade transitions; occasional pixelize/zoom transitions", "transition_report": transitions.get("transition_types", [])},
-        {"tool": "Original procedural transition SFX", "status": "used", "purpose": "quiet whoosh + digital tick ahead of each rendered scene transition", "transition_count": int(sfx.get("transition_count", 0))},
+        {"tool": "Original procedural transition SFX", "status": "used", "purpose": "quiet whoosh + digital tick ahead of each rendered scene transition", "transition_count": int(sfx.get("transition_count", 0)), "cue_lead_seconds": sfx.get("cue_lead_seconds", 0.22), "source_license": sfx.get("source_license")},
         {"tool": "Original topic-aware music", "status": "used", "purpose": "locally synthesized score with voice ducking"},
         {"tool": "2.35:1 letterboxing", "status": "skipped" if is_short else "used", "reason": "native vertical canvas for Shorts" if is_short else "cinematic bars inside the 16:9 YouTube container"},
         {"tool": "Premium thumbnail", "status": "used" if thumb is not None else "unverified", "purpose": "1280x720 Pillow composition with 3D pop-out, glow and short title text", "brief_source": "Groq brief" if thumbnail_brief.get("hook") else "local fallback"},
@@ -125,8 +128,11 @@ def main() -> None:
     warnings = []
     if is_short:
         warnings.append("Shorts keep their native 9:16 canvas, so 2.35:1 letterboxing and 3D SBS conversion are not applied.")
-    if stereo.get("status") == "success" and not sbs_lut_used and args.stereo_output == "SBS":
-        warnings.append("SBS report did not confirm both LUT application and pinned-file integrity.")
+    if stereo.get("status") == "success" and args.stereo_output == "SBS":
+        if not sbs_lut_used:
+            warnings.append("SBS report did not confirm both LUT application and pinned-file integrity.")
+        else:
+            warnings.append("The pinned external Kodak 2383 D55 LUT checksum is verified, but its upstream commercial-use license remains unverified.")
     if not evidence:
         warnings.append("Evidence chart report is missing; charts must not be inferred from unsupported statistics.")
     elif not (evidence.get("charts_created") or []):
@@ -141,6 +147,15 @@ def main() -> None:
         "final_video_bytes": final_video.stat().st_size,
         "thumbnail": str(thumb) if thumb else None,
         "scene_count": scene_count,
+        "visual_assets": {
+            "planned_voice_aligned_scenes": scene_count,
+            "generated_topic_matched_images": generated_scene_images,
+            "transparent_hud_overlays": generated_hud_overlays,
+            "evidence_supported_charts": len(evidence_charts),
+            "licensed_stock_source_records": licensed_clips,
+            "provider_source_counts": provider_counts,
+            "transition_sfx_events": int(sfx.get("transition_count", 0)),
+        },
         "average_scene_seconds": avg_scene_seconds,
         "transition_count": int(transitions.get("scenes", 0)) - 1,
         "transition_sfx_count": int(sfx.get("transition_count", 0)),
@@ -148,7 +163,7 @@ def main() -> None:
         "commercial_use_stock_source_count": licensed_clips,
         "editing_tools": tools,
         "warnings": warnings,
-        "policy": "Each relevant feature must report used, not_applicable, skipped, or not_installed with a reason; no tool is forced when it would reduce reliability or invalidate sync/licensing.",
+        "policy": "Each relevant feature must report used, not_applicable, skipped, or not_installed with a reason; no tool is forced when it would reduce reliability or invalidate sync/licensing. Asset counts represent generated/downloaded artifacts actually present for this run; they are not promises of viewer retention or performance.",
     }
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
