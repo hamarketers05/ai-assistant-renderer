@@ -2,13 +2,25 @@
 """Fetch scene-relevant, commercially usable video from Wikimedia Commons, preserving license records."""
 from __future__ import annotations
 import html, json, re, subprocess, time, urllib.parse, urllib.request
+import urllib.error
 from pathlib import Path
 
 API = "https://commons.wikimedia.org/w/api.php"
 UA = "AI-Tech-Lab-Renderer/1.0 (https://github.com/hamarketers05/ai-assistant-renderer)"
-MAX_SCENES, MAX_DOWNLOADS = 48, 16
+MAX_SCENES, MAX_DOWNLOADS = 48, 8
+MIN_LICENSED_CLIPS = 4
 MAX_BYTES = 80 * 1024 * 1024
+MAX_API_REQUESTS = 120
+MIN_API_INTERVAL_SECONDS = 1.25
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
+ANCHORS = set("ai chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
+API_REQUESTS = 0
+LAST_API_REQUEST = 0.0
+RATE_LIMITED = False
+REQUEST_BUDGET_REACHED = False
+SEARCH_CACHE = {}
+INFO_CACHE = {}
+USED_FILE_TITLES = set()
 VIDEO_EXTS = {".mp4", ".webm", ".ogv", ".ogg", ".mov", ".m4v"}
 
 def clean(value):
@@ -17,16 +29,93 @@ def clean(value):
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", str(value or "")))).strip()
 
 def req_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as response:
-        if response.status != 200: raise RuntimeError(f"Commons API HTTP {response.status}")
-        return json.loads(response.read().decode("utf-8"))
+    """Serial, cache-friendly MediaWiki requests with Retry-After-aware backoff."""
+    global API_REQUESTS, LAST_API_REQUEST, RATE_LIMITED, REQUEST_BUDGET_REACHED
+    if API_REQUESTS >= MAX_API_REQUESTS:
+        REQUEST_BUDGET_REACHED = True
+        raise RuntimeError(f"Commons per-video API budget reached ({MAX_API_REQUESTS} requests)")
+    last_error = None
+    for attempt in range(3):
+        pause = MIN_API_INTERVAL_SECONDS - (time.monotonic() - LAST_API_REQUEST)
+        if pause > 0:
+            time.sleep(pause)
+        LAST_API_REQUEST = time.monotonic()
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+        API_REQUESTS += 1
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Commons API HTTP {response.status}")
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in (429, 503):
+                raise
+            retry_after = None
+            try:
+                retry_after = float(exc.headers.get("Retry-After", ""))
+            except (TypeError, ValueError):
+                pass
+            # Wikimedia guidance: honor Retry-After, otherwise wait at least 5s
+            # and back off more on repeat rate-limit responses.
+            delay = retry_after if retry_after is not None else max(5.0, 5.0 * (2 ** attempt))
+            delay = min(60.0, max(5.0, delay))
+            if attempt < 2:
+                print(f"Commons API rate limit HTTP {exc.code}; waiting {delay:.1f}s before retry.")
+                time.sleep(delay)
+                continue
+            RATE_LIMITED = True
+            raise RuntimeError(f"Commons API remained rate limited after backoff (HTTP {exc.code})") from exc
+    raise RuntimeError(f"Commons API request failed after retries: {last_error}")
 
 def terms_of(text):
     out = []
     for word in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", text.lower()):
-        if word not in STOP and word not in out: out.append(word)
-    return out[:8]
+        if word not in STOP and word not in out:
+            out.append(word)
+    return out[:12]
+
+def concept_terms(text):
+    return set(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+
+def anchor_terms(text):
+    return concept_terms(text) & ANCHORS
+
+def topic_queries(text):
+    """Build focused searches only when a narrated scene contains a hardware concept."""
+    raw = str(text or "").lower()
+    anchors = anchor_terms(raw)
+    queries = []
+    if anchors & {"chip", "chips", "chiplet", "chiplets", "semiconductor", "semiconductors",
+                  "processor", "processors", "silicon", "microchip", "microchips", "wafer", "wafers", "maia"}:
+        queries.append("AI chip semiconductor silicon")
+        if anchors & {"chiplet", "chiplets", "silicon", "wafer", "semiconductor", "semiconductors"}:
+            queries.append("silicon wafer microchip processor")
+    if anchors & {"gpu", "gpus", "nvidia", "accelerator", "accelerators", "inference", "compute", "computing"}:
+        queries.append("GPU AI accelerator processor")
+    if anchors & {"server", "servers", "rack", "racks", "datacenter", "data", "center", "network", "networking", "bandwidth"}:
+        queries.append("data center server rack networking")
+    if anchors & {"megawatt", "megawatts", "power", "electricity", "cooling"}:
+        queries.append("data center power cooling")
+    if anchors & {"memory", "circuit", "circuits", "motherboard", "transistor", "transistors", "hardware"}:
+        queries.append("computer hardware circuit board")
+    words = terms_of(raw)
+    if len(words) >= 2:
+        queries.append(" ".join(words[:5]))
+    return list(dict.fromkeys(q for q in queries if q))[:3]
+
+def relevance_score(scene_text, title, description):
+    """Score on both shared hardware concepts and narrower scene-word overlap."""
+    scene_words = set(terms_of(scene_text))
+    available = set(terms_of(str(title or "") + " " + str(description or "")))
+    scene_anchors = anchor_terms(scene_text)
+    shared_anchors = scene_anchors & anchor_terms(str(title or "") + " " + str(description or ""))
+    if not shared_anchors:
+        return 0.0, sorted(scene_words & available), []
+    word_overlap = len(scene_words & available) / max(1, len(scene_words))
+    anchor_overlap = len(shared_anchors) / max(1, len(scene_anchors))
+    score = round(min(1.0, 0.65 * anchor_overlap + 0.35 * word_overlap), 3)
+    return score, sorted(scene_words & available), sorted(shared_anchors)
 
 def license_ok(label, url):
     label_low = re.sub(r"\s+", " ", label.lower()).strip()
@@ -47,19 +136,30 @@ def meta_field(meta, key):
     return clean(val.get("value", "") if isinstance(val, dict) else val)
 
 def search_files(query):
-    params = {"action":"query","format":"json","list":"search",
-              "srsearch":f"filetype:video {query}","srnamespace":6,"srlimit":20,"srprop":"size|wordcount"}
+    key = " ".join(query.lower().split())
+    if key in SEARCH_CACHE:
+        return SEARCH_CACHE[key]
+    params = {"action":"query","format":"json","list":"search","maxlag":2,
+              "srsearch":f"filetype:video {query}","srnamespace":6,"srlimit":8,"srprop":"size|wordcount"}
     data = req_json(API + "?" + urllib.parse.urlencode(params))
-    return (data.get("query") or {}).get("search") or []
+    result = (data.get("query") or {}).get("search") or []
+    SEARCH_CACHE[key] = result
+    return result
 
 def file_info(title):
+    if title in INFO_CACHE:
+        return INFO_CACHE[title]
     params = {"action":"query","format":"json","titles":title,"prop":"imageinfo",
-              "iiprop":"url|mime|size|extmetadata","formatversion":2}
+              "iiprop":"url|mime|size|extmetadata","formatversion":2,"maxlag":2}
     data = req_json(API + "?" + urllib.parse.urlencode(params))
     pages = (data.get("query") or {}).get("pages") or []
-    if not pages or "missing" in pages[0]: return None
+    if not pages or "missing" in pages[0]:
+        INFO_CACHE[title] = None
+        return None
     infos = pages[0].get("imageinfo") or []
-    return {"page":pages[0],"info":infos[0]} if infos else None
+    result = {"page":pages[0],"info":infos[0]} if infos else None
+    INFO_CACHE[title] = result
+    return result
 
 def fetch_bytes(url):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
@@ -71,108 +171,176 @@ def fetch_bytes(url):
         return data
 
 def main():
+    global RATE_LIMITED, REQUEST_BUDGET_REACHED
     scenes = Path("work/scenes.tsv")
-    if not scenes.is_file(): raise SystemExit("Missing work/scenes.tsv.")
-    log = Path("work/asset_sources.jsonl"); log.parent.mkdir(parents=True, exist_ok=True); log.touch(exist_ok=True)
+    if not scenes.is_file():
+        raise SystemExit("Missing work/scenes.tsv.")
+    log = Path("work/asset_sources.jsonl")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.touch(exist_ok=True)
     rows = [line.rstrip("\n").split("\t") for line in scenes.read_text(encoding="utf-8").splitlines() if line.strip()]
     downloaded, checked, skipped = 0, 0, 0
+    stop_all = False
+
     for row in rows[:MAX_SCENES]:
-        if len(row) < 7 or downloaded >= MAX_DOWNLOADS: continue
+        if downloaded >= MIN_LICENSED_CLIPS or downloaded >= MAX_DOWNLOADS:
+            break
+        if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
+            break
+        if len(row) < 7:
+            continue
         scene = re.sub(r"[^A-Za-z0-9_-]", "_", row[0])[:80]
         target = Path(f"assets/scene_{scene}.mp4")
-        if target.is_file() and target.stat().st_size > 10000: continue
-        query_text = re.sub(r"\s+", " ", f"{row[5]} {row[6]}").strip()
-        terms = terms_of(query_text)
-        if len(terms) < 2: continue
+        if target.is_file() and target.stat().st_size > 10000:
+            continue
+
+        scene_text = re.sub(r"\\s+", " ", f"{row[5]} {row[6]}").strip()
+        scene_anchors = anchor_terms(scene_text)
+        # Non-hardware/abstract scenes are handled with original generated scene art;
+        # stock footage is only fetched where the narrated visual contains a real anchor.
+        if not scene_anchors:
+            skipped += 1
+            continue
+        query_candidates = topic_queries(scene_text)
+        if not query_candidates:
+            skipped += 1
+            continue
+
         selected = None
-        seen = set()
-        query_candidates = [
-            " ".join(terms[:5]),
-            " ".join(terms[:3]),
-            " ".join(terms[:2]),
-            "computer security",
-            "cybersecurity network",
-            "computer server data center",
-            "computer code software",
-            "artificial intelligence computer",
-            "digital technology office",
-            "network cables server",
-        ]
-        # Deduplicate while preserving query order; broad fallback searches are still
-        # required to pass the per-scene title/description relevance test below.
-        query_candidates = list(dict.fromkeys(q.strip() for q in query_candidates if q.strip()))
+        seen_titles = set()
         for query in query_candidates:
-            try: results = search_files(query)
+            if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
+                break
+            try:
+                results = search_files(query)
             except Exception as exc:
-                print(f"Commons search failed for scene {scene}: {str(exc)[:140]}"); continue
+                print(f"Commons search failed for scene {scene}, query={query!r}: {str(exc)[:140]}")
+                if RATE_LIMITED or REQUEST_BUDGET_REACHED:
+                    stop_all = True
+                continue
+
+            metadata_candidates = 0
             for result in results:
+                if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
+                    break
                 title = str(result.get("title") or "")
-                if not title or title in seen or not re.search(r"\.(mp4|webm|ogv|ogg|mov|m4v)$", title, re.I): continue
-                seen.add(title)
+                if (not title or title in seen_titles or title in USED_FILE_TITLES
+                        or not re.search(r"\\.(mp4|webm|ogv|ogg|mov|m4v)$", title, re.I)):
+                    continue
+                seen_titles.add(title)
+                title_anchors = anchor_terms(title)
+                # The search phrase is specific; screen unrelated titles before
+                # requesting their more expensive license/description metadata.
+                if not (scene_anchors & title_anchors):
+                    continue
+                metadata_candidates += 1
+                if metadata_candidates > 3:
+                    break
                 try:
                     pair = file_info(title)
-                    if not pair: continue
+                    checked += 1
+                    if not pair:
+                        continue
                     page, info = pair["page"], pair["info"]
-                    if not str(info.get("mime") or "").lower().startswith("video/"): continue
+                    if not str(info.get("mime") or "").lower().startswith("video/"):
+                        continue
                     file_url = str(info.get("url") or "")
-                    if Path(urllib.parse.urlparse(file_url).path).suffix.lower() not in VIDEO_EXTS: continue
+                    if Path(urllib.parse.urlparse(file_url).path).suffix.lower() not in VIDEO_EXTS:
+                        continue
                     meta = info.get("extmetadata") or {}
-                    label, license_url = meta_field(meta,"LicenseShortName"), meta_field(meta,"LicenseUrl")
+                    label, license_url = meta_field(meta, "LicenseShortName"), meta_field(meta, "LicenseUrl")
                     ok, normalized, attribution = license_ok(label, license_url)
                     if not ok:
-                        print(f"Commons skipped {title}: not a verified commercial-use license."); continue
-                    creator = meta_field(meta,"Artist") or meta_field(meta,"Credit") or meta_field(meta,"Attribution")
-                    if attribution and not creator:
-                        print(f"Commons skipped {title}: the attribution-required license has no creator metadata.")
+                        print(f"Commons skipped {title}: not a verified commercial-use license.")
                         continue
-                    desc = meta_field(meta,"ImageDescription")
-                    title_terms = set(terms_of(title.replace("File:"," ")))
-                    desc_terms = set(terms_of(desc))
-                    # Normalize against all query concepts so relevance stays in [0,1]
-                    # and a single generic keyword cannot masquerade as an exact match.
-                    overlap = len(set(terms) & (title_terms | desc_terms)) / max(1,len(set(terms)))
-                    if overlap < 0.20: continue
+                    creator = meta_field(meta, "Artist") or meta_field(meta, "Credit") or meta_field(meta, "Attribution")
+                    if attribution and not creator:
+                        print(f"Commons skipped {title}: attribution-required license has no creator metadata.")
+                        continue
+                    desc = meta_field(meta, "ImageDescription")
+                    score, matching_terms, matching_anchors = relevance_score(scene_text, title, desc)
+                    if score < 0.20 or not matching_anchors:
+                        continue
                     source_url = str(info.get("descriptionurl") or "")
-                    if not file_url.startswith("https://") or not source_url.startswith("https://commons.wikimedia.org/"): continue
+                    if not file_url.startswith("https://") or not source_url.startswith("https://commons.wikimedia.org/"):
+                        continue
                     size = int(info.get("size") or 0)
-                    if size and size > MAX_BYTES: continue
-                    selected = {"title":title,"file_url":file_url,"source_url":source_url,
-                                "creator":creator,"license":normalized,"license_url":license_url,
-                                "attribution":attribution,"relevance_score":round(overlap,3)}
+                    if size and size > MAX_BYTES:
+                        continue
+                    selected = {
+                        "title": title, "file_url": file_url, "source_url": source_url,
+                        "creator": creator, "license": normalized, "license_url": license_url,
+                        "attribution": attribution, "relevance_score": score,
+                        "matching_terms": matching_terms, "matching_anchors": matching_anchors
+                    }
                     break
                 except Exception as exc:
                     print(f"Commons metadata skipped for scene {scene}: {str(exc)[:120]}")
-                finally: checked += 1
-            if selected: break
-            time.sleep(0.25)
+                    if RATE_LIMITED or REQUEST_BUDGET_REACHED:
+                        stop_all = True
+                    break
+
+            if selected or stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
+                break
+
         if not selected:
-            skipped += 1; print(f"No verified, scene-relevant Commons clip for scene {scene}."); continue
+            skipped += 1
+            print(f"No verified, scene-relevant Commons clip for scene {scene}.")
+            continue
+
         try:
             data = fetch_bytes(selected["file_url"])
-            if len(data) < 10000: raise RuntimeError("Video payload too small")
+            if len(data) < 10000:
+                raise RuntimeError("Video payload too small")
             ext = Path(urllib.parse.urlparse(selected["file_url"]).path).suffix.lower() or ".webm"
-            source = Path(f"work/commons_{scene}{ext}"); source.write_bytes(data)
+            source = Path(f"work/commons_{scene}{ext}")
+            source.write_bytes(data)
             target.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-i",str(source),
-                "-t","30","-vf","scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=30,setsar=1",
-                "-an","-c:v","libx264","-preset","veryfast","-crf","24","-pix_fmt","yuv420p",
-                "-movflags","+faststart",str(target)], check=True, timeout=180)
-            if not target.is_file() or target.stat().st_size < 10000: raise RuntimeError("FFmpeg output is not usable")
-            item = {"scene":scene,"provider":"Wikimedia Commons","asset_title":selected["title"].removeprefix("File:"),
-                    "creator":selected["creator"] or "Creator not listed in source metadata",
-                    "source_url":selected["source_url"],"license_label":selected["license"],
-                    "license_url":selected["license_url"],"attribution_required":selected["attribution"],
-                    "relevance_score":selected["relevance_score"],
-                    "query":" ".join(terms[:5]),"commercial_use_allowed":True}
-            with log.open("a",encoding="utf-8") as out: out.write(json.dumps(item,ensure_ascii=False)+"\n")
-            downloaded += 1; print(f"Commons clip used for scene {scene}: {selected['title']}")
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+                "-t", "30", "-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=30,setsar=1",
+                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(target)
+            ], check=True, timeout=180)
+            if not target.is_file() or target.stat().st_size < 10000:
+                raise RuntimeError("FFmpeg output is not usable")
+            item = {
+                "scene": scene, "provider": "Wikimedia Commons",
+                "asset_id": selected["title"],
+                "asset_title": selected["title"].removeprefix("File:"),
+                "creator": selected["creator"] or "Creator not listed in source metadata",
+                "source_url": selected["source_url"], "license_label": selected["license"],
+                "license_url": selected["license_url"], "attribution_required": selected["attribution"],
+                "relevance_score": selected["relevance_score"],
+                "matching_terms": selected["matching_terms"],
+                "matching_anchors": selected["matching_anchors"],
+                "query": " / ".join(query_candidates), "commercial_use_allowed": True
+            }
+            with log.open("a", encoding="utf-8") as out:
+                out.write(json.dumps(item, ensure_ascii=False) + "\n")
+            USED_FILE_TITLES.add(selected["title"])
+            downloaded += 1
+            print(f"Commons clip used for scene {scene}: {selected['title']} "
+                  f"(relevance={selected['relevance_score']}, anchors={selected['matching_anchors']})")
         except Exception as exc:
-            target.unlink(missing_ok=True); print(f"Commons download failed for scene {scene}: {str(exc)[:140]}")
-    report = {"provider":"Wikimedia Commons","scenes_considered":len(rows[:MAX_SCENES]),
-              "metadata_items_checked":checked,"clips_downloaded":downloaded,
-              "scenes_without_licensed_footage":skipped,"free_only_policy":True}
-    Path("work/commons_media_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
-    print(json.dumps(report))
+            target.unlink(missing_ok=True)
+            print(f"Commons download failed for scene {scene}: {str(exc)[:140]}")
 
+    report = {
+        "provider": "Wikimedia Commons",
+        "scenes_considered": len(rows[:MAX_SCENES]),
+        "metadata_items_checked": checked,
+        "clips_downloaded": downloaded,
+        "minimum_new_licensed_clips_required": MIN_LICENSED_CLIPS,
+        "scenes_without_licensed_footage": skipped,
+        "api_requests": API_REQUESTS,
+        "rate_limited": RATE_LIMITED,
+        "request_budget_reached": REQUEST_BUDGET_REACHED,
+        "query_cache_entries": len(SEARCH_CACHE),
+        "metadata_cache_entries": len(INFO_CACHE),
+        "free_only_policy": True
+    }
+    Path("work/commons_media_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report))
 if __name__ == "__main__":
     main()
