@@ -450,11 +450,27 @@ jobs:
               return terms[:12]
 
           def relevance(query, title, description):
-              # Relevance is the proportion of meaningful scene concepts found in
-              # the candidate title/description, bounded to 0..1.
+              # Score a candidate against a short, narration-grounded query, not a 120-character sentence.
               needed = set(significant_terms(query))
               available = set(significant_terms(str(title or "") + " " + str(description or "")))
               return round(len(needed & available) / max(1, len(needed)), 3), sorted(needed & available)
+
+          def focused_search_query(scene_text):
+              lower = re.sub(r"\s+", " ", str(scene_text or "").lower())
+              # Specific asset terms improve recall while keeping each choice grounded in the scene.
+              if re.search(r"\b(chiplet|chiplets|silicon wafer|semiconductor fabrication|wafer fabrication)\b", lower):
+                  return "semiconductor chip silicon"
+              if re.search(r"\b(nvidia|gpu|gpus|graphics processor|accelerator)\b", lower):
+                  return "GPU processor accelerator"
+              if re.search(r"\b(data center|datacenter|server|servers|rack|racks)\b", lower):
+                  return "data center server rack"
+              if re.search(r"\b(megawatt|megawatts|kilowatt|electricity|cooling|energy|power budget)\b", lower):
+                  return "data center power cooling"
+              if re.search(r"\b(memory|networking|bandwidth|data movement|chip to chip)\b", lower):
+                  return "data center networking memory"
+              if re.search(r"\b(inference|throughput|latency|tokens|ai chip|maia|chip|processor|silicon)\b", lower):
+                  return "AI chip processor"
+              return ""
 
           try:
               api_get(f"{BASE}/{ACCOUNT_ID}/account/info")
@@ -470,7 +486,7 @@ jobs:
           max_search_calls = 18
           max_downloads = 12
           max_download_calls = 24
-          seen_queries = set()
+          query_pages = {}
 
           for row in rows:
               if len(row) < 7:
@@ -479,18 +495,24 @@ jobs:
                       or search_calls >= max_search_calls):
                   break
 
-              scene, start, end, duration, kind, query, overlay = row[:7]
+              scene, start, end, duration, kind, raw_query, overlay = row[:7]
               scene = re.sub(r"[^a-zA-Z0-9_-]", "_", scene)[:80]
-              query = re.sub(r"\s+", " ", query).strip()[:120]
+              scene_context = re.sub(r"\s+", " ", f"{raw_query} {overlay}").strip()[:400]
+              query = focused_search_query(scene_context)
 
-              if len(query) < 3 or query.lower() in seen_queries:
+              # Do not search generic/abstract scenes for unrelated stock footage.
+              if not query:
                   continue
-              seen_queries.add(query.lower())
+              query_key = query.lower()
+              page_number = query_pages.get(query_key, 0) + 1
+              if page_number > 3:
+                  continue
+              query_pages[query_key] = page_number
 
               search_url = f"{BASE}/{ACCOUNT_ID}/resources?" + urllib.parse.urlencode({
                   "term": query,
                   "content_type": "video",
-                  "page": 1,
+                  "page": page_number,
                   "per_page": 5
               })
 
