@@ -393,8 +393,10 @@ jobs:
                       license_label = find_value(combined, {
                           "license_name", "license_type", "licence_name", "licence_type", "license", "licence"
                       })
-                      license_lower = (license_label or "").strip().lower()
-                      explicitly_free = bool(re.search(r"\bfree(?:\s+license)?\b", license_lower))
+                      license_lower = re.sub(r"\s+", " ", (license_label or "").strip().lower())
+                      # Accept only a clear API license label; "free download" or
+                      # an unknown/mixed label is not proof of a Free License.
+                      explicitly_free = license_lower in {"free license", "free"}
                       if not explicitly_free or any(term in license_lower for term in ("editorial", "pro", "premium", "paid")):
                           print(f"Skipping {rid}: an explicit Free License was not verified; using original generated visuals.")
                           continue
