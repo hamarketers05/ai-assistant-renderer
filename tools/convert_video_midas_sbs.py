@@ -92,6 +92,52 @@ def ensure_cinematic_lut(work_dir: Path) -> tuple[Path, dict]:
         raise
 
 
+def make_ffmpeg_compatible_lut(source: Path, work_dir: Path) -> tuple[Path, dict]:
+    """Remove the Resolve-only INPUT_RANGE directive FFmpeg's .cube parser rejects."""
+    text = source.read_text(encoding="utf-8")
+    kept = []
+    values = 0
+    allowed_headers = (
+        "TITLE", "LUT_1D_SIZE", "LUT_3D_SIZE", "DOMAIN_MIN", "DOMAIN_MAX"
+    )
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            kept.append(raw_line)
+            continue
+        if line.startswith("LUT_3D_INPUT_RANGE"):
+            continue
+        if line.startswith(allowed_headers):
+            kept.append(raw_line)
+            continue
+        parts = line.split()
+        if len(parts) != 3:
+            raise ValueError(f"Unsupported or malformed LUT line prevents safe FFmpeg conversion: {line[:100]}")
+        try:
+            rgb = tuple(float(item) for item in parts)
+        except ValueError as exc:
+            raise ValueError(f"Invalid RGB data in cinematic LUT: {line[:100]}") from exc
+        if not all(math.isfinite(channel) for channel in rgb):
+            raise ValueError("Cinematic LUT contains non-finite RGB data.")
+        values += 1
+        kept.append(raw_line)
+
+    expected_values = 33 ** 3
+    if values != expected_values:
+        raise ValueError(
+            f"FFmpeg-compatible LUT has {values} RGB entries; expected {expected_values}."
+        )
+    output = work_dir / "cinematic_ffmpeg.cube"
+    output.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    return output, {
+        "status": "passed",
+        "filename": output.name,
+        "removed_unsupported_directive": "LUT_3D_INPUT_RANGE",
+        "retained_rgb_entries": values,
+        "source_file_kept_unmodified": True,
+    }
+
+
 def report(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -274,6 +320,7 @@ def convert(args) -> int:
             raise ValueError("This MiDaS + FFmpeg stage is only enabled for LONG_VIDEO SBS.")
 
         lut_path, lut_info = ensure_cinematic_lut(Path("work"))
+        ffmpeg_lut_path, lut_compatibility = make_ffmpeg_compatible_lut(lut_path, Path("work"))
         output.parent.mkdir(parents=True, exist_ok=True)
         output.unlink(missing_ok=True)
 
@@ -294,7 +341,7 @@ def convert(args) -> int:
             "-video_size", f"{width * 2}x{height}", "-framerate", fps,
             "-i", "pipe:0", "-i", str(source),
             "-map", "0:v:0", "-map", "1:a:0", "-map_metadata", "1",
-            "-vf", f"lut3d=file={lut_path.resolve()}:interp=trilinear",
+            "-vf", f"lut3d=file={ffmpeg_lut_path.resolve()}:interp=trilinear",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
             "-pix_fmt", "yuv420p", "-x264opts", "frame-packing=3",
             "-c:a", "copy", "-shortest", "-movflags", "+faststart",
@@ -388,7 +435,8 @@ def convert(args) -> int:
             "color_grade": {
                 **lut_info,
                 "status": "passed",
-                "ffmpeg_filter": f"lut3d=file={lut_path.resolve()}:interp=trilinear",
+                "ffmpeg_compatible_copy": {**lut_compatibility},
+                "ffmpeg_filter": f"lut3d=file={ffmpeg_lut_path.resolve()}:interp=trilinear",
                 "applied_in_same_encode_pass": True,
                 "cpu_note": "The filter adds per-pixel CPU work, but avoids a separate grading render/re-encode pass.",
             },
