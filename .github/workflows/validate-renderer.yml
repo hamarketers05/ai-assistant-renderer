@@ -307,7 +307,7 @@ jobs:
           Path("work/stereo_3d_report.json").write_text(json.dumps({"status":"disabled"}),encoding="utf-8")
           Path("work/kokoro_audio_quality.json").write_text(json.dumps({"quality_gate":"passed"}),encoding="utf-8")
           Path("work/thumbnail_brief.json").write_text(json.dumps({"hook":"TEST HOOK"}),encoding="utf-8")
-          Path("work/asset_sources.jsonl").write_text("".join(json.dumps({"provider":"LicenseFixture", "scene":str(i), "source_url":"https://example.org/"+str(i), "creator":"CI fixture"})+"\\n" for i in range(4)),encoding="utf-8")
+          Path("work/asset_sources.jsonl").write_text("\n".join(json.dumps({"provider":"LicenseFixture", "scene":str(i), "source_url":"https://example.org/"+str(i), "creator":"CI fixture"}) for i in range(4)) + "\n",encoding="utf-8")
           Path("output/manifest-smoke.mp4").write_bytes(b"fixture" * 20000)
           from PIL import Image
           Image.new("RGB",(1280,720),(4,18,36)).save("output/manifest-smoke.jpg",quality=90)
