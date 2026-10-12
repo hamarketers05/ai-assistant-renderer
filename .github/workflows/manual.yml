@@ -528,6 +528,17 @@ jobs:
           .venv/bin/python tools/generate_scene_art.py
           test "$(find assets -maxdepth 1 -name 'generated_scene_*.png' | wc -l)" -ge 4
 
+      - name: Generate topic-matched 3D hero overlay
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/make_3d_hero_overlay.py work/title.txt assets/ai_security_3d_hero.png
+          if [ -f assets/ai_security_3d_hero.png ]; then
+            test "$(identify -format '%wx%h' assets/ai_security_3d_hero.png)" = "720x720"
+            echo "Transparent topic-matched 3D hero generated and validated."
+          else
+            echo "No topic-specific 3D hero is required for this title."
+          fi
+
       - name: Render scenes
         run: |
           set -euo pipefail
@@ -586,6 +597,20 @@ jobs:
 
               if not target.exists() or target.stat().st_size < 1000:
                   raise SystemExit(f"Scene render failed: {scene}")
+
+              # Add a restrained, topic-matched 3D hero to the opening scene only.
+              # Original footage, narration, and later scenes remain untouched.
+              if i == 0 and Path("assets/ai_security_3d_hero.png").exists():
+                  temp_target = target.with_name(target.stem + "_3d.mp4")
+                  run([
+                      "ffmpeg", "-y", "-i", str(target), "-i", "assets/ai_security_3d_hero.png",
+                      "-filter_complex",
+                      "[1:v]format=rgba,scale=720:720[hero];[0:v][hero]overlay=x=W-w-90:y=H-h-90:shortest=1:format=auto,format=yuv420p[v]",
+                      "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast",
+                      "-crf", "22", "-pix_fmt", "yuv420p", "-an", str(temp_target)
+                  ])
+                  temp_target.replace(target)
+                  print(f"Applied 3D hero overlay to opening scene {scene}.")
 
           with open("work/concat.txt", "w", encoding="utf-8") as out:
               for row in rows:
