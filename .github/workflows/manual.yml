@@ -123,6 +123,7 @@ jobs:
           test -n "$SUPABASE_KEY"
           test -n "${{ secrets.VECTEEZY_API_KEY }}"
           test -n "${{ secrets.VECTEEZY_ACCOUNT_ID }}"
+          printf '%s' "$INPUT_SCRIPT" > work/script.txt
           echo "Configuration validation passed."
 
       - name: Generate, master and validate Kokoro narration
