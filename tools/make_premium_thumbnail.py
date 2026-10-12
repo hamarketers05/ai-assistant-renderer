@@ -122,8 +122,8 @@ def make(title,output,hook=None,focus="",visual_reason=""):
     d.rounded_rectangle((78,504,418,563),radius=17,fill=(9,186,227,248),outline=(180,246,255,255),width=2)
     d.text((101,518),"WHAT CHANGES NEXT?",font=font(22),fill=NAVY+(255,))
     d.text((80,655),"RESEARCH  •  REAL-WORLD IMPACT  •  WHAT TO KNOW",font=font(17),fill=(181,216,239,255))
-    scaled=subject.resize((int(W*1.2),int(H*1.2)),Image.Resampling.LANCZOS)
-    img.alpha_composite(scaled.crop((200,60,200+W,60+H)))
+    scaled=subject.resize((int(W*1.6),int(H*1.6)),Image.Resampling.LANCZOS)
+    img.alpha_composite(scaled.crop((600,165,600+W,165+H)))
     img=ImageEnhance.Contrast(img.convert("RGB")).enhance(1.08).filter(ImageFilter.UnsharpMask(radius=1.4,percent=145,threshold=2))
     output.parent.mkdir(parents=True,exist_ok=True); img.save(output,quality=95,optimize=True)
     with Image.open(output) as check:
