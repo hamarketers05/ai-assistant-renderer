@@ -62,7 +62,7 @@ jobs:
             --max-duration-seconds 480 \
             --max-conversion-seconds 600 \
             --require-success
-          jq -e '.status == "success" and .engine == "MiDaS AI + FFmpeg" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true and .quality_checks.color_grade_applied == true and .quality_checks.pinned_lut_integrity_verified == true and .color_grade.status == "passed" and .color_grade.lut_3d_size == 33' work/midas_test_report.json >/dev/null
+          jq -e '.status == "success" and .engine == "MiDaS AI + FFmpeg" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true and .quality_checks.color_grade_applied == true and .quality_checks.rec709_to_cineon_transform_applied == true and .quality_checks.pinned_lut_integrity_verified == true and .color_grade.status == "passed" and .color_grade.lut_3d_size == 33' work/midas_test_report.json >/dev/null
           echo "Pinned Rec.709 Kodak 2383 D55 LUT download, hash integrity, and FFmpeg grading passed."
           test -s work/midas_test_sbs.mp4
           ffprobe -v error -select_streams v:0 -show_entries stream=width,height,codec_name -of json work/midas_test_sbs.mp4

@@ -190,7 +190,7 @@ jobs:
           sbs_code = Path("tools/convert_video_midas_sbs.py").read_text(encoding="utf-8")
           if "librosa.effects.preemphasis" not in voice_editor_code or "duration_preserved" not in voice_editor_code:
               raise SystemExit("Required duration-preserving librosa voice enhancement is missing.")
-          for marker in ("CINEMATIC_LUT_URL", "CINEMATIC_LUT_GIT_BLOB_SHA", "cinematic.cube", "lut3d=file=", "interp=trilinear", "color_grade_applied"):
+          for marker in ("CINEMATIC_LUT_URL", "CINEMATIC_LUT_GIT_BLOB_SHA", "cinematic.cube", "cinematic_ffmpeg.cube", "LUT_3D_INPUT_RANGE", "build_rec709_to_cineon_lut", "lut_input_expected", "rec709_to_cineon_transform_applied", "lut3d=file=", "interp=trilinear", "color_grade_applied"):
               if marker not in sbs_code:
                   raise SystemExit(f"Required pinned cinematic LUT integration is missing: {marker}")
           review_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
