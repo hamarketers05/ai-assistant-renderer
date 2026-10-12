@@ -114,6 +114,14 @@ def main():
         footer="ILLUSTRATIVE DIAGRAM • NOT A MEASURED BENCHMARK"
         d.text((100,970),footer,font=font(18,True),fill=(145,184,205,255))
         img.save(OUT/f"generated_scene_{scene}.png",quality=95)
+        # Transparent lower-third overlay for real footage, driven by this scene's own sentence.
+        overlay=Image.new("RGBA",(W,H),(0,0,0,0))
+        od=ImageDraw.Draw(overlay,"RGBA")
+        od.rounded_rectangle((72,842,1230,1015),radius=26,fill=(2,12,30,218),outline=(*accent,235),width=4)
+        od.text((108,866),"AI TECH LAB  /  KEY IDEA",font=font(23,True),fill=(*accent,255))
+        caption=" ".join(wrap(od,head,font(35,True),1040)[:2])
+        od.text((108,910),caption,font=font(35,True),fill=(247,250,255,255),stroke_width=1,stroke_fill=(0,0,0,200))
+        overlay.save(OUT/f"scene_overlay_{scene}.png")
         made+=1
     if made<4: raise SystemExit(f"Visual QA failed: only {made} script-matched scenes generated.")
     print(f"Script-matched illustrated scene assets generated: {made}; topic-specific iconography and diagrams included.")
