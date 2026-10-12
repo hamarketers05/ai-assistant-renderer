@@ -40,7 +40,7 @@ def ensure_cinematic_lut(work_dir: Path) -> tuple[Path, dict]:
     def validate(candidate: Path) -> dict:
         data = candidate.read_bytes()
         git_blob_sha = hashlib.sha1(
-            b"blob " + str(len(data)).encode("ascii") + b"\\0" + data
+            b"blob " + str(len(data)).encode("ascii") + b"\0" + data
         ).hexdigest()
         if len(data) != CINEMATIC_LUT_BYTES:
             raise ValueError(
@@ -49,7 +49,7 @@ def ensure_cinematic_lut(work_dir: Path) -> tuple[Path, dict]:
         if git_blob_sha != CINEMATIC_LUT_GIT_BLOB_SHA:
             raise ValueError("Cinematic LUT integrity check failed; content does not match the pinned Git blob.")
         size_match = re.search(
-            rb"(?m)^\\s*LUT_3D_SIZE\\s+(\\d+)\\s*$", data[:16384]
+            rb"(?m)^\s*LUT_3D_SIZE\s+(\d+)\s*$, data[:16384]
         )
         if not size_match or int(size_match.group(1)) != 33:
             raise ValueError("Cinematic LUT has no valid LUT_3D_SIZE 33 header.")
