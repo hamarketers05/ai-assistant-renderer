@@ -21,7 +21,7 @@ on:
         default: LONG_VIDEO
       stereo_output:
         description: "Create a separate stereoscopic companion after the normal video is scheduled; never replaces the main 2D upload."
-        required: true
+        required: false
         type: choice
         options:
           - OFF
