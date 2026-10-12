@@ -36,7 +36,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg imagemagick fonts-dejavu-core
           python -m pip install --disable-pip-version-check --upgrade pip
-          python -m pip install --disable-pip-version-check PyYAML==6.0.2 numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper
+          python -m pip install --disable-pip-version-check PyYAML==6.0.2 numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper librosa==0.11.0 soundfile
 
       - name: Compile project tools and validate workflow order
         run: |
@@ -55,6 +55,14 @@ jobs:
 
           for path in Path("tools").glob("*.py"):
               ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+          import librosa
+          import numpy as np
+          probe = np.sin(np.linspace(0, 24 * np.pi, 24000, dtype=np.float32))[None, :]
+          enhanced = librosa.effects.preemphasis(probe, coef=0.65)
+          if enhanced.shape != probe.shape or not np.isfinite(enhanced).all():
+              raise SystemExit("Librosa voice effect changed audio length or returned invalid samples.")
+          print("Librosa audio effect smoke test passed; sample count is preserved.")
 
           wf = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
           names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
@@ -179,6 +187,12 @@ jobs:
           if "KPipeline" not in kokoro_code or "af_heart" not in kokoro_code:
               raise SystemExit("Kokoro American-English voice generator is missing.")
           voice_editor_code = Path("tools/voice_editor.py").read_text(encoding="utf-8")
+          sbs_code = Path("tools/convert_video_midas_sbs.py").read_text(encoding="utf-8")
+          if "librosa.effects.preemphasis" not in voice_editor_code or "duration_preserved" not in voice_editor_code:
+              raise SystemExit("Required duration-preserving librosa voice enhancement is missing.")
+          for marker in ("CINEMATIC_LUT_URL", "CINEMATIC_LUT_GIT_BLOB_SHA", "cinematic.cube", "lut3d=file=", "interp=trilinear", "color_grade_applied"):
+              if marker not in sbs_code:
+                  raise SystemExit(f"Required pinned cinematic LUT integration is missing: {marker}")
           review_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
           if '"manual_voice_required": False' not in voice_editor_code or "Kokoro-82M American-English narration" not in review_code:
               raise SystemExit("Voice editor or final QA still expects a manually approved voice.")
