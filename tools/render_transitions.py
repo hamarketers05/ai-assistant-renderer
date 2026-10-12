@@ -66,7 +66,8 @@ def main():
         raise SystemExit(f"Transition render shorter than narration: {duration:.2f}s < {args.target_duration:.2f}s")
     report={"scenes":len(clips),"transition":"crossfade","transition_seconds":args.transition,
             "target_duration_seconds":args.target_duration,"rendered_duration_seconds":round(duration,3),
-            "loops_entire_video":False,"clip_duration_total_seconds":round(sum(d for _,d in clips),3),\n            "untrimmed_crossfade_timeline_seconds":round(cumulative,3), "final_frame_padding_seconds":round(padding,3)}
+            "loops_entire_video":False,"clip_duration_total_seconds":round(sum(d for _,d in clips),3),
+            "untrimmed_crossfade_timeline_seconds":round(cumulative,3), "final_frame_padding_seconds":round(padding,3)}
     Path("work/transitions_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     print(json.dumps(report))
 if __name__=="__main__": main()
