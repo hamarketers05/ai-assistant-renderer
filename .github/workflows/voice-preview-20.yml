@@ -1,0 +1,58 @@
+name: Prepare Approved Voice Preview — AI Tech Lab 20
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/voice-preview-20.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  voice-preview:
+    if: github.event.head_commit.message == 'Prepare approved-voice preview for AI Tech Lab content 20'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout content and TTS tool
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install free local TTS dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check "kokoro>=0.9.4" soundfile
+
+      - name: Generate English voice preview for approval only
+        run: |
+          set -euo pipefail
+          mkdir -p work output
+          jq -er '.content_id == "20" and .content_format == "LONG_VIDEO" and (.script | length > 3000)' production/ai_tech_lab_content_20.json >/dev/null
+          jq -r '.script' production/ai_tech_lab_content_20.json > work/script.txt
+          python tools/generate_kokoro_voice.py --script work/script.txt --output work/ai_tech_lab_20_voice_preview.wav --voice af_heart --speed 1.0
+          ffmpeg -hide_banner -loglevel error -y -i work/ai_tech_lab_20_voice_preview.wav -c:a libmp3lame -b:a 128k output/AI_Tech_Lab_20_voice_preview.mp3
+          cp work/ai_tech_lab_20_voice_preview.wav output/AI_Tech_Lab_20_voice_preview.wav
+          cp work/kokoro_tts_report.json output/voice_preview_report.json
+          ffprobe -v error -show_entries format=duration -of json output/AI_Tech_Lab_20_voice_preview.mp3
+          test -s output/AI_Tech_Lab_20_voice_preview.mp3
+          test -s output/AI_Tech_Lab_20_voice_preview.wav
+          echo "PREVIEW ONLY: this audio has not been approved, uploaded to Supabase, or used to schedule a video."
+
+      - name: Upload preview for human listening and approval
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-content-20-voice-preview
+          path: |
+            output/AI_Tech_Lab_20_voice_preview.mp3
+            output/AI_Tech_Lab_20_voice_preview.wav
+            output/voice_preview_report.json
+          if-no-files-found: error
+          retention-days: 7
