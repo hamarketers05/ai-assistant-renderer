@@ -2,7 +2,7 @@
 """Create original, script-matched illustrated visuals when licensed footage is unavailable.
 All diagrams are illustrative, not factual measurements; no external image assets are used.
 """
-import csv, hashlib, re
+import csv, hashlib, os, re
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
@@ -76,7 +76,8 @@ def main():
         if len(row)<7: continue
         scene=re.sub(r"[^a-zA-Z0-9_-]","_",row[0])[:80]
         kind=(row[4]+" "+row[5]+" "+row[6]).lower()
-        digest=hashlib.sha256((scene+kind+title).encode()).digest()
+        content_seed=os.getenv("CONTENT_ID","unique-video")
+        digest=hashlib.sha256((content_seed+scene+kind+title).encode()).digest()
         accent=(0,190+digest[0]%50,220+digest[1]%35)
         img=Image.new("RGB",(W,H))
         px=img.load()

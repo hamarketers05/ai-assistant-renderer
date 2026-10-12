@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -64,6 +64,8 @@ jobs:
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
               "Find additional free, topic-matched Wikimedia Commons footage",
+              "Bootstrap visual history from the last verified production artifact",
+              "Reject previously used or weakly matched visual assets",
               "Add stock creator and license attribution",
               "Generate only evidence-supported data charts",
               "Improve SEO title, description, tags, sources and chapters",
@@ -86,10 +88,37 @@ jobs:
               raise SystemExit("Voice validation and sentence-level scene planning must precede asset discovery.")
           if not Path("tools/scene_director.py").is_file() or not Path("tools/groq_thumbnail_brief.py").is_file():
               raise SystemExit("Sentence scene director or Groq thumbnail brief tool is missing.")
-          ordered_assets = ["Find additional free, topic-matched Wikimedia Commons footage", "Add stock creator and license attribution", "Generate only evidence-supported data charts", "Edit generated narration, add pauses and script cues, and generate captions", "Generate original topic-aware background score", "Improve SEO title, description, tags, sources and chapters"]
+          ordered_assets = [
+              "Edit generated narration, add pauses and script cues, and generate captions",
+              "Apply optional topic-aware Rubber Band pitch shaping",
+              "Build sentence-by-sentence visual direction",
+              "Discover and download Vecteezy footage",
+              "Find additional free, topic-matched Wikimedia Commons footage",
+              "Bootstrap visual history from the last verified production artifact",
+              "Reject previously used or weakly matched visual assets",
+              "Add stock creator and license attribution",
+              "Create original graphics",
+              "Generate only evidence-supported data charts",
+              "Generate script-matched illustrated scenes",
+              "Render scenes",
+              "Generate original topic-aware background score",
+              "Improve SEO title, description, tags, sources and chapters"
+          ]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_assets, ordered_assets[1:])):
-              raise SystemExit("Asset attribution, charts, narration mastering, music and SEO are out of order.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3"]
+              raise SystemExit("Voice timing, new media, attribution, scene render, music and SEO are out of order.")
+          if not (names.index("Validate Kokoro narration before scene timing") < names.index("Edit generated narration, add pauses and script cues, and generate captions") < names.index("Build sentence-by-sentence visual direction")):
+              raise SystemExit("Actual edited-voice timestamps must be written before the scene planner runs.")
+          voice_code = Path("tools/voice_editor.py").read_text(encoding="utf-8")
+          director_code = Path("tools/scene_director.py").read_text(encoding="utf-8")
+          history_code = Path("tools/asset_reuse_guard.py").read_text(encoding="utf-8")
+          if "voice_word_timestamps.json" not in voice_code or "exact_word_timing" not in director_code:
+              raise SystemExit("Word timestamps from the final voice must drive the scene planner.")
+          for marker in ("asset was used in a previously delivered video", "same asset selected for multiple scenes", "relevance", "seeded_from_previous_verified_renderer_artifact"):
+              if marker.lower() not in history_code.lower():
+                  raise SystemExit(f"Visual novelty guard lacks required logic: {marker}")
+          if "actions: read" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
+              raise SystemExit("Bootstrapping the previous production manifest requires read-only Actions permission.")
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
@@ -306,7 +335,7 @@ jobs:
           mkdir -p scenes work
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=blue:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_test_a.mp4
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=yellow:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_test_b.mp4
-          printf 'test_a\t0\t2\t2\tgenerated\tblue scene\tBlue\ntest_b\t2\t4\t2\tgenerated\tyellow scene\tYellow\n' > work/scenes.tsv
+          printf 'test_a\t0\t2.75\t2.75\tgenerated\tblue scene\tBlue\ntest_b\t2.75\t5.5\t2.75\tgenerated\tyellow scene\tYellow\n' > work/scenes.tsv
           python tools/render_transitions.py --target-duration 5.5 --transition 0.5 --output work/transition-smoke-test.mp4
           python - <<'PY'
           import json, subprocess
@@ -314,6 +343,8 @@ jobs:
           report = json.loads(Path("work/transitions_report.json").read_text())
           if report.get("scenes") != 2 or report.get("loops_entire_video") is not False:
               raise SystemExit(f"Transition report mismatch: {report}")
+          if report.get("final_frame_padding_seconds", 1) > 0.20 or "voice-timestamped" not in report.get("scene_boundary_alignment", ""):
+              raise SystemExit(f"Transition timeline drift/frozen-tail guard failed: {report}")
           duration = float(subprocess.check_output(["ffprobe","-v","error","-show_entries","format=duration","-of","default=noprint_wrappers=1:nokey=1","work/transition-smoke-test.mp4"],text=True))
           if not 5.3 <= duration <= 5.7:
               raise SystemExit(f"Transition render duration mismatch: {duration:.2f}s")

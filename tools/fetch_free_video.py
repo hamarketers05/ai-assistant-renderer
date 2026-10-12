@@ -6,7 +6,7 @@ from pathlib import Path
 
 API = "https://commons.wikimedia.org/w/api.php"
 UA = "AI-Tech-Lab-Renderer/1.0 (https://github.com/hamarketers05/ai-assistant-renderer)"
-MAX_SCENES, MAX_DOWNLOADS = 18, 10
+MAX_SCENES, MAX_DOWNLOADS = 48, 16
 MAX_BYTES = 80 * 1024 * 1024
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
 VIDEO_EXTS = {".mp4", ".webm", ".ogv", ".ogg", ".mov", ".m4v"}
@@ -129,14 +129,14 @@ def main():
                     title_terms = set(terms_of(title.replace("File:"," ")))
                     desc_terms = set(terms_of(desc))
                     overlap = len(set(terms) & (title_terms | desc_terms)) / max(1,min(5,len(terms)))
-                    if overlap < 0.08: continue
+                    if overlap < 0.20: continue
                     source_url = str(info.get("descriptionurl") or "")
                     if not file_url.startswith("https://") or not source_url.startswith("https://commons.wikimedia.org/"): continue
                     size = int(info.get("size") or 0)
                     if size and size > MAX_BYTES: continue
                     selected = {"title":title,"file_url":file_url,"source_url":source_url,
                                 "creator":creator,"license":normalized,"license_url":license_url,
-                                "attribution":attribution}
+                                "attribution":attribution,"relevance_score":round(overlap,3)}
                     break
                 except Exception as exc:
                     print(f"Commons metadata skipped for scene {scene}: {str(exc)[:120]}")
@@ -160,6 +160,7 @@ def main():
                     "creator":selected["creator"] or "Creator not listed in source metadata",
                     "source_url":selected["source_url"],"license_label":selected["license"],
                     "license_url":selected["license_url"],"attribution_required":selected["attribution"],
+                    "relevance_score":selected["relevance_score"],
                     "query":" ".join(terms[:5]),"commercial_use_allowed":True}
             with log.open("a",encoding="utf-8") as out: out.write(json.dumps(item,ensure_ascii=False)+"\n")
             downloaded += 1; print(f"Commons clip used for scene {scene}: {selected['title']}")

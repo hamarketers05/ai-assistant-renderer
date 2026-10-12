@@ -27,36 +27,56 @@ def main():
     if not 5<=args.target_duration<=3600: raise SystemExit("Target video duration is outside safe limits.")
     if not 0.2<=args.transition<=0.8: raise SystemExit("Transition duration must be 0.2–0.8 seconds.")
     rows=list(csv.reader(Path(args.scenes).open(encoding="utf-8"),delimiter="\t"))
-    clips=[]
+    clips=[]; expected=[]
     for row in rows:
         if len(row)<7: continue
+        try:
+            start,end=float(row[1]),float(row[2]); planned=end-start
+        except (ValueError,IndexError):
+            raise SystemExit(f"Invalid voice-timed scene row: {row[:4]}")
         path=Path("scenes")/f"scene_{safe(row[0])}.mp4"
         if not path.is_file() or path.stat().st_size<1000:
             raise SystemExit(f"Missing rendered scene clip: {path}")
-        duration=probe_duration(path)
-        if duration<=args.transition+0.1: raise SystemExit(f"Scene is too short for crossfade: {path} ({duration:.2f}s)")
-        clips.append((path,duration))
-    if len(clips)<2: raise SystemExit("At least two rendered scene clips are needed for transitions.")
+        source_duration=probe_duration(path)
+        if planned<=args.transition+0.1:
+            raise SystemExit(f"Planned scene too short for transition: {path} ({planned:.2f}s)")
+        if source_duration<planned-0.35:
+            raise SystemExit(f"Rendered clip is shorter than its planned voice interval: {path} ({source_duration:.2f}s < {planned:.2f}s)")
+        clips.append((path,planned)); expected.append((start,end))
+    if len(clips)<2: raise SystemExit("At least two rendered scene clips are required.")
+    planned_total=sum(d for _,d in clips)
+    if abs(planned_total-args.target_duration)>0.45:
+        raise SystemExit(f"Scene timeline ({planned_total:.2f}s) does not match narration ({args.target_duration:.2f}s).")
+    for i in range(1,len(expected)):
+        if abs(expected[i][0]-expected[i-1][1])>0.025:
+            raise SystemExit("Scene timeline contains a gap/overlap; refusing a misaligned render.")
     cmd=["ffmpeg","-hide_banner","-loglevel","error","-y"]
     for path,_ in clips: cmd.extend(["-i",str(path)])
     filters=[]
-    for i,(_,_) in enumerate(clips):
-        # Equalize time bases and frame rates before true overlapping crossfades.
-        filters.append(f"[{i}:v]setpts=PTS-STARTPTS,fps=30,format=yuv420p,settb=AVTB[v{i}]")
+    for i,(_,planned) in enumerate(clips):
+        # Pad incoming scenes by the overlap length, so each xfade starts at the
+        # true spoken boundary and does not shift later scene changes earlier.
+        tail=args.transition if i<len(clips)-1 else 0.0
+        filters.append(
+            f"[{i}:v]trim=duration={planned:.3f},setpts=PTS-STARTPTS,fps=30,"
+            f"format=yuv420p,tpad=stop_mode=clone:stop_duration={tail:.3f},"
+            f"trim=duration={planned+tail:.3f},settb=AVTB[v{i}]"
+        )
     current="v0"
-    cumulative=clips[0][1]
+    cumulative=clips[0][1]+(args.transition if len(clips)>1 else 0.0)
     transition_types=["fade","smoothleft","wipeleft","slideleft","fadeblack","smoothright"]
     used_transitions=[]
     for i in range(1,len(clips)):
         out=f"x{i}"
-        # Alternate polished transitions instead of repeating one fade across the whole timeline.
         offset=max(0.0,cumulative-args.transition)
         transition=transition_types[(i-1)%len(transition_types)]
         used_transitions.append(transition)
         filters.append(f"[{current}][v{i}]xfade=transition={transition}:duration={args.transition:.3f}:offset={offset:.3f}[{out}]")
         current=out
-        cumulative+=clips[i][1]-args.transition
+        cumulative+=clips[i][1]+(args.transition if i<len(clips)-1 else 0.0)-args.transition
     padding=max(0.0,args.target_duration-cumulative)
+    if padding>0.20:
+        raise SystemExit(f"Visual track would require {padding:.2f}s frozen-tail padding; scene boundaries need correction.")
     filter=";".join(filters)+f";[{current}]tpad=stop_mode=clone:stop_duration={padding:.3f}[vout]"
     cmd.extend(["-filter_complex",filter,"-map","[vout]","-an","-t",f"{args.target_duration:.3f}",
                 "-c:v","libx264","-preset","veryfast","-crf","22","-r","30","-pix_fmt","yuv420p",
@@ -64,12 +84,16 @@ def main():
     Path(args.output).parent.mkdir(parents=True,exist_ok=True)
     run(cmd)
     duration=probe_duration(args.output)
-    if duration+0.15<args.target_duration:
-        raise SystemExit(f"Transition render shorter than narration: {duration:.2f}s < {args.target_duration:.2f}s")
-    report={"scenes":len(clips),"transition":"alternating cinematic xfade","transition_types":sorted(set(used_transitions)),"transition_seconds":args.transition,
-            "target_duration_seconds":args.target_duration,"rendered_duration_seconds":round(duration,3),
-            "loops_entire_video":False,"clip_duration_total_seconds":round(sum(d for _,d in clips),3),
-            "untrimmed_crossfade_timeline_seconds":round(cumulative,3), "final_frame_padding_seconds":round(padding,3)}
+    if abs(duration-args.target_duration)>0.25:
+        raise SystemExit(f"Transition render duration mismatch: {duration:.2f}s vs {args.target_duration:.2f}s.")
+    report={"scenes":len(clips),"transition":"alternating cinematic xfade","transition_types":sorted(set(used_transitions)),
+            "transition_seconds":args.transition,"target_duration_seconds":args.target_duration,
+            "rendered_duration_seconds":round(duration,3),"loops_entire_video":False,
+            "clip_duration_total_seconds":round(sum(d for _,d in clips),3),
+            "untrimmed_crossfade_timeline_seconds":round(cumulative,3),
+            "final_frame_padding_seconds":round(padding,3),
+            "planned_scene_timeline_seconds":round(planned_total,3),
+            "scene_boundary_alignment":"voice-timestamped boundaries; crossfades do not compress scene start times"}
     Path("work/transitions_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     print(json.dumps(report))
 if __name__=="__main__": main()

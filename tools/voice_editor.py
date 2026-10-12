@@ -60,21 +60,15 @@ def punctuation(word):
     text = word.strip()
     if not text:
         return ""
-    final = text[-1]
-    return final if final in ",;:.!?" else ""
+    # Ignore trailing closing quotes/brackets before recognizing punctuation.
+    while text and text[-1] in ('"', "'", "”", "’", ")", "]", "}"):
+        text = text[:-1]
+    return text[-1] if text and text[-1] in ",;:.!?" else ""
 
 
 def pause_ms(mark):
-    # Generated narration already includes natural breath and comma pauses.
-    # Add only short sentence-ending pauses; long per-word pauses stretched a
-    # five-minute narration to nearly nine minutes and broke the duration QA.
-    if mark == "?":
-        return 220
-    if mark == "!":
-        return 180
-    if mark == ".":
-        return 150
-    return 0
+    # Tight but natural punctuation spacing; long TTS gaps are capped below.
+    return {"?": 220, "!": 190, ".": 170, ",": 95, ";": 125, ":": 125}.get(mark, 0)
 
 
 def emit_captions(words, shifts):
@@ -172,6 +166,7 @@ def main():
     script_sentence_index = 0
     cues_used = []
     added_pause_ms = 0
+    trimmed_pause_ms = 0
     inserted_pause_count = 0
     last_boundary = -1
 
@@ -204,7 +199,9 @@ def main():
         if i + 1 < len(words):
             next_start_ms = max(end_ms, int(words[i + 1]["start"] * 1000) - 30)
             existing_gap = max(0, next_start_ms - end_ms)
-            chosen_pause = max(target, existing_gap)
+            pause_cap = 300 if mark in ".!?" else 190
+            chosen_pause = min(max(target, existing_gap), pause_cap)
+            trimmed_pause_ms += max(0, existing_gap - chosen_pause)
             silence = AudioSegment.silent(duration=chosen_pause, frame_rate=audio.frame_rate)
             silence = silence.set_channels(audio.channels).set_sample_width(audio.sample_width)
             edited += silence
@@ -249,6 +246,30 @@ def main():
     edited.export(str(EDITED), format="wav")
 
     caption_count = emit_captions(words, shifts)
+    edited_duration = len(edited) / 1000.0
+    word_timestamps = []
+    previous_start = 0.0
+    for item in words:
+        shift = shifts[item["index"]]
+        start = min(max(0.0, edited_duration - 0.02), max(previous_start, float(item["start"]) + shift))
+        end = min(edited_duration, max(start + 0.015, float(item["end"]) + shift))
+        if end <= start:
+            continue
+        word_timestamps.append({
+            "index": len(word_timestamps),
+            "text": item["text"],
+            "start": round(start, 4),
+            "end": round(end, 4),
+        })
+        previous_start = start
+    if len(word_timestamps) < 5:
+        raise SystemExit("Voice timing export failed: too few timestamped speech words.")
+    (WORK / "voice_word_timestamps.json").write_text(json.dumps({
+        "source": "Faster-Whisper word timestamps on cleaned narration, shifted for pause edits",
+        "duration_seconds": round(edited_duration, 3),
+        "word_count": len(word_timestamps),
+        "words": word_timestamps,
+    }, indent=2, ensure_ascii=False), encoding="utf-8")
     report = {
         "status": "passed",
         "manual_voice_required": False,
@@ -258,8 +279,12 @@ def main():
         "input_duration_seconds": round(len(audio) / 1000.0, 2),
         "edited_duration_seconds": round(len(edited) / 1000.0, 2),
         "duration_added_seconds": round(max(0, len(edited) - len(audio)) / 1000.0, 2),
+        "duration_saved_by_pause_compression_seconds": round(trimmed_pause_ms / 1000.0, 2),
         "extra_pause_seconds": round(added_pause_ms / 1000.0, 2),
         "pause_boundaries_processed": inserted_pause_count,
+        "timestamped_words": len(word_timestamps),
+        "voice_word_timestamps": "work/voice_word_timestamps.json",
+        "pause_policy": "sentence endings 170-220 ms; commas 95 ms; semicolon/colon 125 ms; long gaps capped to 190-300 ms",
         "caption_entries": caption_count,
         "script_cues": {name: cues_used.count(name) for name in sorted(set(cues_used))},
         "processing": [
@@ -279,7 +304,9 @@ def main():
     print(json.dumps({
         "status": "passed",
         "edited_duration_seconds": report["edited_duration_seconds"],
+        "duration_saved_by_pause_compression_seconds": report["duration_saved_by_pause_compression_seconds"],
         "extra_pause_seconds": report["extra_pause_seconds"],
+        "timestamped_words": len(word_timestamps),
         "caption_entries": caption_count,
     }))
 

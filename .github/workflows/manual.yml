@@ -56,6 +56,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: renderer-${{ inputs.content_id }}
@@ -286,16 +287,61 @@ jobs:
           print(json.dumps({"engine":tts["engine"],"voice":tts["voice"],"duration_seconds":qa["duration_seconds"],"manual_approval":False}))
           PY
 
+      - name: Edit generated narration, add pauses and script cues, and generate captions
+        run: |
+          set -euo pipefail
+          test -s voice.wav
+          test -s work/script.txt
+          .venv/bin/python tools/voice_editor.py
+          test -s work/voice_edited.wav
+          test -s work/captions.srt
+          test -s work/voice_edit_report.json
+          cat work/voice_edit_report.json
+
+      - name: Apply optional topic-aware Rubber Band pitch shaping
+        run: |
+          set -euo pipefail
+          if command -v rubberband >/dev/null 2>&1; then
+            LOWER_TITLE=$(printf '%s %s' "$INPUT_TITLE" "$INPUT_SCRIPT" | tr '[:upper:]' '[:lower:]')
+            if [[ "$LOWER_TITLE" =~ (security|risk|privacy|serious|safety) ]]; then
+              PITCH="-0.12"
+            elif [[ "$LOWER_TITLE" =~ (tool|launch|breakthrough|exciting|agent) ]]; then
+              PITCH="0.12"
+            else
+              PITCH="0.05"
+            fi
+            if rubberband --pitch "$PITCH" work/voice_edited.wav work/voice_pitch.wav; then
+              ORIGINAL_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
+              PITCHED_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_pitch.wav)
+              .venv/bin/python - "$ORIGINAL_SECONDS" "$PITCHED_SECONDS" <<'PY'
+          import sys
+          a,b=map(float,sys.argv[1:])
+          if abs(a-b)>0.5:
+              raise SystemExit("Pitch stage changed narration duration unexpectedly.")
+          PY
+              mv work/voice_pitch.wav work/voice_edited.wav
+              echo "Validated subtle topic-aware pitch shaping."
+            else
+              rm -f work/voice_pitch.wav
+              echo "Rubber Band failed; retaining clean narration."
+            fi
+          else
+            echo "Rubber Band unavailable; retaining clean narration."
+          fi
+
+
       - name: Build sentence-by-sentence visual direction
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           set -euo pipefail
-          VOICE_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 voice.wav)
-          .venv/bin/python tools/scene_director.py --script work/script.txt --duration "$VOICE_SECONDS" --max-scenes 48
+          test -s work/voice_word_timestamps.json
+          VOICE_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
+          .venv/bin/python tools/scene_director.py --script work/script.txt --duration "$VOICE_SECONDS" --max-scenes 72 --timestamps work/voice_word_timestamps.json
           test -s work/scene_director_report.json
           cat work/scene_director_report.json
-          echo "Each spoken sentence now receives its own timed visual scene (up to 48 scenes)."
+          jq -e '.exact_word_timing == true and .sequence_similarity >= 0.55 and .timestamp_word_count >= 5' work/scene_director_report.json >/dev/null
+          echo "Scene timing uses actual Whisper word timestamps from the final edited narration (up to 72 scenes)."
 
       - name: Discover and download Vecteezy footage
         env:
@@ -393,6 +439,21 @@ jobs:
                           return candidate
               return ""
 
+          
+          STOP_WORDS = set("the and for with from into that this these those then than have has had are was were can could will would should about after before your you our their they them its how what when where why which while explain explained latest trend news future technology artificial intelligence".split())
+
+          def significant_terms(text):
+              terms = []
+              for word in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", str(text or "").lower()):
+                  if word not in STOP_WORDS and word not in terms:
+                      terms.append(word)
+              return terms[:12]
+
+          def relevance(query, title, description):
+              needed = set(significant_terms(query))
+              available = set(significant_terms(str(title or "") + " " + str(description or "")))
+              return round(len(needed & available) / max(1, min(5, len(needed))), 3), sorted(needed & available)
+
           try:
               api_get(f"{BASE}/{ACCOUNT_ID}/account/info")
           except Exception as exc:
@@ -404,9 +465,9 @@ jobs:
           downloaded = 0
           search_calls = 0
           download_calls = 0
-          max_search_calls = 10
-          max_downloads = 6
-          max_download_calls = 6
+          max_search_calls = 18
+          max_downloads = 12
+          max_download_calls = 24
           seen_queries = set()
 
           for row in rows:
@@ -443,6 +504,12 @@ jobs:
                       break
                   rid = resource_id(item)
                   if rid is None:
+                      continue
+                  asset_title = find_value(item, {"title", "name", "resource_title", "asset_title", "display_name"})
+                  asset_description = find_value(item, {"description", "summary", "keywords", "tags", "category"})
+                  relevance_score, matching_terms = relevance(query, asset_title, asset_description)
+                  if not asset_title or relevance_score < 0.20:
+                      print(f"Skipping {rid}: weak scene relevance ({relevance_score:.3f}); title={asset_title!r}")
                       continue
                   try:
                       download_calls += 1
@@ -495,6 +562,10 @@ jobs:
                           "scene": scene,
                           "provider": "Vecteezy",
                           "asset_id": str(rid),
+                          "asset_title": asset_title,
+                          "asset_description": asset_description[:300],
+                          "relevance_score": relevance_score,
+                          "matching_terms": matching_terms,
                           "query": query,
                           "creator": creator,
                           "source_url": source_url,
@@ -522,6 +593,63 @@ jobs:
           .venv/bin/python tools/fetch_free_video.py
           test -s work/commons_media_report.json
           cat work/commons_media_report.json
+
+      - name: Bootstrap visual history from the last verified production artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p learning work
+          if [ -s learning/used_visual_assets.json ] && [ "$(jq '.used | length' learning/used_visual_assets.json)" -gt 0 ]; then
+            echo "Existing visual asset history found; no historical artifact download is needed."
+          else
+            RUNS_JSON=$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs?branch=main&per_page=30")
+            RUN_IDS=$(printf '%s' "$RUNS_JSON" | jq -r --arg current "$GITHUB_RUN_ID" '.workflow_runs[] | select((.id|tostring) != $current) | select(.name == "AI Assistant Renderer") | select(.conclusion == "success") | .id')
+            PREVIOUS_RUN_ID=""
+            ARTIFACT_ID=""
+            PREVIOUS_CONTENT_ID=""
+            HAS_PRIOR_RUNS=false
+            while IFS= read -r CANDIDATE_RUN; do
+              [ -n "$CANDIDATE_RUN" ] || continue
+              HAS_PRIOR_RUNS=true
+              ARTIFACTS_JSON=$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN/artifacts") || continue
+              DELIVERY_NAME=$(printf '%s' "$ARTIFACTS_JSON" | jq -r '.artifacts[] | select(.expired == false) | .name | select(test("^ai-tech-lab-delivery-[0-9]+$"))' | head -n 1)
+              [ -n "$DELIVERY_NAME" ] || continue
+              CANDIDATE_CONTENT_ID=$(printf '%s' "$DELIVERY_NAME" | sed 's/^ai-tech-lab-delivery-//')
+              CANDIDATE_ARTIFACT_ID=$(printf '%s' "$ARTIFACTS_JSON" | jq -r --arg name "ai-tech-lab-$CANDIDATE_CONTENT_ID" '.artifacts[] | select(.expired == false) | select(.name == $name) | .id' | head -n 1)
+              [ -n "$CANDIDATE_ARTIFACT_ID" ] || continue
+              PREVIOUS_RUN_ID="$CANDIDATE_RUN"
+              PREVIOUS_CONTENT_ID="$CANDIDATE_CONTENT_ID"
+              ARTIFACT_ID="$CANDIDATE_ARTIFACT_ID"
+              break
+            done <<< "$RUN_IDS"
+            if [ -z "$PREVIOUS_RUN_ID" ]; then
+              if [ "$HAS_PRIOR_RUNS" = "true" ]; then
+                echo "Cannot safely seed visual history: previous renderer successes exist but no unexpired verified-delivery manifest artifact was found."
+                exit 1
+              fi
+              printf '{"version":1,"used":[],"updated_at_utc":null}\n' > learning/used_visual_assets.json
+              echo "No earlier successful production render found; starting a new history."
+            else
+              curl -fsSL --max-time 240 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" -o work/previous_video_artifact.zip
+              ENTRY=$(unzip -Z1 work/previous_video_artifact.zip | grep -E '(^|/)work/asset_sources[.]jsonl$' | head -n 1 || true)
+              if [ -z "$ENTRY" ]; then
+                echo "Cannot seed visual history: the previous delivery artifact lacks the source manifest."
+                exit 1
+              fi
+              unzip -p work/previous_video_artifact.zip "$ENTRY" > work/previous_assets.jsonl
+              test -s work/previous_assets.jsonl
+              .venv/bin/python tools/asset_reuse_guard.py --mode seed --content-id "$PREVIOUS_CONTENT_ID" --manifest work/previous_assets.jsonl
+            fi
+          fi
+          test -s learning/used_visual_assets.json
+
+      - name: Reject previously used or weakly matched visual assets
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/asset_reuse_guard.py --mode validate --content-id "$CONTENT_ID"
+          test -s work/asset_reuse_report.json
+          jq -e '.status == "validated" and .previous_video_reuse == false and .within_video_duplicates == false and .accepted_new_assets >= 4' work/asset_reuse_report.json >/dev/null
 
       - name: Add stock creator and license attribution
         run: |
@@ -673,9 +801,9 @@ jobs:
                   continue
               scene = safe(row[0])
               try:
-                  duration = max(3.0, min(float(row[3]), 35.0))
+                  duration = max(0.8, min(float(row[3]), 35.0))
               except Exception:
-                  duration = 8.0
+                  raise SystemExit(f"Invalid duration in voice-aligned scene {scene}.")
 
               stock = Path(f"assets/scene_{scene}.mp4")
               target = Path(f"scenes/scene_{scene}.mp4")
@@ -741,48 +869,6 @@ jobs:
               raise SystemExit("No rendered scene files.")
           print("Scene rendering completed.")
           PY
-
-      - name: Edit generated narration, add pauses and script cues, and generate captions
-        run: |
-          set -euo pipefail
-          test -s voice.wav
-          test -s work/script.txt
-          .venv/bin/python tools/voice_editor.py
-          test -s work/voice_edited.wav
-          test -s work/captions.srt
-          test -s work/voice_edit_report.json
-          cat work/voice_edit_report.json
-
-      - name: Apply optional topic-aware Rubber Band pitch shaping
-        run: |
-          set -euo pipefail
-          if command -v rubberband >/dev/null 2>&1; then
-            LOWER_TITLE=$(printf '%s %s' "$INPUT_TITLE" "$INPUT_SCRIPT" | tr '[:upper:]' '[:lower:]')
-            if [[ "$LOWER_TITLE" =~ (security|risk|privacy|serious|safety) ]]; then
-              PITCH="-0.12"
-            elif [[ "$LOWER_TITLE" =~ (tool|launch|breakthrough|exciting|agent) ]]; then
-              PITCH="0.12"
-            else
-              PITCH="0.05"
-            fi
-            if rubberband --pitch "$PITCH" work/voice_edited.wav work/voice_pitch.wav; then
-              ORIGINAL_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
-              PITCHED_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_pitch.wav)
-              .venv/bin/python - "$ORIGINAL_SECONDS" "$PITCHED_SECONDS" <<'PY'
-          import sys
-          a,b=map(float,sys.argv[1:])
-          if abs(a-b)>0.5:
-              raise SystemExit("Pitch stage changed narration duration unexpectedly.")
-          PY
-              mv work/voice_pitch.wav work/voice_edited.wav
-              echo "Validated subtle topic-aware pitch shaping."
-            else
-              rm -f work/voice_pitch.wav
-              echo "Rubber Band failed; retaining clean narration."
-            fi
-          else
-            echo "Rubber Band unavailable; retaining clean narration."
-          fi
 
       - name: Generate original topic-aware background score
         run: |
@@ -914,6 +1000,20 @@ jobs:
               raise SystemExit(f"Long QA failed: duration {duration:.2f}s is outside 4-6 minutes.")
           if size < 100000:
               raise SystemExit("QA failed: output video is too small.")
+          scene_report = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
+          transition_report = json.loads(Path("work/transitions_report.json").read_text(encoding="utf-8"))
+          reuse_report = json.loads(Path("work/asset_reuse_report.json").read_text(encoding="utf-8"))
+          if scene_report.get("exact_word_timing") is not True or float(scene_report.get("sequence_similarity", 0)) < 0.55:
+              raise SystemExit("QA failed: scenes are not aligned to the actual narration transcript.")
+          minimum_scenes = min(28, max(12, int(audio_duration / 14.0))) if fmt != "SHORT" else min(18, max(8, int(audio_duration / 7.0)))
+          if int(scene_report.get("planned_visual_scenes", 0)) < minimum_scenes:
+              raise SystemExit(f"QA failed: only {scene_report.get('planned_visual_scenes')} scene-specific visuals; at least {minimum_scenes} required.")
+          if abs(float(scene_report.get("voice_duration_seconds", 0)) - audio_duration) > 0.55:
+              raise SystemExit("QA failed: scene plan duration does not match final edited narration.")
+          if abs(float(transition_report.get("rendered_duration_seconds", 0)) - audio_duration) > 0.25 or float(transition_report.get("final_frame_padding_seconds", 1)) > 0.20:
+              raise SystemExit("QA failed: visual timing drift or frozen-tail padding detected.")
+          if reuse_report.get("status") != "validated" or reuse_report.get("previous_video_reuse") is not False or reuse_report.get("within_video_duplicates") is not False:
+              raise SystemExit("QA failed: asset uniqueness/relevance gate is missing or failed.")
           if abs(duration - audio_duration - 4.0) > 1.5:
               raise SystemExit(f"QA failed: expected 4-second intro plus {audio_duration:.2f}s narration, got {duration:.2f}s total.")
           cap = cv2.VideoCapture(video_path)
@@ -976,6 +1076,10 @@ jobs:
           test -s work/voice_edited.wav
           test -s work/captions.srt
           test -s work/music.wav
+          test -s work/voice_word_timestamps.json
+          test -s work/scene_director_report.json
+          test -s work/asset_reuse_report.json
+          test -s work/transitions_report.json
           .venv/bin/python - "$VIDEO" "$THUMBNAIL" <<'PY'
           import json, subprocess, sys
           from pathlib import Path
@@ -1056,6 +1160,10 @@ jobs:
             work/video_review_metrics.json
             work/thumbnail_brief.json
             work/scene_director_report.json
+            work/voice_word_timestamps.json
+            work/asset_reuse_report.json
+            work/transitions_report.json
+            work/opencv_visual_qa.json
             assets/ai_tech_lab_intro.png
             assets/ai_tech_lab_subscribe.png
             work/title.txt
@@ -1428,6 +1536,40 @@ jobs:
             '{verified:true,video_id:$video_id,title:$title,privacy_status:$privacy_status,publish_at:$publish_at,url:$url,check:"YouTube Data API v3 read-after-write"}' \
             > work/youtube_post_upload_review.json
           cat work/youtube_post_upload_review.json
+
+      - name: Persist unique visual asset history after verified YouTube delivery
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/asset_reuse_guard.py --mode persist --content-id "$CONTENT_ID"
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+          git add learning/used_visual_assets.json
+          if git diff --cached --quiet; then
+            echo "No new visual assets to record."
+          else
+            git commit -m "Record unique visual assets after verified YouTube delivery"
+            for attempt in 1 2 3; do
+              if git push origin "HEAD:$GITHUB_REF_NAME"; then
+                echo "Unique visual asset history persisted."
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Asset history could not be saved after retries; stop rather than losing deduplication state."
+                exit 1
+              fi
+              git fetch origin "$GITHUB_REF_NAME"
+              git rebase "origin/$GITHUB_REF_NAME" || { git rebase --abort || true; exit 1; }
+              sleep 2
+            done
+          fi
 
       - name: Save final delivery verification report
         if: steps.youtube_state.outputs.already_uploaded != 'true'
