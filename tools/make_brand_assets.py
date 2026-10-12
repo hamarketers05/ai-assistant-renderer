@@ -41,6 +41,22 @@ def background(width: int, height: int) -> Image.Image:
     return Image.fromarray(arr, "RGB")
 
 
+
+
+def draw_3d_text(draw: ImageDraw.ImageDraw, xy: tuple[int, int], text: str,
+                 face_font, anchor: str = "lt", fill=WHITE) -> None:
+    """Extruded channel title with a beveled cyan rim; all artwork is locally generated."""
+    x, y = xy
+    # Extrusion layers form visible depth instead of a flat drop shadow.
+    for depth in range(18, 0, -1):
+        shade = (1, max(20, 55 + depth * 2), min(155, 95 + depth * 3), 255)
+        draw.text((x + depth, y + depth), text, font=face_font, anchor=anchor,
+                  fill=shade, stroke_width=2, stroke_fill=(3, 130, 190, 255))
+    # Bright face + cyan/gold bevel catches the eye after video compression.
+    draw.text((x, y), text, font=face_font, anchor=anchor, fill=fill,
+              stroke_width=4, stroke_fill=(42, 207, 255, 255))
+
+
 def create_intro(path: Path, fmt: str) -> None:
     width, height = (1080, 1920) if fmt == "SHORT" else (1920, 1080)
     img = background(width, height).convert("RGBA")
@@ -66,18 +82,28 @@ def create_intro(path: Path, fmt: str) -> None:
     if fmt == "SHORT":
         icon_size = 170
         cy = int(height * 0.27)
+        # Layered ring and extruded AI monogram create a premium 3D emblem.
+        for depth in range(18, 0, -1):
+            draw.ellipse((width//2-icon_size+depth, cy-icon_size+depth,
+                          width//2+icon_size+depth, cy+icon_size+depth),
+                         outline=(2, 75+depth*4, 130+min(depth*5, 110), 220), width=8)
         draw.ellipse((width//2-icon_size, cy-icon_size, width//2+icon_size, cy+icon_size),
-                     outline=CYAN+(245,), width=8)
-        draw.text((width//2, cy), "AI", anchor="mm", font=font(122), fill=WHITE)
+                     outline=CYAN+(255,), width=10)
+        draw_3d_text(draw, (width//2, cy), "AI", font(122), anchor="mm", fill=WHITE)
         title_y = int(height * 0.43)
         title_size = 74
         tagline_size = 33
     else:
         icon_size = 118
         cx, cy = int(width * 0.18), int(height * 0.46)
+        # Extruded ring uses multiple offset rims to read as a 3D channel badge.
+        for depth in range(18, 0, -1):
+            draw.ellipse((cx-icon_size+depth, cy-icon_size+depth,
+                          cx+icon_size+depth, cy+icon_size+depth),
+                         outline=(2, 75+depth*4, 130+min(depth*5, 110), 220), width=7)
         draw.ellipse((cx-icon_size, cy-icon_size, cx+icon_size, cy+icon_size),
-                     outline=CYAN+(245,), width=7)
-        draw.text((cx, cy), "AI", anchor="mm", font=font(86), fill=WHITE)
+                     outline=CYAN+(255,), width=9)
+        draw_3d_text(draw, (cx, cy), "AI", font(86), anchor="mm", fill=WHITE)
         title_y = int(height * 0.34)
         title_size = 94
         tagline_size = 34
@@ -93,7 +119,8 @@ def create_intro(path: Path, fmt: str) -> None:
                   anchor="mm", font=font(32), fill=GOLD)
     else:
         left = int(width * 0.31)
-        draw.text((left, title_y), "AI TECH LAB", font=font(title_size), fill=WHITE)
+        draw_3d_text(draw, (left, title_y), "AI TECH LAB",
+                     font(title_size), anchor="lt", fill=WHITE)
         draw.rounded_rectangle((left, title_y+126, left+int(width*.38), title_y+139),
                                radius=6, fill=CYAN+(245,))
         draw.text((left, title_y+188), "REAL RESEARCH. FUTURE FOCUSED.",
