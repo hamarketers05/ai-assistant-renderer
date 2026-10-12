@@ -98,39 +98,42 @@ def validate(content_id):
 
 def seed(content_id, manifest_path):
     history=load_history()
-    if history.get("used"):
-        print(json.dumps({"status":"history_already_seeded","assets":len(history["used"])}))
-        return
+    used=history.setdefault("used",[])
+    previously_seen=set()
+    for item in used:
+        previously_seen.update(identity(item))
     source=Path(manifest_path)
     if not source.is_file():
         raise SystemExit(f"Cannot seed repeat protection: prior asset manifest is missing: {source}")
     prior_records=read_manifest(source)
     if not prior_records:
         raise SystemExit("Cannot seed repeat protection: prior successful video manifest is empty.")
-    used=[]; seen=set()
+    before=len(used)
+    now=datetime.now(timezone.utc).isoformat(timespec="seconds")
+    added=0
     for item in prior_records:
         keys=identity(item)
-        # Existing video manifests may lack new relevance scores, but the assets
-        # still count as used. Record every stable identity so future reuse is blocked.
-        if not keys:
-            continue
-        if keys & seen:
+        # Old manifests can lack relevance scores, but their assets are still
+        # recorded as used. Existing content_id labels survive multi-video seeding.
+        if not keys or keys & previously_seen:
             continue
         record=dict(item)
-        record["content_id"]=str(content_id)
-        record["history_source"]="seeded_from_previous_verified_renderer_artifact"
+        record["content_id"]=str(record.get("content_id") or content_id)
+        record["history_source"]=record.get("history_source") or "seeded_from_previous_verified_renderer_artifact"
+        record["seeded_at_utc"]=now
         used.append(record)
-        seen.update(keys)
-    if not used:
-        raise SystemExit("Cannot seed repeat protection: prior manifest has no stable asset identities.")
+        previously_seen.update(keys)
+        added+=1
+    if before==0 and added==0:
+        raise SystemExit("Cannot seed repeat protection: prior manifest has no stable, unique asset identities.")
     history["version"]=1
-    history["used"]=used
-    history["updated_at_utc"]=datetime.now(timezone.utc).isoformat(timespec="seconds")
+    history["updated_at_utc"]=now
     HISTORY.parent.mkdir(parents=True,exist_ok=True)
     HISTORY.write_text(json.dumps(history,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
-    save_report({"status":"seeded_from_previous_verified_upload","content_id":str(content_id),
-                 "seeded_assets":len(used),"history_file":str(HISTORY),
+    save_report({"status":"seeded_from_previous_verified_uploads","requested_content_id":str(content_id),
+                 "seeded_assets":added,"total_history_assets":len(used),"history_file":str(HISTORY),
                  "source_manifest":str(source),"duplicate_guard":"enabled_before_next_upload"})
+
 
 def persist(content_id):
     history=load_history(); used=history.setdefault("used",[]); already=set()
