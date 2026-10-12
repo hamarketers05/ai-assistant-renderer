@@ -14,6 +14,7 @@ from pathlib import Path
 
 REPOSITORY = "https://github.com/JulesMellot/2D3D.git"
 PINNED_COMMIT = "a35d0281dea2a043b9490318d12b14dc39df0b5e"
+CODE_LICENSE = "MIT"
 FORMATS = {"SBS": "sbs", "TB": "tb", "ANAGLYPH": "anaglyph"}
 
 
@@ -70,6 +71,7 @@ def main() -> int:
     base = {
         "tool": "JulesMellot/2D3D",
         "repository": REPOSITORY,
+        "code_license": CODE_LICENSE,
         "pinned_commit": PINNED_COMMIT,
         "model_profile": "fast",
         "model_license": "Apache-2.0 (Depth Anything V2 Small)",
@@ -145,6 +147,17 @@ def main() -> int:
                 ["git", "-C", str(checkout), "checkout", "--quiet", "--detach", PINNED_COMMIT],
                 timeout=60,
             )
+            # YouTube needs stereoscopic metadata to recognize side-by-side H.264 as 3D.
+            # Patch only the temporary pinned checkout; standard project files stay untouched.
+            if args.mode == "SBS":
+                pipeline_file = checkout / "pipeline.py"
+                upstream = pipeline_file.read_text(encoding="utf-8")
+                needle = '"-pix_fmt", "yuv420p", "-c:a", "copy",'
+                replacement = '"-pix_fmt", "yuv420p", *(["-x264opts", "frame-packing=3"] if format == "sbs" else []), "-c:a", "copy",'
+                if upstream.count(needle) != 1:
+                    raise ValueError("Pinned 2D3D source layout changed; refusing an unverified metadata patch.")
+                pipeline_file.write_text(upstream.replace(needle, replacement), encoding="utf-8")
+                print("Added YouTube H.264 side-by-side stereo metadata in the temporary checkout.")
             run_command([sys.executable, "-m", "venv", str(venv)], timeout=120)
             pip = str(venv / "bin" / "pip")
             python = str(venv / "bin" / "python")
@@ -197,6 +210,7 @@ def main() -> int:
             "status": "success",
             "output": str(output),
             "output_format": FORMATS[args.mode],
+            "stereo_metadata": "H.264 frame-packing=3 added for YouTube SBS" if args.mode == "SBS" else "No YouTube SBS metadata; use the format with a compatible 3D viewer.",
             "source": source_probe,
             "output_probe": output_probe,
             "strength": 0.015,
