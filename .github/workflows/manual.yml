@@ -792,7 +792,7 @@ jobs:
           duration, size, audio_duration = float(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
           video_path, thumb_path = sys.argv[5], sys.argv[6]
           if fmt == "SHORT":
-              if not 24 <= duration <= 64:
+              if not 20 <= duration <= 60:
                   raise SystemExit(f"Short QA failed: duration {duration:.2f}s is outside 20-60 seconds.")
           elif not 244 <= duration <= 364:
               raise SystemExit(f"Long QA failed: duration {duration:.2f}s is outside 4-6 minutes.")
