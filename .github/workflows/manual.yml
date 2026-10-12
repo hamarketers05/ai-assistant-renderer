@@ -7,10 +7,6 @@ on:
         description: "Content ID"
         required: true
         type: string
-      audio_url:
-        description: "Optional direct audio URL"
-        required: false
-        type: string
       content_format:
         description: "AI Tech Lab video format"
         required: true
@@ -79,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ffmpeg jq imagemagick python3 python3-venv fonts-dejavu-core
+          sudo apt-get install -y ffmpeg jq imagemagick python3 python3-venv fonts-dejavu-core espeak-ng
           if sudo apt-get install -y rubberband-cli; then
             echo "Rubber Band is available for optional pitch shaping."
           else
@@ -87,19 +83,19 @@ jobs:
           fi
           python3 -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper huggingface_hub
+          .venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+          .venv/bin/pip install numpy scipy pillow matplotlib opencv-python-headless pydub faster-whisper soundfile kokoro
           # Faster-Whisper 1.2.1 still passes metadata_errors to av.open; PyAV 19 removed that argument.
           .venv/bin/pip install 'av<19'
           .venv/bin/python -c 'import av; major=int(av.__version__.split(".")[0]); assert major < 19, av.__version__; print("PyAV/Faster-Whisper compatibility confirmed:", av.__version__)'
           mkdir -p work output scenes assets
 
-      - name: Validate configuration and approved voice gate
+      - name: Validate configuration and Kokoro voice pipeline
         env:
           WORKER_URL: ${{ vars.NEW_PRODUCTION_WORKER_URL }}
           WORKER_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          AUDIO_URL: ${{ inputs.audio_url }}
         run: |
           set -euo pipefail
           [[ "$CONTENT_ID" =~ ^[0-9]+$ ]] || { echo "Content ID must be numeric."; exit 1; }
@@ -125,16 +121,63 @@ jobs:
           test -n "$WORKER_TOKEN"
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_KEY"
-          [[ "$AUDIO_URL" == https://* ]] || { echo "APPROVED VOICE GATE: a valid HTTPS URL for the manually uploaded/approved narration is required. Upload the voice first; rendering and scheduling are blocked."; exit 1; }
           test -n "${{ secrets.VECTEEZY_API_KEY }}"
           test -n "${{ secrets.VECTEEZY_ACCOUNT_ID }}"
           echo "Configuration validation passed."
+
+      - name: Generate, master and validate Kokoro narration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -s work/script.txt
+          .venv/bin/python tools/generate_kokoro_voice.py --script work/script.txt --output work/kokoro_voice.wav --voice af_heart --speed 1.0
+          test -s work/kokoro_voice.wav
+          ffmpeg -y -i work/kokoro_voice.wav -af "highpass=f=75,lowpass=f=12000,acompressor=threshold=-18dB:ratio=2.0:attack=15:release=180,loudnorm=I=-16:TP=-1.5:LRA=9" -ar 44100 -ac 2 -c:a pcm_s16le voice.wav
+          test -s voice.wav
+          .venv/bin/python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          duration=float(subprocess.check_output(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0","voice.wav"],text=True).strip())
+          streams=json.loads(subprocess.check_output(["ffprobe","-v","error","-show_streams","-of","json","voice.wav"],text=True))["streams"]
+          audio=next((s for s in streams if s.get("codec_type")=="audio"),None)
+          if not audio or int(audio.get("sample_rate",0))!=44100 or duration<30:
+              raise SystemExit("Kokoro audio quality gate failed: missing audio, wrong sample rate, or narration shorter than 30 seconds.")
+          report={"engine":"Kokoro-82M","voice":"af_heart","post_processing":["high-pass 75 Hz","low-pass 12 kHz","light compression","EBU loudness normalization"],"duration_seconds":round(duration,2),"sample_rate":44100,"manual_voice_approval_required":False,"quality_gate":"passed"}
+          Path("work/kokoro_audio_quality.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+          print(json.dumps(report))
+          PY
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_KEY"
+          OBJECT_PATH="ai-tech-lab/$CONTENT_ID/kokoro.wav"
+          curl -fLsS --retry 3 --retry-all-errors --max-time 180 -X POST \
+            "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$OBJECT_PATH" \
+            -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" \
+            -H "Content-Type: audio/wav" -H "x-upsert: true" --data-binary @voice.wav \
+            -o work/kokoro_upload.json
+          curl -fLsS --retry 3 --retry-all-errors --max-time 60 -X POST \
+            "$SUPABASE_URL/storage/v1/object/sign/ai-assistant-audio/$OBJECT_PATH" \
+            -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" \
+            -H "Content-Type: application/json" --data '{"expiresIn":604800}' \
+            -o work/kokoro_signed_url.json
+          SIGNED_PATH=$(jq -r '.signedURL // .signedUrl // empty' work/kokoro_signed_url.json)
+          test -n "$SIGNED_PATH" || { echo "Could not create signed URL for Kokoro narration."; exit 1; }
+          if [[ "$SIGNED_PATH" == https://* ]]; then
+            AUDIO_URL="$SIGNED_PATH"
+          elif [[ "$SIGNED_PATH" == /storage/v1/* ]]; then
+            AUDIO_URL="${SUPABASE_URL%/}$SIGNED_PATH"
+          else
+            AUDIO_URL="${SUPABASE_URL%/}/storage/v1/${SIGNED_PATH#/}"
+          fi
+          [[ "$AUDIO_URL" == https://* ]] || { echo "Generated Kokoro audio URL is invalid."; exit 1; }
+          echo "AUDIO_URL=$AUDIO_URL" >> "$GITHUB_ENV"
+          echo "Kokoro narration generated, mastered, validated and stored; manual voice approval is not required."
 
       - name: Request production manifest
         env:
           WORKER_URL: ${{ vars.NEW_PRODUCTION_WORKER_URL }}
           WORKER_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
-          AUDIO_URL: ${{ inputs.audio_url }}
         run: |
           set -euo pipefail
           jq -n \
@@ -201,30 +244,20 @@ jobs:
 
           test -s work/scenes.tsv
 
-      - name: Fetch and validate approved narration
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          AUDIO_URL: ${{ inputs.audio_url }}
+      - name: Validate Kokoro narration before scene timing
         run: |
           set -euo pipefail
-          [[ "$AUDIO_URL" == https://* ]] || { echo "Approved voice URL is missing; production is blocked."; exit 1; }
-          curl -fLsS --retry 3 --retry-all-errors --max-time 180 "$AUDIO_URL" -o voice_input
-          test -s voice_input
-          ffprobe -v error voice_input
-          ffmpeg -y -i voice_input -vn -ac 2 -ar 44100 -c:a pcm_s16le voice.wav
           test -s voice.wav
+          test -s work/kokoro_tts_report.json
+          test -s work/kokoro_audio_quality.json
           .venv/bin/python - <<'PY'
-          import json, subprocess
+          import json
           from pathlib import Path
-          source = subprocess.check_output(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0","voice.wav"],text=True).strip()
-          seconds = float(source)
-          if seconds < 30:
-              raise SystemExit("Approved narration is too short for a long-form video.")
-          report = {"approved_audio_url_supplied": True, "decoded": True, "duration_seconds": round(seconds,2),
-                    "gate": "manual voice audio is required; no synthetic fallback is used during rendering"}
-          Path("work/approved_voice_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
-          print(json.dumps(report))
+          tts=json.loads(Path("work/kokoro_tts_report.json").read_text(encoding="utf-8"))
+          qa=json.loads(Path("work/kokoro_audio_quality.json").read_text(encoding="utf-8"))
+          if tts.get("engine")!="Kokoro-82M" or qa.get("quality_gate")!="passed":
+              raise SystemExit("Kokoro narration did not pass the automated audio gate.")
+          print(json.dumps({"engine":tts["engine"],"voice":tts["voice"],"duration_seconds":qa["duration_seconds"],"manual_approval":False}))
           PY
 
       - name: Build sentence-by-sentence visual direction
@@ -770,7 +803,6 @@ jobs:
       - name: Assemble final video and thumbnail
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           set -euo pipefail
           AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration \
