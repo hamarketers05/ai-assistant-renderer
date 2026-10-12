@@ -97,6 +97,13 @@ jobs:
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
+          scene_render = wf["jobs"]["render"]["steps"][names.index("Render scenes")].get("run", "")
+          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png"):
+              if marker not in scene_render:
+                  raise SystemExit(f"Scene motion/3D overlay is missing: {marker}")
+          brand_script = Path("tools/make_brand_assets.py").read_text(encoding="utf-8")
+          if "def draw_3d_text" not in brand_script or "draw_3d_text(draw" not in brand_script:
+              raise SystemExit("Channel intro has lost its extruded 3D logo/text.")
           if "retention-days: 7" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Seven-day recovery artifact retention is missing.")
           print("Static validation passed: automatic TTS, original score, subtitles, branded intro, subscribe CTA, SEO, QA and duplicate-upload guard.")
@@ -162,6 +169,16 @@ jobs:
               im.verify()
           print("Transparent 3D security hero generated and verified.")
           PY
+
+      - name: Smoke-test cinematic camera movement on footage
+        run: |
+          set -euo pipefail
+          mkdir -p work output
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1280x720:rate=30:duration=4" -an -c:v libx264 -pix_fmt yuv420p work/camera_input.mp4
+          ffmpeg -hide_banner -loglevel error -y -i work/camera_input.mp4 -t 4 -vf "rotate='0.0025*sin(t*0.34)':c=black@0.0:ow=rotw(0.005):oh=roth(0.005),scale=1400:790:force_original_aspect_ratio=increase,crop=1280:720:x='(in_w-out_w)*(0.5+0.26*sin(t*0.58))':y='(in_h-out_h)*(0.5+0.18*cos(t*0.43)',setsar=1,eq=contrast=1.08:saturation=1.08,unsharp=5:5:0.45:3:3:0.0" -an -c:v libx264 -preset ultrafast -pix_fmt yuv420p work/camera_motion_smoke.mp4
+          ffprobe -v error -show_entries stream=width,height -of csv=p=0 work/camera_motion_smoke.mp4 | grep -qx '1280,720'
+          test -s work/camera_motion_smoke.mp4
+          echo "Camera drift, small roll, contrast, and sharpening passed FFmpeg smoke test."
 
       - name: Smoke-test FFmpeg crossfade renderer
         run: |
