@@ -132,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work output
-          printf '%s' 'AI Is Moving Into Your PC: What Local AI Really Changes' > work/title.txt
+          printf '%s' 'AI Agent Security: Why Testing Before Release Matters' > work/title.txt
           python tools/make_premium_thumbnail.py --title-file work/title.txt --output output/thumbnail-smoke-test.jpg
           python - <<'PY'
           from PIL import Image
