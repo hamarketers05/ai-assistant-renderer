@@ -128,7 +128,9 @@ def main():
                     desc = meta_field(meta,"ImageDescription")
                     title_terms = set(terms_of(title.replace("File:"," ")))
                     desc_terms = set(terms_of(desc))
-                    overlap = len(set(terms) & (title_terms | desc_terms)) / max(1,min(5,len(terms)))
+                    # Normalize against all query concepts so relevance stays in [0,1]
+                    # and a single generic keyword cannot masquerade as an exact match.
+                    overlap = len(set(terms) & (title_terms | desc_terms)) / max(1,len(set(terms)))
                     if overlap < 0.20: continue
                     source_url = str(info.get("descriptionurl") or "")
                     if not file_url.startswith("https://") or not source_url.startswith("https://commons.wikimedia.org/"): continue
