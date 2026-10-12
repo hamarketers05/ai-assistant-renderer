@@ -1,51 +1,13 @@
 #!/usr/bin/env python3
-"""Create premium thumbnails with optional Hugging Face FLUX.1-schnell imagery plus deterministic Python/Pillow typography and 3D overlays."""
+"""Create premium Python/Pillow thumbnails with layered 3D pop-out and cinematic bars."""
 from __future__ import annotations
-import argparse, json, math, os, re
+import argparse, json, math, re
 from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 W, H = 1280, 720
 NAVY=(3,8,24); CYAN=(45,224,255); GOLD=(255,207,80); WHITE=(247,250,255)
-
-def generate_flux_background(title, focus="", visual_reason=""):
-    """Use one FLUX.1-schnell image only when a Hugging Face token is configured.
-    Missing token, unavailable inference, or exhausted credits safely triggers local Python artwork.
-    """
-    token = os.getenv("HF_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
-    if not token:
-        return None, "local_python_fallback: HF_TOKEN not configured"
-    focus = re.sub(r"[^A-Za-z0-9 ,&'-]", "", str(focus or "AI technology"))[:100]
-    reason = re.sub(r"\s+", " ", str(visual_reason or ""))[:240]
-    prompt = (
-        "Create a premium cinematic 16:9 editorial technology photograph for a YouTube thumbnail. "
-        f"Story/topic: {title[:220]}. Main visual subject: {focus}. Editorial context: {reason}. "
-        "Place the main subject on the RIGHT half, leave the LEFT third visually dark and uncluttered for large title typography. "
-        "Photorealistic high-end technology advertising, dramatic but plausible lighting, deep navy shadows, electric cyan rim light, "
-        "subtle amber highlights, real material texture, rich depth, controlled contrast, crisp subject, atmospheric particles only if relevant. "
-        "No text, no letters, no numbers, no logo, no watermark, no collage, no split-screen, no UI screenshot, no fake charts."
-    )
-    try:
-        from huggingface_hub import InferenceClient
-        client = InferenceClient(provider="fal-ai", api_key=token, timeout=120)
-        image = client.text_to_image(
-            prompt,
-            model="black-forest-labs/FLUX.1-schnell",
-            width=1024,
-            height=576,
-            num_inference_steps=4,
-        )
-        if image is None:
-            raise RuntimeError("FLUX returned no image")
-        image = image.convert("RGB").resize((W, H), Image.Resampling.LANCZOS)
-        return image, "FLUX.1-schnell via Hugging Face Inference Providers"
-    except Exception as exc:
-        # Recovery never blocks production or claims FLUX succeeded when it did not.
-        print("FLUX unavailable; using local Python thumbnail:", type(exc).__name__, str(exc)[:180])
-        return None, "local_python_fallback: FLUX request unavailable"
-
-
 
 def font(size):
     for p in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -137,39 +99,37 @@ def headline_for(title):
     cut=math.ceil(len(words)/2); return [" ".join(words[:cut])," ".join(words[cut:])]
 
 def make(title,output,hook=None,focus="",visual_reason=""):
-    flux_image, image_provider = generate_flux_background(title, focus, visual_reason)
-    if flux_image is None:
-        img=background()
-    else:
-        img=flux_image.convert("RGBA")
-        # Python-authored navy shade keeps typography legible and unifies FLUX with channel branding.
-        img.alpha_composite(Image.new("RGBA", img.size, (2, 9, 25, 58)))
-        d=ImageDraw.Draw(img,"RGBA")
-        for i in range(-500,1800,90):
-            d.line((i,0,i-300,H),fill=(45,170,225,20),width=2)
+    img=background()
+    subject=Image.new("RGBA",(W,H),(0,0,0,0))
     low=(str(focus)+" "+title).lower()
     if any(x in low for x in ("security","shield","safe","test","guard","risk")):
-        draw_shield(img)
+        draw_shield(subject); visual_focus=focus or "security shield"
     else:
-        draw_chip(img)
-    panel=Image.new("RGBA",img.size,(0,0,0,0)); pd=ImageDraw.Draw(panel)
-    pd.rounded_rectangle((38,72,716,602),radius=32,fill=(1,8,24,218),outline=(45,210,250,165),width=3)
-    img.alpha_composite(panel.filter(ImageFilter.GaussianBlur(.4)))
+        draw_chip(subject); visual_focus=focus or "AI chip"
+    img.alpha_composite(subject)
     d=ImageDraw.Draw(img,"RGBA")
-    d.text((78,96),"AI TECH LAB  /  FUTURE INTELLIGENCE",font=font(22),fill=CYAN+(255,))
+    d.rectangle((0,0,W,86),fill=(0,0,0,255)); d.rectangle((0,634,W,H),fill=(0,0,0,255))
+    d.line((0,86,W,86),fill=(45,224,255,150),width=2); d.line((0,634,W,634),fill=(45,224,255,120),width=2)
+    panel=Image.new("RGBA",img.size,(0,0,0,0)); pd=ImageDraw.Draw(panel)
+    pd.rounded_rectangle((38,104,716,596),radius=32,fill=(1,8,24,226),outline=(45,210,250,185),width=3)
+    img.alpha_composite(panel.filter(ImageFilter.GaussianBlur(.4))); d=ImageDraw.Draw(img,"RGBA")
+    d.text((78,124),"AI TECH LAB  /  FUTURE INTELLIGENCE",font=font(22),fill=CYAN+(255,))
     lines=headline_for(hook or title); fs=76 if len(lines)==2 and max(map(len,lines))<=14 else 62
     while fs>44 and any(d.textbbox((0,0),line,font=font(fs))[2]>590 for line in lines): fs-=2
     f=font(fs); y=235 if len(lines)==2 else 255
-    for i,line in enumerate(lines[:3]): d.text((78,y+i*(fs+22)),line,font=f,fill=(GOLD if i==len(lines)-1 else WHITE)+(255,),stroke_width=2,stroke_fill=(0,0,0,210))
+    for i,line in enumerate(lines[:3]):
+        d.text((78,y+i*(fs+22)),line,font=f,fill=(GOLD if i==len(lines)-1 else WHITE)+(255,),stroke_width=2,stroke_fill=(0,0,0,210))
     d.rounded_rectangle((78,504,418,563),radius=17,fill=(9,186,227,248),outline=(180,246,255,255),width=2)
     d.text((101,518),"WHAT CHANGES NEXT?",font=font(22),fill=NAVY+(255,))
-    d.text((80,632),"RESEARCH  •  REAL-WORLD IMPACT  •  WHAT TO KNOW",font=font(17),fill=(181,216,239,255))
+    d.text((80,655),"RESEARCH  •  REAL-WORLD IMPACT  •  WHAT TO KNOW",font=font(17),fill=(181,216,239,255))
+    scaled=subject.resize((int(W*1.2),int(H*1.2)),Image.Resampling.LANCZOS)
+    img.alpha_composite(scaled.crop((200,60,200+W,60+H)))
     img=ImageEnhance.Contrast(img.convert("RGB")).enhance(1.08).filter(ImageFilter.UnsharpMask(radius=1.4,percent=145,threshold=2))
     output.parent.mkdir(parents=True,exist_ok=True); img.save(output,quality=95,optimize=True)
     with Image.open(output) as check:
         if check.size!=(1280,720): raise SystemExit(f"Thumbnail dimensions invalid: {check.size}")
         check.verify()
-    return image_provider
+    return {"provider":"Python/Pillow only","effect":"layered 3D pop-out across cinematic bars","visual_focus":visual_focus}
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument("--title-file",default="work/title.txt"); p.add_argument("--output",required=True); p.add_argument("--brief-file",default="work/thumbnail_brief.json")
@@ -185,7 +145,7 @@ def main():
             visual_reason=str(brief.get("visual_reason") or "").strip()
         except Exception:
             hook=None
-    out=Path(args.output); image_provider=make(title,out,hook,focus,visual_reason)
-    print(json.dumps({"thumbnail":str(out),"dimensions":"1280x720","style":"FLUX-assisted cinematic image with Python typography/3D overlays" if image_provider.startswith("FLUX") else "locally rendered Python 3D thumbnail","image_provider":image_provider,"creative_brief":"Groq" if brief_path.is_file() and hook else "local fallback","visual_focus":focus or ("security shield" if "security" in title.lower() else "AI chip"),"hook":hook or title}))
+    out=Path(args.output); result=make(title,out,hook,focus,visual_reason)
+    print(json.dumps({"thumbnail":str(out),"dimensions":"1280x720","style":result["effect"],"image_provider":result["provider"],"creative_brief":"Groq" if brief_path.is_file() and hook else "local fallback","visual_focus":result["visual_focus"],"hook":hook or title}))
 
 if __name__=="__main__": main()
