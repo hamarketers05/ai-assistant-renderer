@@ -78,10 +78,11 @@ jobs:
               raise SystemExit("Missing production stages: " + ", ".join(missing))
           if names.index(required[0]) >= names.index(required[1]):
               raise SystemExit("Narration decode must precede voice editing.")
-          if not (names.index(required[0]) < names.index(required[1]) and
-                  names.index(required[2]) < names.index(required[3]) < names.index(required[4])):
-              raise SystemExit("Stock fallback/attribution and evidence charts are out of order.")
-          if not (names.index(required[7]) < names.index(required[8]) < names.index(required[9]) < names.index(required[10]) < names.index(required[11])):
+          if not (names.index(required[0]) < names.index(required[1])):
+              raise SystemExit("Narration decode must precede voice editing.")
+          if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[2]) < names.index(required[6])):
+              raise SystemExit("Commons fallback, attribution, evidence charts, music and SEO are out of order.")
+          if not (names.index(required[7]) < names.index(required[8]) < names.index(required[9]) < names.index(required[10]) < names.index(required[11]) < names.index(required[12])):
               raise SystemExit("Final media QA, license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
               if not path.is_file():
