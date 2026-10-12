@@ -156,8 +156,69 @@ def main() -> int:
                 replacement = '"-pix_fmt", "yuv420p", *(["-x264opts", "frame-packing=3"] if format == "sbs" else []), "-c:a", "copy",'
                 if upstream.count(needle) != 1:
                     raise ValueError("Pinned 2D3D source layout changed; refusing an unverified metadata patch.")
-                pipeline_file.write_text(upstream.replace(needle, replacement), encoding="utf-8")
-                print("Added YouTube H.264 side-by-side stereo metadata in the temporary checkout.")
+                upstream = upstream.replace(needle, replacement)
+                # The free CPU runner processes only about 0.6 full-resolution depth frames/second.
+                # Estimate AI depth at 8-frame keyframes and linearly interpolate the maps between
+                # them. Every source frame still becomes an SBS frame at the original fps; audio,
+                # duration, resolution, and required geometric QA remain enforced.
+                loop_needle = """        self._prev_depth = None
+        n = 0
+        try:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                left, right = self.process_frame(frame)
+                encoder.stdin.write(self._compose(left, right, format, (ew, eh)).tobytes())
+                n += 1
+                if progress_callback and n % 5 == 0:
+                    progress_callback(n, total)
+                if should_stop and should_stop():
+                    break
+"""
+                loop_replacement = """        self._prev_depth = None
+        n = 0
+        depth_stride = 8
+        stopped = False
+        try:
+            while True:
+                frames = []
+                for _ in range(depth_stride):
+                    ok, frame = cap.read()
+                    if not ok:
+                        break
+                    frames.append(frame)
+                if not frames:
+                    break
+
+                depth_start = self.depth_fn(frames[0])
+                depth_end = self.depth_fn(frames[-1]) if len(frames) > 1 else depth_start
+                denominator = max(1, len(frames) - 1)
+                for index, frame in enumerate(frames):
+                    alpha = index / denominator
+                    depth = (1.0 - alpha) * depth_start + alpha * depth_end
+                    left, right = self.process_frame(frame, depth_override=depth)
+                    encoder.stdin.write(self._compose(left, right, format, (ew, eh)).tobytes())
+                    n += 1
+                    if progress_callback and n % 5 == 0:
+                        progress_callback(n, total)
+                    if should_stop and should_stop():
+                        stopped = True
+                        break
+                if stopped:
+                    break
+"""
+                process_needle = "    def process_frame(self, frame):"
+                process_replacement = "    def process_frame(self, frame, depth_override=None):"
+                depth_needle = "        depth = self.depth_fn(frame)"
+                depth_replacement = "        depth = depth_override if depth_override is not None else self.depth_fn(frame)"
+                if upstream.count(loop_needle) != 1 or upstream.count(process_needle) != 1 or upstream.count(depth_needle) != 1:
+                    raise ValueError("Pinned 2D3D conversion loop changed; refusing an unverified fast-path patch.")
+                upstream = upstream.replace(loop_needle, loop_replacement)
+                upstream = upstream.replace(process_needle, process_replacement)
+                upstream = upstream.replace(depth_needle, depth_replacement)
+                pipeline_file.write_text(upstream, encoding="utf-8")
+                print("Added SBS metadata and 8-frame interpolated AI-depth keyframes; all original frames/audio are retained.")
             runtime_python = sys.executable
             run_command(
                 [runtime_python, "-m", "pip", "install", "--disable-pip-version-check",
