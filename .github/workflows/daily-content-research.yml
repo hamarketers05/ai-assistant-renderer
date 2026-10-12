@@ -1,0 +1,99 @@
+name: AI Tech Lab Daily Research and Script
+
+on:
+  schedule:
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+    inputs:
+      seed_topic:
+        description: "Optional direction; Groq still chooses against current US trends"
+        required: false
+        type: string
+      target_date:
+        description: "Optional date label (YYYY-MM-DD)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-tech-lab-daily-research-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  research-and-script:
+    name: US YouTube trends to sourced script
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      SEED_TOPIC: ${{ inputs.seed_topic }}
+      TARGET_DATE: ${{ inputs.target_date }}
+      GROQ_TEXT_MODEL: openai/gpt-oss-20b
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare free runtime dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify free-provider configuration
+        run: |
+          set -euo pipefail
+          test -n "$YOUTUBE_API_KEY" || { echo "Missing YOUTUBE_API_KEY repository secret."; exit 1; }
+          test -n "$TAVILY_API_KEY" || { echo "Missing TAVILY_API_KEY repository secret."; exit 1; }
+          test -n "$GROQ_API_KEY" || { echo "Missing GROQ_API_KEY repository secret."; exit 1; }
+          python -m pip install --disable-pip-version-check numpy pillow
+
+      - name: Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq
+        run: |
+          set -euo pipefail
+          mkdir -p work output
+          ARGS=()
+          if [ -n "$SEED_TOPIC" ]; then ARGS+=(--seed-topic "$SEED_TOPIC"); fi
+          if [ -n "$TARGET_DATE" ]; then ARGS+=(--target-date "$TARGET_DATE"); fi
+          python tools/daily_content_research.py "${ARGS[@]}"
+          test -s work/daily_content_package.json
+          test -s work/script.txt
+          test -s work/title.txt
+          test -s work/research_summary.json
+          cat work/research_summary.json
+
+      - name: Ask Groq for a topic-specific thumbnail brief and render the preview
+        run: |
+          set -euo pipefail
+          python tools/groq_thumbnail_brief.py
+          jq -e '.provider == "Groq text inference" and (.hook | length > 0) and (.visual_focus | length > 0)' work/thumbnail_brief.json >/dev/null
+          python tools/make_premium_thumbnail.py --title-file work/title.txt --brief-file work/thumbnail_brief.json --output output/thumbnail_preview.jpg
+          python - <<'PY'
+          from PIL import Image
+          with Image.open("output/thumbnail_preview.jpg") as im:
+              if im.size != (1280, 720): raise SystemExit(f"Bad thumbnail dimensions: {im.size}")
+              im.verify()
+          print("Groq-specific creative brief and locally rendered thumbnail passed validation.")
+          PY
+
+      - name: Publish research package artifact for human script and voice approval
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-research-${{ github.run_id }}
+          path: |
+            work/daily_content_package.json
+            work/research_summary.json
+            work/youtube_trend_signals.json
+            work/tavily_evidence.json
+            work/topic_brief.json
+            work/hook_audit.json
+            work/script.txt
+            work/title.txt
+            work/description.txt
+            work/tags.txt
+            work/thumbnail_brief.json
+            output/thumbnail_preview.jpg
+          if-no-files-found: error
+          retention-days: 7

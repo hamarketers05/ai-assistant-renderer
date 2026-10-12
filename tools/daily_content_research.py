@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""Daily US-topic workflow: YouTube Data API v3 signals -> Tavily evidence -> Groq script + hook audit."""
+from __future__ import annotations
+import argparse, json, os, re, time, urllib.error, urllib.parse, urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+WORK = Path("work")
+TEXT_MODEL = os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-20b")
+YOUTUBE_API = "https://www.googleapis.com/youtube/v3/videos"
+TAVILY_API = "https://api.tavily.com/search"
+GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
+
+def read_json(path: Path, fallback):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+
+def request_json(url, payload=None, headers=None, timeout=45):
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    hdrs = {"Accept": "application/json", "User-Agent": "AI-Tech-Lab-Free-Research/1.0"}
+    if payload is not None:
+        hdrs["Content-Type"] = "application/json"
+    hdrs.update(headers or {})
+    for attempt in range(3):
+        req = urllib.request.Request(url, data=data, headers=hdrs, method="POST" if data else "GET")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                body = json.loads(exc.read().decode("utf-8"))
+                detail = str(body.get("error", body.get("message", body)))[:260]
+            except Exception:
+                detail = "provider returned an unreadable error body"
+            if (exc.code == 429 or exc.code >= 500) and attempt < 2:
+                retry_after = exc.headers.get("Retry-After", "3")
+                try:
+                    delay = min(20, max(2, int(float(retry_after))))
+                except ValueError:
+                    delay = 3 * (attempt + 1)
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"HTTP {exc.code}: {detail}") from None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            if attempt < 2:
+                time.sleep(2 + 2 * attempt)
+                continue
+            raise RuntimeError(f"Request failed safely after retries: {type(exc).__name__}") from None
+    raise RuntimeError("Request did not complete after retries.")
+
+def extract_json(text):
+    text = str(text).strip()
+    lines = text.splitlines()
+    if lines and lines[0].lstrip().startswith(chr(96) * 3):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith(chr(96) * 3):
+        lines = lines[:-1]
+    text = "\n".join(lines).strip()
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, re.S)
+        if not match:
+            raise RuntimeError("Groq returned no JSON object.")
+        obj = json.loads(match.group(0))
+    if not isinstance(obj, dict):
+        raise RuntimeError("Groq response was not a JSON object.")
+    return obj
+
+def groq_json(system, user, max_tokens=2500, temperature=0.25):
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("GROQ_API_KEY is missing; no script package was created.")
+    body = {"model": TEXT_MODEL, "temperature": temperature, "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system + "\nReturn exactly one valid JSON object, with no Markdown fences."},
+                {"role": "user", "content": user}]}
+    result = request_json(GROQ_API, body, {"Authorization": "Bearer " + key}, timeout=90)
+    choices = result.get("choices") or []
+    if not choices:
+        raise RuntimeError("Groq returned no completion choices.")
+    return extract_json(choices[0].get("message", {}).get("content", ""))
+
+def duration_seconds(value):
+    match = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?", value or "")
+    if not match:
+        return 0
+    h, m, s = match.groups()
+    return int(h or 0) * 3600 + int(m or 0) * 60 + float(s or 0)
+
+def youtube_trending(api_key):
+    # videos.list chart=mostPopular costs 1 quota unit per request (two US categories).
+    all_items = []
+    for category, label in (("28", "Science & Technology"), ("27", "Education")):
+        query = urllib.parse.urlencode({
+            "part": "snippet,statistics,contentDetails", "chart": "mostPopular",
+            "regionCode": "US", "videoCategoryId": category, "maxResults": 25, "key": api_key})
+        data = request_json(YOUTUBE_API + "?" + query, timeout=35)
+        for item in data.get("items", []):
+            snippet, stats = item.get("snippet", {}), item.get("statistics", {})
+            video_id = str(item.get("id", ""))
+            views = int(stats.get("viewCount", 0) or 0)
+            all_items.append({
+                "video_id": video_id, "category": label,
+                "title": str(snippet.get("title", ""))[:220],
+                "channel": str(snippet.get("channelTitle", ""))[:100],
+                "published_at": snippet.get("publishedAt", ""),
+                "description_excerpt": re.sub(r"\s+", " ", str(snippet.get("description", "")))[:260],
+                "duration_seconds": round(duration_seconds(item.get("contentDetails", {}).get("duration", "")), 1),
+                "view_count": views, "likes": int(stats.get("likeCount", 0) or 0),
+                "url": "https://www.youtube.com/watch?v=" + video_id})
+    if len(all_items) < 5:
+        raise RuntimeError("YouTube Data API v3 returned too few US trend signals.")
+    # Preserve the API's current-popularity order separately for each region/category.
+    return all_items
+
+def tavily_search(key, query):
+    result = request_json(TAVILY_API, {
+        "api_key": key, "query": query, "search_depth": "advanced", "topic": "general",
+        "max_results": 6, "include_answer": False, "include_raw_content": False}, timeout=60)
+    return result.get("results", []) if isinstance(result, dict) else []
+
+def clean_sources(results):
+    out, seen = [], set()
+    for item in results:
+        url = str(item.get("url", "")).strip()
+        title = re.sub(r"\s+", " ", str(item.get("title", "")).strip())
+        content = re.sub(r"\s+", " ", str(item.get("content", "")).strip())
+        if not url.startswith("https://") or url in seen or not title or not content:
+            continue
+        seen.add(url)
+        out.append({"title": title[:220], "url": url[:1000], "content": content[:1100],
+                    "published_date": str(item.get("published_date", ""))[:60], "score": item.get("score")})
+        if len(out) >= 10:
+            break
+    return out
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed-topic", default="", help="Optional direction; current US trend evidence is still evaluated.")
+    parser.add_argument("--target-date", default="", help="Optional date label for reproducible manual runs.")
+    parser.add_argument("--outdir", default="work")
+    args = parser.parse_args()
+    yt_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+    tv_key = os.getenv("TAVILY_API_KEY", "").strip()
+    if not yt_key:
+        raise SystemExit("YOUTUBE_API_KEY is missing. Add it as a GitHub Actions repository secret.")
+    if not tv_key:
+        raise SystemExit("TAVILY_API_KEY is missing. Add it as a GitHub Actions repository secret.")
+    if not os.getenv("GROQ_API_KEY", "").strip():
+        raise SystemExit("GROQ_API_KEY is missing. Groq is primary; Gemini is not used in this workflow.")
+
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc)
+    review = read_json(Path("learning/latest_video_review.json"), {})
+    learning = {
+        "last_title": review.get("title", ""),
+        "decision": review.get("decision", "NONE"),
+        "top_improvements": review.get("top_improvements", [])[:5] if isinstance(review.get("top_improvements", []), list) else [],
+        "repeat_issues_to_avoid": review.get("repeat_issues_to_avoid", [])[:5] if isinstance(review.get("repeat_issues_to_avoid", []), list) else []}
+    trends = youtube_trending(yt_key)
+    trend_sample = [x for x in trends if x["category"] == "Science & Technology"][:12] + [x for x in trends if x["category"] == "Education"][:10]
+    (outdir / "youtube_trend_signals.json").write_text(json.dumps({
+        "source": "YouTube Data API v3 videos.list chart=mostPopular", "region": "US",
+        "categories": ["Science & Technology", "Education"],
+        "quota_note": "Two videos.list chart calls; documented quota cost is 1 unit per call.",
+        "fetched_at_utc": now.isoformat(), "items": trends}, indent=2), encoding="utf-8")
+
+    topic = groq_json(
+        "You are the US-audience editorial trend strategist for AI Tech Lab. Choose original explainers from evidence, not copied titles. Do not claim search volume or growth when not provided. Return JSON keys: topic, angle, why_now, research_queries (exactly 2 concise Tavily queries), trend_evidence (matching supplied video titles/URLs), avoid_title_similarity.",
+        json.dumps({"current_us_youtube_popular_videos": trend_sample, "manual_direction_if_any": args.seed_topic,
+                    "target_date": args.target_date or now.date().isoformat(), "previous_video_feedback": learning}, ensure_ascii=False),
+        max_tokens=900)
+    topic_name = re.sub(r"\s+", " ", str(topic.get("topic", ""))).strip()[:180]
+    angle = re.sub(r"\s+", " ", str(topic.get("angle", ""))).strip()[:700]
+    queries = topic.get("research_queries", [])
+    if not topic_name or not angle or not isinstance(queries, list) or len(queries) < 2:
+        raise SystemExit("Groq topic selection failed quality checks; no research package was released.")
+    queries = [str(q).strip()[:240] for q in queries[:2] if str(q).strip()]
+    if len(queries) < 2:
+        raise SystemExit("Groq did not produce two useful research queries.")
+
+    raw_results = []
+    for query in queries:
+        raw_results.extend(tavily_search(tv_key, query))
+    sources = clean_sources(raw_results)
+    if len(sources) < 4:
+        raise SystemExit(f"Tavily returned only {len(sources)} usable HTTPS sources; at least four are required.")
+    (outdir / "tavily_evidence.json").write_text(json.dumps({
+        "provider": "Tavily Search API", "queries": queries,
+        "fetched_at_utc": datetime.now(timezone.utc).isoformat(), "sources": sources},
+        indent=2, ensure_ascii=False), encoding="utf-8")
+
+    evidence_context = [{"title": s["title"], "url": s["url"], "date": s["published_date"], "evidence": s["content"]} for s in sources]
+    draft = groq_json(
+        "You are the lead English-language YouTube scriptwriter for AI Tech Lab (USA audience). Use ONLY supplied evidence for factual specifics; never invent numbers, quotes, product capabilities, release dates, or market claims. Explain uncertainty and limitations. Create a fresh 6-minute explainer, not a paraphrase. Return JSON keys: title, script, description, tags (array), hook_candidates (array of 3), claims (array of {claim, source_urls, confidence}), visual_direction (array of {section, visual, movement, overlay}), and chapters (array of {label, approximate_position}). Script must be spoken narration only, 700-900 words, US English, a specific hook, clear story arc, varied sentences, accessible but intelligent, concrete evidence-based examples, balanced caveats and concise CTA. No unsupported superlatives. Do not add production instructions inside narration.",
+        json.dumps({"topic": topic_name, "editorial_angle": angle, "why_now": topic.get("why_now", ""),
+                    "youtube_trend_context": trend_sample[:12], "tavily_sources": evidence_context,
+                    "previous_video_feedback": learning}, ensure_ascii=False), max_tokens=3300)
+    title = re.sub(r"\s+", " ", str(draft.get("title", "")).strip())[:100]
+    script = re.sub(r"\r\n?", "\n", str(draft.get("script", "")).strip())
+    words = len(re.findall(r"\b[\w'-]+\b", script))
+    if not title or words < 600 or words > 1000:
+        raise SystemExit(f"Groq script failed word-count/title gate ({words} words; title present={bool(title)}).")
+    hooks = draft.get("hook_candidates", [])
+    if not isinstance(hooks, list) or len(hooks) < 2:
+        hooks = [script.split(".")[0].strip()]
+
+    audit = groq_json(
+        "You are an independent YouTube hook editor and claim auditor. Review the complete script against only the supplied source evidence. Return JSON keys: score (integer 1-10), selected_hook (one concise opening line), revised_script (complete spoken script, 650-950 words), unsupported_claims (array of exact unsupported claims), corrections_made (array), decision (PASS or REVISE). Improve the first 15 seconds and transitions, preserve supported facts and natural American English. Remove or qualify unsupported claims. Never invent evidence.",
+        json.dumps({"title": title, "script": script, "hook_candidates": hooks,
+                    "claims_for_audit": draft.get("claims", []), "source_evidence": evidence_context,
+                    "trend_basis": topic.get("trend_evidence", [])}, ensure_ascii=False),
+        max_tokens=3300, temperature=0.15)
+    revised = re.sub(r"\r\n?", "\n", str(audit.get("revised_script", "")).strip())
+    revised_words = len(re.findall(r"\b[\w'-]+\b", revised))
+    if 600 <= revised_words <= 1000:
+        script = revised
+    hook_score = int(audit.get("score", 0) or 0)
+    if hook_score < 7:
+        raise SystemExit(f"Groq hook review scored {hook_score}/10. No publish-ready script package was released.")
+    if not script or len(script) < 2500:
+        raise SystemExit("Final script did not pass length/content validation.")
+
+    tags = draft.get("tags", [])
+    if not isinstance(tags, list):
+        tags = []
+    normalized_tags, seen_tags = [], set()
+    for tag in tags:
+        tag = re.sub(r"\s+", " ", str(tag)).strip(" ,#")[:90]
+        if tag and tag.casefold() not in seen_tags:
+            seen_tags.add(tag.casefold())
+            normalized_tags.append(tag)
+    while len(",".join(normalized_tags)) > 480 and normalized_tags:
+        normalized_tags.pop()
+    if not normalized_tags:
+        normalized_tags = ["AI Tech Lab", "artificial intelligence", topic_name[:50]]
+    description = re.sub(r"\s+", " ", str(draft.get("description", "")).strip())
+    attribution = "\n\nSOURCES & FURTHER READING\n" + "\n".join(f"- {s['title']}: {s['url']}" for s in sources)
+    description = (description[:max(0, 4900 - len(attribution))].rstrip() + attribution)[:4900]
+
+    visual_direction = draft.get("visual_direction", [])
+    if not isinstance(visual_direction, list):
+        visual_direction = []
+    claims = draft.get("claims", [])
+    if not isinstance(claims, list):
+        claims = []
+    source_urls = {s["url"] for s in sources}
+    claims_checked = []
+    for item in claims:
+        if not isinstance(item, dict):
+            continue
+        urls = [str(u) for u in item.get("source_urls", []) if str(u) in source_urls]
+        claims_checked.append({"claim": str(item.get("claim", ""))[:500], "source_urls": urls,
+                               "confidence": str(item.get("confidence", "unrated"))[:40], "source_linked": bool(urls)})
+    package = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(), "target_audience": "United States",
+        "brand": "AI Tech Lab", "primary_ai": "Groq", "research_provider": "Tavily Search API",
+        "trend_provider": "YouTube Data API v3", "trend_basis": topic, "title": title,
+        "hook": str(audit.get("selected_hook", hooks[0] if hooks else ""))[:350],
+        "hook_audit": {"score": hook_score, "decision": str(audit.get("decision", "")),
+                       "corrections_made": audit.get("corrections_made", []),
+                       "unsupported_claims_reported": audit.get("unsupported_claims", [])},
+        "script_word_count": len(re.findall(r"\b[\w'-]+\b", script)), "script": script,
+        "description": description, "tags": normalized_tags, "chapters": draft.get("chapters", []),
+        "visual_direction": visual_direction, "claims_review": claims_checked,
+        "warnings": ["Claims are grounded in the listed Tavily search results; script approval and manual voice audio are still required."],
+        "sources": sources, "previous_video_learning_applied": learning}
+    (outdir / "daily_content_package.json").write_text(json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8")
+    (outdir / "topic_brief.json").write_text(json.dumps(topic, indent=2, ensure_ascii=False), encoding="utf-8")
+    (outdir / "title.txt").write_text(title, encoding="utf-8")
+    (outdir / "script.txt").write_text(script, encoding="utf-8")
+    (outdir / "description.txt").write_text(description, encoding="utf-8")
+    (outdir / "tags.txt").write_text(",".join(normalized_tags), encoding="utf-8")
+    (outdir / "hook_audit.json").write_text(json.dumps(package["hook_audit"], indent=2, ensure_ascii=False), encoding="utf-8")
+    summary = {
+        "status": "SCRIPT_PACKAGE_READY_FOR_MANUAL_VOICE_APPROVAL", "title": title,
+        "script_words": package["script_word_count"], "hook_score": hook_score,
+        "trend_signals": len(trends), "usable_tavily_sources": len(sources),
+        "source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]),
+        "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"]),
+        "next_gate": "Human approves script, then supplies approved narration audio; renderer must not synthesize a replacement voice."}
+    (outdir / "research_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(json.dumps(summary, ensure_ascii=False))
+
+if __name__ == "__main__":
+    main()
