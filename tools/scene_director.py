@@ -89,7 +89,7 @@ def align_words(script_words, asr, duration):
 
 def make_groups(sentence_data,duration,max_scenes,word_times,display_words,punctuation_marks):
     """Split long sentences into voice-timed visual phrases near four seconds."""
-    target=max(3.6,float(duration)/max(1,int(max_scenes)))
+    target=max(2.4 if int(max_scenes)<=24 else 3.0,min(4.0,float(duration)/max(1,int(max_scenes))))
     groups=[]
     weak_endings={"a","an","the","and","or","to","for","of","in","with","by","on","at","as","from"}
     for sentence in sentence_data:
