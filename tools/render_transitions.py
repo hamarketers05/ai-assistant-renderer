@@ -41,20 +41,21 @@ def main():
     for path,_ in clips: cmd.extend(["-i",str(path)])
     filters=[]
     for i,(_,_) in enumerate(clips):
-        # Pad each scene by the transition length so each transition overlaps a cloned
-        # tail frame, preserving the original per-scene timing rather than shortening it.
-        filters.append(f"[{i}:v]setpts=PTS-STARTPTS,fps=30,format=yuv420p,settb=AVTB,tpad=stop_mode=clone:stop_duration={args.transition:.3f}[v{i}]")
-    current="v0"; cumulative=clips[0][1]
+        # Equalize time bases and frame rates before true overlapping crossfades.
+        filters.append(f"[{i}:v]setpts=PTS-STARTPTS,fps=30,format=yuv420p,settb=AVTB[v{i}]")
+    current="v0"
+    cumulative=clips[0][1]
     for i in range(1,len(clips)):
         out=f"x{i}"
-        filters.append(f"[{current}][v{i}]xfade=transition=fade:duration={args.transition:.3f}:offset={cumulative:.3f}[{out}]")
+        # xfade offsets mark the start of the overlap, so subtract the transition
+        # from the current composed duration. Each transition shortens only by its
+        # actual overlap; the last frame is extended only if narration is longer.
+        offset=max(0.0,cumulative-args.transition)
+        filters.append(f"[{current}][v{i}]xfade=transition=fade:duration={args.transition:.3f}:offset={offset:.3f}[{out}]")
         current=out
-        cumulative+=clips[i][1]
-    # Remove the intentionally added transition padding from final requested duration.
-    desired=max(args.target_duration,min(cumulative+args.transition, sum(d for _,d in clips)+args.transition))
-    # If the scene plan undershoots narration, freeze only the final shot instead of
-    # looping the entire timeline back to the opening.
-    filter= ";".join(filters)+f";[{current}]tpad=stop_mode=clone:stop_duration={max(0.0,args.target_duration-cumulative):.3f}[vout]"
+        cumulative+=clips[i][1]-args.transition
+    padding=max(0.0,args.target_duration-cumulative)
+    filter=";".join(filters)+f";[{current}]tpad=stop_mode=clone:stop_duration={padding:.3f}[vout]"
     cmd.extend(["-filter_complex",filter,"-map","[vout]","-an","-t",f"{args.target_duration:.3f}",
                 "-c:v","libx264","-preset","veryfast","-crf","22","-r","30","-pix_fmt","yuv420p",
                 "-movflags","+faststart",args.output])
@@ -65,7 +66,7 @@ def main():
         raise SystemExit(f"Transition render shorter than narration: {duration:.2f}s < {args.target_duration:.2f}s")
     report={"scenes":len(clips),"transition":"crossfade","transition_seconds":args.transition,
             "target_duration_seconds":args.target_duration,"rendered_duration_seconds":round(duration,3),
-            "loops_entire_video":False,"clip_duration_total_seconds":round(sum(d for _,d in clips),3)}
+            "loops_entire_video":False,"clip_duration_total_seconds":round(sum(d for _,d in clips),3),\n            "untrimmed_crossfade_timeline_seconds":round(cumulative,3), "final_frame_padding_seconds":round(padding,3)}
     Path("work/transitions_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     print(json.dumps(report))
 if __name__=="__main__": main()
