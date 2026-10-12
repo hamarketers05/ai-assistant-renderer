@@ -102,7 +102,7 @@ def sample_frames(video, duration, directory):
         mean,std=float(np.mean(gray)),float(np.std(gray))
         blacks.append(mean<4 and std<2)
         # Three evenly separated story moments for multimodal review.
-        if i in {max(0,sample_n//6), sample_n//2, min(sample_n-1,(sample_n*5)//6)}:
+        if i in {max(0,sample_n//5), min(sample_n-1,(sample_n*4)//5)}:
             target=directory/f"video_frame_{len(selected)+1}.jpg"
             h,w=frame.shape[:2]
             ratio=min(512/max(w,h),1.0)
@@ -182,8 +182,8 @@ def main():
             local_issues.append("Fewer than four sentence-directed visual scenes were prepared")
 
         frame_prompt = (
-          "Review these three actual sampled frames from one finished AI explainer video in timeline order. "
-          "The three attached images are at the timestamps listed in the text. Evaluate whether the footage/graphics feel "
+          "Review these two actual sampled frames from one finished AI explainer video in timeline order. "
+          "The two attached images are at the timestamps listed in the text. Evaluate whether the footage/graphics feel "
           "topic-specific, cinematic, varied, coherent, and plausibly aligned with the narration context. Detect generic or "
           "repeated visuals, awkward cropping, empty/black frames, illegible overlays, distracting effects, and visual mismatch. "
           "Do not infer facts that are not visible. Return JSON keys: visual_match_score (1-10), visual_quality_score (1-10), "
@@ -194,7 +194,7 @@ def main():
                        "\nNarration opening: "+script[:900]+
                        "\nScene-plan excerpts: "+json.dumps(scene_rows[:12],ensure_ascii=False)[:2600]+
                        "\nSample timestamps: "+json.dumps([x["timestamp_seconds"] for x in frames["sampled_frames"]])}]
-        for frame in frames["sampled_frames"][:3]:
+        for frame in frames["sampled_frames"][:2]:
             frame_content.append({"type":"image_url","image_url":{"url":image_data_url(frame["path"])}})
         visual_review=groq_call(VISION_MODEL,[{"role":"user","content":frame_content}],max_tokens=750)
 

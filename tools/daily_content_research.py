@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORK = Path("work")
+_LAST_GROQ_START = 0.0
 TEXT_MODEL = os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-20b")
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3/videos"
 TAVILY_API = "https://api.tavily.com/search"
@@ -71,6 +72,7 @@ def extract_json(text):
     return obj
 
 def groq_json(system, user, max_tokens=2500, temperature=0.25):
+    global _LAST_GROQ_START
     key = os.getenv("GROQ_API_KEY", "").strip()
     if not key:
         raise RuntimeError("GROQ_API_KEY is missing; no script package was created.")
@@ -78,6 +80,11 @@ def groq_json(system, user, max_tokens=2500, temperature=0.25):
             "messages": [
                 {"role": "system", "content": system + "\nReturn exactly one valid JSON object, with no Markdown fences."},
                 {"role": "user", "content": user}]}
+    wait_seconds = 61.0 - (time.monotonic() - _LAST_GROQ_START) if _LAST_GROQ_START else 0.0
+    if wait_seconds > 0:
+        print(f"Respecting free-tier Groq TPM budget; spacing model calls by {int(wait_seconds)} seconds.")
+        time.sleep(wait_seconds)
+    _LAST_GROQ_START = time.monotonic()
     result = request_json(GROQ_API, body, {"Authorization": "Bearer " + key}, timeout=90)
     choices = result.get("choices") or []
     if not choices:
@@ -91,14 +98,29 @@ def duration_seconds(value):
     h, m, s = match.groups()
     return int(h or 0) * 3600 + int(m or 0) * 60 + float(s or 0)
 
-def youtube_trending(api_key):
+def youtube_trending(api_key, access_token=""):
     # videos.list chart=mostPopular costs 1 quota unit per request (two US categories).
     all_items = []
     for category, label in (("28", "Science & Technology"), ("27", "Education")):
-        query = urllib.parse.urlencode({
+        params = {
             "part": "snippet,statistics,contentDetails", "chart": "mostPopular",
-            "regionCode": "US", "videoCategoryId": category, "maxResults": 25, "key": api_key})
-        data = request_json(YOUTUBE_API + "?" + query, timeout=35)
+            "regionCode": "US", "videoCategoryId": category, "maxResults": 25}
+        headers = {}
+        if access_token:
+            headers["Authorization"] = "Bearer " + access_token
+        elif api_key:
+            params["key"] = api_key
+        else:
+            raise RuntimeError("YouTube Data API v3 requires the existing OAuth access token or API key.")
+        query = urllib.parse.urlencode(params)
+        try:
+            data = request_json(YOUTUBE_API + "?" + query, headers=headers, timeout=35)
+        except RuntimeError:
+            if not access_token or not api_key:
+                raise
+            # If the existing OAuth scope cannot read public charts, fall back to the existing API key secret.
+            params["key"] = api_key
+            data = request_json(YOUTUBE_API + "?" + urllib.parse.urlencode(params), timeout=35)
         for item in data.get("items", []):
             snippet, stats = item.get("snippet", {}), item.get("statistics", {})
             video_id = str(item.get("id", ""))
@@ -145,9 +167,10 @@ def main():
     parser.add_argument("--outdir", default="work")
     args = parser.parse_args()
     yt_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+    yt_token = os.getenv("YOUTUBE_ACCESS_TOKEN", "").strip()
     tv_key = os.getenv("TAVILY_API_KEY", "").strip()
-    if not yt_key:
-        raise SystemExit("YOUTUBE_API_KEY is missing. Add it as a GitHub Actions repository secret.")
+    if not yt_key and not yt_token:
+        raise SystemExit("YouTube Data API v3 authentication is missing: the existing Worker OAuth token or YOUTUBE_API_KEY is required.")
     if not tv_key:
         raise SystemExit("TAVILY_API_KEY is missing. Add it as a GitHub Actions repository secret.")
     if not os.getenv("GROQ_API_KEY", "").strip():
@@ -162,7 +185,7 @@ def main():
         "decision": review.get("decision", "NONE"),
         "top_improvements": review.get("top_improvements", [])[:5] if isinstance(review.get("top_improvements", []), list) else [],
         "repeat_issues_to_avoid": review.get("repeat_issues_to_avoid", [])[:5] if isinstance(review.get("repeat_issues_to_avoid", []), list) else []}
-    trends = youtube_trending(yt_key)
+    trends = youtube_trending(yt_key, yt_token)
     trend_sample = [x for x in trends if x["category"] == "Science & Technology"][:12] + [x for x in trends if x["category"] == "Education"][:10]
     (outdir / "youtube_trend_signals.json").write_text(json.dumps({
         "source": "YouTube Data API v3 videos.list chart=mostPopular", "region": "US",

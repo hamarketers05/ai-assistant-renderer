@@ -122,18 +122,22 @@ jobs:
               raise SystemExit("Daily US topic research schedule is missing.")
           if not all(x in research_names for x in ["Verify free-provider configuration", "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq", "Ask Groq for a topic-specific thumbnail brief and render the preview", "Publish research package artifact for human script and voice approval"]):
               raise SystemExit("Daily research stages are missing or out of order.")
-          if not all(x in Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8") for x in ["YOUTUBE_API_KEY", "TAVILY_API_KEY", "GROQ_API_KEY", "openai/gpt-oss-20b"]):
+          if not all(x in Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8") for x in ["WORKER_AUTH_TOKEN", "TAVILY_API_KEY", "GROQ_API_KEY", "openai/gpt-oss-20b", "/youtube/access-token"]):
               raise SystemExit("Daily topic workflow is not configured for YouTube v3 + Tavily + Groq.")
           if not all(research_names.index(a) < research_names.index(b) for a,b in zip(research_names[1:], research_names[2:])):
               raise SystemExit("Daily research steps are not ordered.")
           research_code = Path("tools/daily_content_research.py").read_text(encoding="utf-8")
-          for marker in ("videos.list", "mostPopular", "Tavily Search API", "research_queries", "hook_score < 7", "previous_video_feedback", "SCRIPT_PACKAGE_READY_FOR_MANUAL_VOICE_APPROVAL"):
+          for marker in ("videos.list", "mostPopular", "Tavily Search API", "research_queries", "hook_score < 7", "previous_video_feedback", "SCRIPT_PACKAGE_READY_FOR_MANUAL_VOICE_APPROVAL", "YOUTUBE_ACCESS_TOKEN"):
               if marker not in research_code:
                   raise SystemExit(f"Daily research implementation missing: {marker}")
           router_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
-          for marker in ("qwen/qwen3.8-27b", "video_frame_", "thumbnail_review", "near_black_frame_ratio", '"decision":"BLOCK"'", "next_video_rules"):
+          for marker in ("qwen/qwen3.8-27b", "video_frame_", "thumbnail_review", "near_black_frame_ratio", "decision", "next_video_rules"):
               if marker not in router_code:
                   raise SystemExit(f"Final video review implementation missing: {marker}")
+          if "_LAST_GROQ_START" not in research_code or "61.0 -" not in research_code:
+              raise SystemExit("Research Groq requests must be spaced to respect the free-tier token budget.")
+          if "Review these two actual sampled frames" not in router_code or 'sampled_frames"][:2]' not in router_code:
+              raise SystemExit("Vision review must keep sampled image tokens inside the free-tier budget.")
           if "contents: write" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Persisting next-video QA feedback needs repository write permission.")
           if not Path("learning/latest_video_review.json").is_file():

@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 25
     env:
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       SEED_TOPIC: ${{ inputs.seed_topic }}
@@ -45,10 +46,29 @@ jobs:
       - name: Verify free-provider configuration
         run: |
           set -euo pipefail
-          test -n "$YOUTUBE_API_KEY" || { echo "Missing YOUTUBE_API_KEY repository secret."; exit 1; }
+          test -n "$WORKER_AUTH_TOKEN" || { echo "Missing existing WORKER_AUTH_TOKEN repository secret."; exit 1; }
           test -n "$TAVILY_API_KEY" || { echo "Missing TAVILY_API_KEY repository secret."; exit 1; }
           test -n "$GROQ_API_KEY" || { echo "Missing GROQ_API_KEY repository secret."; exit 1; }
           python -m pip install --disable-pip-version-check numpy pillow
+
+      - name: Get existing YouTube OAuth token for Data API v3 trend reads
+        env:
+          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+        run: |
+          set -euo pipefail
+          CODE=$(curl -sS --max-time 45 -o work_token.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" "$WORKER_URL/youtube/access-token")
+          if [ "$CODE" != "200" ]; then
+            jq '{ok,error,provider_error}' work_token.json || true
+            echo "Existing Worker could not supply a YouTube OAuth token for trend research."
+            exit 1
+          fi
+          TOKEN=$(jq -r '.access_token // empty' work_token.json)
+          test -n "$TOKEN"
+          echo "::add-mask::$TOKEN"
+          echo "YOUTUBE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          rm -f work_token.json
 
       - name: Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq
         run: |
