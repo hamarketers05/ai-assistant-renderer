@@ -98,7 +98,7 @@ def headline_for(title):
     if len(words)<=3: return [" ".join(words or ["FUTURE TECHNOLOGY"])]
     cut=math.ceil(len(words)/2); return [" ".join(words[:cut])," ".join(words[cut:])]
 
-def make(title,output):
+def make(title,output,hook=None):
     img=background()
     low=title.lower()
     if "agent" in low and any(x in low for x in ("security","safe","test","guard","risk")):
@@ -110,7 +110,7 @@ def make(title,output):
     img.alpha_composite(panel.filter(ImageFilter.GaussianBlur(.4)))
     d=ImageDraw.Draw(img,"RGBA")
     d.text((78,96),"AI TECH LAB  /  FUTURE INTELLIGENCE",font=font(22),fill=CYAN+(255,))
-    lines=headline_for(title); fs=76 if len(lines)==2 and max(map(len,lines))<=14 else 62
+    lines=headline_for(hook or title); fs=76 if len(lines)==2 and max(map(len,lines))<=14 else 62
     while fs>44 and any(d.textbbox((0,0),line,font=font(fs))[2]>590 for line in lines): fs-=2
     f=font(fs); y=235 if len(lines)==2 else 255
     for i,line in enumerate(lines[:3]): d.text((78,y+i*(fs+22)),line,font=f,fill=(GOLD if i==len(lines)-1 else WHITE)+(255,),stroke_width=2,stroke_fill=(0,0,0,210))
@@ -124,10 +124,19 @@ def make(title,output):
         check.verify()
 
 def main():
-    p=argparse.ArgumentParser(); p.add_argument("--title-file",default="work/title.txt"); p.add_argument("--output",required=True)
+    p=argparse.ArgumentParser(); p.add_argument("--title-file",default="work/title.txt"); p.add_argument("--output",required=True); p.add_argument("--brief-file",default="work/thumbnail_brief.json")
     args=p.parse_args(); title=Path(args.title_file).read_text(encoding="utf-8").strip()
     if not title: raise SystemExit("Premium thumbnail needs the actual video title.")
-    out=Path(args.output); make(title,out)
-    print(json.dumps({"thumbnail":str(out),"dimensions":"1280x720","style":"3D-style topic-matched AI chip","title":title}))
+    hook=None; focus=""
+    brief_path=Path(args.brief_file)
+    if brief_path.is_file():
+        try:
+            brief=json.loads(brief_path.read_text(encoding="utf-8"))
+            hook=str(brief.get("hook") or "").strip() or None
+            focus=str(brief.get("visual_focus") or "").lower()
+        except Exception:
+            hook=None
+    out=Path(args.output); make(title,out,hook)
+    print(json.dumps({"thumbnail":str(out),"dimensions":"1280x720","style":"topic-specific locally rendered 3D graphic","creative_brief":"Groq" if brief_path.is_file() and hook else "local fallback","visual_focus":focus or ("security shield" if "security" in title.lower() else "AI chip"),"hook":hook or title}))
 
 if __name__=="__main__": main()
