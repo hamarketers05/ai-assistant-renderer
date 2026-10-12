@@ -477,9 +477,9 @@ jobs:
       - name: Smoke-test cinematic color and audio filter chain
         run: |
           set -euo pipefail
-          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=640x360:rate=30:duration=2" -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=2" \\
-            -vf "eq=contrast=1.10:saturation=1.10:gamma=1.015:brightness=0.004,colorbalance=rs=-0.018:gs=0.000:bs=0.018:rm=-0.008:gm=0.000:bm=0.008:rh=0.016:gh=0.004:bh=-0.014:pl=1,unsharp=5:5:0.45:3:3:0.0,vignette=PI/5,noise=alls=1.2:allf=t,drawbox=x=0:y=0:w=iw:h=44:color=black:t=fill" \\
-            -af "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08,deesser=i=0.22:m=0.30:f=0.55,loudnorm=I=-14:TP=-1.0:LRA=11" \\
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=640x360:rate=30:duration=2" -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=2" \
+            -vf "eq=contrast=1.10:saturation=1.10:gamma=1.015:brightness=0.004,colorbalance=rs=-0.018:gs=0.000:bs=0.018:rm=-0.008:gm=0.000:bm=0.008:rh=0.016:gh=0.004:bh=-0.014:pl=1,unsharp=5:5:0.45:3:3:0.0,vignette=PI/5,noise=alls=1.2:allf=t,drawbox=x=0:y=0:w=iw:h=44:color=black:t=fill" \
+            -af "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08,deesser=i=0.22:m=0.30:f=0.55,loudnorm=I=-14:TP=-1.0:LRA=11" \
             -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -t 2 work/cinematic-filter-smoke.mp4
           ffprobe -v error -show_entries stream=codec_type -of csv=p=0 work/cinematic-filter-smoke.mp4 | grep -qx video
           ffprobe -v error -show_entries stream=codec_type -of csv=p=0 work/cinematic-filter-smoke.mp4 | grep -qx audio
