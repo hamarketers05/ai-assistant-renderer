@@ -295,7 +295,7 @@ Preserve and sharpen the script's Personal Persona: keep a recognizable editoria
         "script_word_count": len(re.findall(r"\b[\w'-]+\b", script)), "script": script,
         "description": description, "tags": normalized_tags, "chapters": draft.get("chapters", []),
         "visual_direction": visual_direction, "claims_review": claims_checked,
-        "warnings": ["Claims are grounded in the listed Tavily search results; script approval and manual voice audio are still required."],
+        "warnings": ["Claims are grounded in the listed Tavily search results; review factual claims before publication. Kokoro narration is generated automatically and must pass audio QA."],
         "sources": sources, "previous_video_learning_applied": learning}
     (outdir / "daily_content_package.json").write_text(json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8")
     (outdir / "topic_brief.json").write_text(json.dumps(topic, indent=2, ensure_ascii=False), encoding="utf-8")
