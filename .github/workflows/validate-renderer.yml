@@ -81,15 +81,17 @@ jobs:
               raise SystemExit("Voice validation and sentence-level scene planning must precede asset discovery.")
           if not Path("tools/scene_director.py").is_file() or not Path("tools/groq_thumbnail_brief.py").is_file():
               raise SystemExit("Sentence scene director or Groq thumbnail brief tool is missing.")
-          if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[2]) < names.index(required[6])):
-              raise SystemExit("Commons fallback, attribution, evidence charts, music and SEO are out of order.")
-          if not (names.index(required[7]) < names.index(required[8]) < names.index(required[9]) < names.index(required[10]) < names.index(required[11]) < names.index(required[12])):
-              raise SystemExit("Final media QA, license gate and upload check are out of order.")
+          ordered_assets = ["Find additional free, topic-matched Wikimedia Commons footage", "Add stock creator and license attribution", "Generate only evidence-supported data charts", "Edit generated narration, add pauses and script cues, and generate captions", "Generate original topic-aware background score", "Improve SEO title, description, tags, sources and chapters"]
+          if not all(names.index(a) < names.index(b) for a,b in zip(ordered_assets, ordered_assets[1:])):
+              raise SystemExit("Asset attribution, charts, narration mastering, music and SEO are out of order.")
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Require script-relevant licensed footage before upload", "Check existing YouTube upload"]
+          if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
+              raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
               if not path.is_file():
                   raise SystemExit(f"Required tool is missing: {path}")
-          if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[6]) < names.index(required[7]) < names.index(required[8])):
-              raise SystemExit("Research assets, SEO, brand intro, render QA and upload guard are out of order.")
+          if not (names.index("Find additional free, topic-matched Wikimedia Commons footage") < names.index("Improve SEO title, description, tags, sources and chapters") < names.index("Create AI Tech Lab branded intro and subscribe popup") < names.index("Assemble final video and thumbnail")):
+              raise SystemExit("Research assets, SEO, brand intro and rendering are out of order.")
           voice = wf["jobs"]["render"]["steps"][names.index(required[0])].get("run", "")
           if '[[ "$AUDIO_URL" == https://* ]]' not in voice or "ffprobe -v error voice_input" not in voice:
               raise SystemExit("Renderer must require and validate manually approved narration audio.")
