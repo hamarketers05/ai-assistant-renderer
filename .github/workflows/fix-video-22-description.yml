@@ -1,0 +1,107 @@
+name: Verify and correct Maia 300 YouTube source metadata
+
+on:
+  workflow_run:
+    workflows: ["AI Assistant Renderer"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  correct-source-metadata:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout latest corrected video package
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download the verified delivery report from the completed render
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-tech-lab-delivery-22
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: verified-delivery
+
+      - name: Validate target video and update only its description
+        env:
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE=production/launch_ai_tech_lab_content_22.json
+          REPORT=verified-delivery/youtube_post_upload_review.json
+          test -s "$PACKAGE"
+          test -s "$REPORT"
+
+          EXPECTED_TITLE=$(jq -er '.title' "$PACKAGE")
+          EXPECTED_AT=$(jq -er '.publish_at' "$PACKAGE")
+          DESCRIPTION=$(jq -er '.description' "$PACKAGE")
+          VIDEO_ID=$(jq -er '.video_id' "$REPORT")
+          jq -e --arg title "$EXPECTED_TITLE" --arg at "$EXPECTED_AT" \
+            '.verified == true and .title == $title and .publish_at == $at and .privacy_status == "private" and (.video_id | length > 0)' \
+            "$REPORT" >/dev/null
+          [[ "$VIDEO_ID" =~ ^[A-Za-z0-9_-]{11}$ ]] || { echo "Verified delivery report contains an invalid YouTube ID."; exit 1; }
+
+          # Verify the production run is the expected Maia 300 delivery before changing anything.
+          REPORT_URL=$(jq -r '.url' "$REPORT")
+          test "$REPORT_URL" = "https://www.youtube.com/watch?v=$VIDEO_ID"
+          echo "Target video ID validated from the renderer's YouTube read-after-write report."
+
+          TOKEN_CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 45 -o token.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" "$WORKER_URL/youtube/access-token")
+          if [ "$TOKEN_CODE" != "200" ]; then
+            echo "Could not obtain the existing YouTube OAuth access token."
+            jq '{ok,error,provider_error}' token.json || true
+            exit 1
+          fi
+          TOKEN=$(jq -er '.access_token' token.json)
+          echo "::add-mask::$TOKEN"
+
+          CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 45 -o before.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=$VIDEO_ID")
+          [ "$CODE" = "200" ] || { echo "YouTube read-before-update failed."; jq '{error}' before.json || true; exit 1; }
+
+          jq -e --arg title "$EXPECTED_TITLE" --arg at "$EXPECTED_AT" \
+            '.items | length == 1 and .[0].snippet.title == $title and .[0].status.privacyStatus == "private" and .[0].status.publishAt == $at' \
+            before.json >/dev/null || { echo "Safety gate failed: current YouTube video is not the expected private scheduled Maia 300 video."; exit 1; }
+
+          # Preserve existing title, category and tags; correct only the description to match the sourced package.
+          jq --arg description "$DESCRIPTION" \
+            '{snippet:{title:.items[0].snippet.title,description:$description,tags:(.items[0].snippet.tags // []),categoryId:.items[0].snippet.categoryId,defaultLanguage:(.items[0].snippet.defaultLanguage // "en")}}' \
+            before.json > update.json
+
+          CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 90 -o update_result.json -w "%{http_code}" \
+            -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            --data-binary @update.json \
+            "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=$VIDEO_ID")
+          if [ "$CODE" != "200" ]; then
+            echo "YouTube description correction failed: HTTP $CODE."
+            jq '{error:{code:.error.code,message:.error.message}}' update_result.json || true
+            exit 1
+          fi
+
+          CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 45 -o after.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=$VIDEO_ID")
+          [ "$CODE" = "200" ] || { echo "YouTube read-after-update verification failed."; jq '{error}' after.json || true; exit 1; }
+          jq -e --arg title "$EXPECTED_TITLE" --arg at "$EXPECTED_AT" --arg description "$DESCRIPTION" \
+            '.items | length == 1 and .[0].snippet.title == $title and .[0].snippet.description == $description and .[0].status.privacyStatus == "private" and .[0].status.publishAt == $at' \
+            after.json >/dev/null || { echo "YouTube description did not match the corrected package after update."; exit 1; }
+
+          if grep -Fq "reuters.com/business/technology/microsoft-plans-huge-deployment" <<< "$DESCRIPTION"; then
+            echo "Corrected description still contains the old Reuters path."
+            exit 1
+          fi
+          grep -Fq "reuters.com/business/ai/microsoft-plans-huge-deployment" <<< "$DESCRIPTION"
+          jq -n --arg id "$VIDEO_ID" --arg title "$EXPECTED_TITLE" --arg publish_at "$EXPECTED_AT" \
+            --arg url "https://www.youtube.com/watch?v=$VIDEO_ID" \
+            '{metadata_corrected:true,video_id:$id,title:$title,publish_at:$publish_at,url:$url,checks:"YouTube read-before-update and read-after-update passed",field_changed:"description only"}'
