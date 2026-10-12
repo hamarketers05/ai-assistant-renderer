@@ -12,7 +12,7 @@ def main():
         brief={"provider":"local_fallback","hook":"","visual_focus":"AI chip","note":"GROQ_API_KEY not configured; local topic-specific thumbnail renderer used"}
         out.write_text(json.dumps(brief,indent=2),encoding="utf-8")
         print(json.dumps(brief)); return
-    payload={"model":"llama-3.3-70b-versatile","temperature":0.35,"max_tokens":180,
+    payload={"model":"openai/gpt-oss-20b","temperature":0.35,"max_tokens":180,
       "messages":[{"role":"system","content":"Create YouTube thumbnail creative briefs. Return ONLY valid JSON with keys hook (2-5 words, no clickbait), visual_focus (one of: security shield, AI chip, robot hand, neural network, data center, digital globe), and visual_reason (one sentence). Never invent facts."},
       {"role":"user","content":"Title: "+title+"\nScript opening: "+script[:1400]+"\nMake a distinctive topic-specific AI Tech Lab thumbnail concept, readable on a phone."}]}
     req=urllib.request.Request("https://api.groq.com/openai/v1/chat/completions",data=json.dumps(payload).encode(),headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"})
