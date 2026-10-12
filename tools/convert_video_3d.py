@@ -64,6 +64,8 @@ def main() -> int:
     parser.add_argument("--report", default="work/stereo_3d_report.json", type=Path)
     parser.add_argument("--max-duration-seconds", type=float, default=365.0)
     parser.add_argument("--max-conversion-seconds", type=int, default=1800)
+    parser.add_argument("--require-success", action="store_true",
+                        help="Fail the workflow unless a valid stereoscopic output is produced.")
     args = parser.parse_args()
 
     report_path = args.report
@@ -86,7 +88,7 @@ def main() -> int:
             "status": "disabled",
             "reason": "Stereoscopic companion was not requested; normal 2D production is unchanged.",
         })
-        return 0
+        return 1 if args.require_success else 0
 
     if args.content_format == "SHORT":
         write_report(report_path, {
@@ -94,7 +96,7 @@ def main() -> int:
             "status": "skipped",
             "reason": "Portrait Shorts remain on the standard 2D path to avoid unsuitable stereo geometry.",
         })
-        return 0
+        return 1 if args.require_success else 0
 
     source = args.input.resolve()
     output = args.output.resolve()
@@ -109,7 +111,7 @@ def main() -> int:
             **base, "status": "skipped",
             "reason": "Completed master video is not available; the 3D export was not started.",
         })
-        return 0
+        return 1 if args.require_success else 0
 
     source_probe = None
     try:
@@ -240,7 +242,7 @@ def main() -> int:
             "elapsed_seconds": round(time.monotonic() - started, 1),
             "fallback": "Continue with the original QA-checked 2D master; no 3D file is published.",
         })
-        return 0
+        return 1 if args.require_success else 0
 
 
 if __name__ == "__main__":
