@@ -66,7 +66,7 @@ def load_midas():
     trusted_file.parent.mkdir(parents=True, exist_ok=True)
     existing = set(trusted_file.read_text(encoding="utf-8").splitlines()) if trusted_file.exists() else set()
     existing.add("rwightman_gen-efficientnet-pytorch")
-    trusted_file.write_text("\\n".join(sorted(existing)) + "\\n", encoding="utf-8")
+    trusted_file.write_text("\n".join(sorted(existing)) + "\n", encoding="utf-8")
     model_ref = f"{MIDAS_REPO}:{MIDAS_COMMIT}"
     model = torch.hub.load(model_ref, MIDAS_MODEL, trust_repo=True, verbose=True)
     model.eval()
