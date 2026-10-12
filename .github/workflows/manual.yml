@@ -562,7 +562,7 @@ jobs:
               drift = -1 if i % 2 else 1
               roll = (0.0015 + (i % 3) * 0.0010) * drift
               return (
-                  f"rotate='{roll}*sin(t*0.34)':c=black@0.0:ow=rotw(iw):oh=roth(ih),"
+                  f"rotate='{roll}*sin(t*0.34)':c=black@0.0:ow=rotw(0.005):oh=roth(0.005),"
                   f"scale={scaled_w}:{scaled_h}:force_original_aspect_ratio=increase,"
                   f"crop={width}:{height}:x='(in_w-out_w)*(0.5+0.26*sin(t*0.58+{i}))':"
                   f"y='(in_h-out_h)*(0.5+0.18*cos(t*0.43+{i * 0.7}))',setsar=1"
