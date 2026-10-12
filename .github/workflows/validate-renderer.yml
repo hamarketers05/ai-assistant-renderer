@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -62,11 +62,15 @@ jobs:
               "Fetch and validate automatic narration",
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
+              "Find additional free, topic-matched Wikimedia Commons footage",
+              "Add stock creator and license attribution",
               "Generate only evidence-supported data charts",
               "Improve SEO title, description, tags, sources and chapters",
               "Create AI Tech Lab branded intro and subscribe popup",
               "Assemble final video and thumbnail",
               "QA rendered production",
+              "Verify narration, music, captions, and premium thumbnail assets",
+              "Require script-relevant licensed footage before upload",
               "Check existing YouTube upload",
           ]
           missing = [x for x in required if x not in names]
@@ -74,6 +78,14 @@ jobs:
               raise SystemExit("Missing production stages: " + ", ".join(missing))
           if names.index(required[0]) >= names.index(required[1]):
               raise SystemExit("Narration decode must precede voice editing.")
+          if not (names.index(required[0]) < names.index(required[1]) and
+                  names.index(required[2]) < names.index(required[3]) < names.index(required[4])):
+              raise SystemExit("Stock fallback/attribution and evidence charts are out of order.")
+          if not (names.index(required[7]) < names.index(required[8]) < names.index(required[9]) < names.index(required[10]) < names.index(required[11])):
+              raise SystemExit("Final media QA, license gate and upload check are out of order.")
+          for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
+              if not path.is_file():
+                  raise SystemExit(f"Required tool is missing: {path}")
           if not (names.index(required[3]) < names.index(required[4]) < names.index(required[5]) < names.index(required[6]) < names.index(required[7]) < names.index(required[8])):
               raise SystemExit("Research assets, SEO, brand intro, render QA and upload guard are out of order.")
           voice = wf["jobs"]["render"]["steps"][names.index(required[0])].get("run", "")
