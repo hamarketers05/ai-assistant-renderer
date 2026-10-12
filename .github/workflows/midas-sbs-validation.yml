@@ -1,0 +1,67 @@
+name: Validate MiDaS SBS Pipeline
+
+on:
+  push:
+    paths:
+      - "tools/convert_video_midas_sbs.py"
+      - ".github/workflows/manual.yml"
+      - ".github/workflows/midas-sbs-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-midas-sbs:
+    name: Activate MiDaS and test FFmpeg SBS end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install free CPU validation dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+          .venv/bin/pip install numpy opencv-python-headless
+
+      - name: Validate Python syntax
+        run: .venv/bin/python -m py_compile tools/convert_video_midas_sbs.py
+
+      - name: Download, install and activate pinned MiDaS model
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/convert_video_midas_sbs.py --check-only --report work/midas_activation_report.json
+          jq -e '.status == "success" and .model == "MiDaS_small" and .activation_inference == "passed"' work/midas_activation_report.json >/dev/null
+
+      - name: Generate a short synthetic input with audio
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          ffmpeg -y -hide_banner -loglevel error \
+            -f lavfi -i "testsrc2=size=320x180:rate=15:duration=12" \
+            -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=12" \
+            -map 0:v:0 -map 1:a:0 -c:v libx264 -preset ultrafast -crf 18 \
+            -pix_fmt yuv420p -c:a aac -b:a 96k -shortest work/midas_test_input.mp4
+          test "$(stat -c%s work/midas_test_input.mp4)" -gt 100000
+
+      - name: Convert synthetic video through MiDaS then FFmpeg SBS
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/convert_video_midas_sbs.py \
+            --input work/midas_test_input.mp4 \
+            --output work/midas_test_sbs.mp4 \
+            --mode SBS \
+            --content-format LONG_VIDEO \
+            --report work/midas_test_report.json \
+            --max-duration-seconds 480 \
+            --max-conversion-seconds 600 \
+            --require-success
+          jq -e '.status == "success" and .engine == "MiDaS AI + FFmpeg" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/midas_test_report.json >/dev/null
+          test -s work/midas_test_sbs.mp4
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height,codec_name -of json work/midas_test_sbs.mp4
