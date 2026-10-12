@@ -9,9 +9,11 @@ H.264 stereoscopic frame-packing metadata for compatible YouTube 3D playback.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -19,6 +21,75 @@ from pathlib import Path
 MIDAS_REPO = "isl-org/MiDaS"
 MIDAS_COMMIT = "454597711a62eabcbf7d1e89f3fb9f569051ac9b"
 MIDAS_MODEL = "MiDaS_small"
+
+# Source pinned to the Git blob currently published by imnz730/LUTs.
+# Validate both file length and Git's content-addressed blob SHA before FFmpeg loads it.
+CINEMATIC_LUT_URL = (
+    "https://raw.githubusercontent.com/imnz730/LUTs/master/"
+    "Film%20Looks/Rec709%20Kodak%202383%20D55.cube"
+)
+CINEMATIC_LUT_GIT_BLOB_SHA = "b4cd82c2bad8d2f507cfd82506cfce011b2d275b"
+CINEMATIC_LUT_BYTES = 970583
+
+
+def ensure_cinematic_lut(work_dir: Path) -> tuple[Path, dict]:
+    """Download and verify the exact user-requested .cube file for this run."""
+    work_dir.mkdir(parents=True, exist_ok=True)
+    target = work_dir / "cinematic.cube"
+
+    def validate(candidate: Path) -> dict:
+        data = candidate.read_bytes()
+        git_blob_sha = hashlib.sha1(
+            b"blob " + str(len(data)).encode("ascii") + b"\\0" + data
+        ).hexdigest()
+        if len(data) != CINEMATIC_LUT_BYTES:
+            raise ValueError(
+                f"Cinematic LUT byte-size mismatch: expected {CINEMATIC_LUT_BYTES}, got {len(data)}."
+            )
+        if git_blob_sha != CINEMATIC_LUT_GIT_BLOB_SHA:
+            raise ValueError("Cinematic LUT integrity check failed; content does not match the pinned Git blob.")
+        size_match = re.search(
+            rb"(?m)^\\s*LUT_3D_SIZE\\s+(\\d+)\\s*$", data[:16384]
+        )
+        if not size_match or int(size_match.group(1)) != 33:
+            raise ValueError("Cinematic LUT has no valid LUT_3D_SIZE 33 header.")
+        return {
+            "filename": target.name,
+            "status": "verified",
+            "bytes": len(data),
+            "git_blob_sha": git_blob_sha,
+            "lut_3d_size": 33,
+            "source_url": CINEMATIC_LUT_URL,
+            "license_status": (
+                "No LICENSE file was found in the source repository; "
+                "commercial-use permission has not been independently verified."
+            ),
+        }
+
+    if target.is_file():
+        try:
+            return target, validate(target)
+        except (OSError, ValueError):
+            target.unlink(missing_ok=True)
+
+    temporary = target.with_suffix(target.suffix + ".download")
+    temporary.unlink(missing_ok=True)
+    try:
+        subprocess.run(
+            [
+                "curl", "--fail", "--location", "--silent", "--show-error",
+                "--retry", "3", "--retry-delay", "2", "--connect-timeout", "15",
+                "--max-time", "120", "--output", str(temporary), CINEMATIC_LUT_URL,
+            ],
+            check=True,
+            timeout=150,
+        )
+        metadata = validate(temporary)
+        os.replace(temporary, target)
+        return target, metadata
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def report(path: Path, data: dict) -> None:
@@ -202,6 +273,7 @@ def convert(args) -> int:
         if args.mode != "SBS" or args.content_format != "LONG_VIDEO":
             raise ValueError("This MiDaS + FFmpeg stage is only enabled for LONG_VIDEO SBS.")
 
+        lut_path, lut_info = ensure_cinematic_lut(Path("work"))
         output.parent.mkdir(parents=True, exist_ok=True)
         output.unlink(missing_ok=True)
 
@@ -222,6 +294,7 @@ def convert(args) -> int:
             "-video_size", f"{width * 2}x{height}", "-framerate", fps,
             "-i", "pipe:0", "-i", str(source),
             "-map", "0:v:0", "-map", "1:a:0", "-map_metadata", "1",
+            "-vf", f"lut3d=file={lut_path.resolve()}:interp=trilinear",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
             "-pix_fmt", "yuv420p", "-x264opts", "frame-packing=3",
             "-c:a", "copy", "-shortest", "-movflags", "+faststart",
@@ -305,7 +378,14 @@ def convert(args) -> int:
             "status": "success",
             "output": str(output),
             "depth_estimation": "MiDaS_small keyframes with interpolation between keyframes and scene-cut resets",
-            "ffmpeg_encoding": "libx264; H.264 frame-packing=3; original audio stream-copied",
+            "ffmpeg_encoding": "libx264; H.264 frame-packing=3; FFmpeg lut3d trilinear Rec.709 Kodak 2383 D55 grade in the same encode pass; original audio stream-copied",
+            "color_grade": {
+                **lut_info,
+                "status": "passed",
+                "ffmpeg_filter": f"lut3d=file={lut_path.resolve()}:interp=trilinear",
+                "applied_in_same_encode_pass": True,
+                "cpu_note": "The filter adds per-pixel CPU work, but avoids a separate grading render/re-encode pass.",
+            },
             "source": source_info,
             "output_probe": output_info,
             "frames_processed": frames_done,
@@ -314,6 +394,8 @@ def convert(args) -> int:
                 "video_dimensions_correct_for_mode": True,
                 "audio_preserved": True,
                 "duration_matches_master": True,
+                "color_grade_applied": True,
+                "pinned_lut_integrity_verified": lut_info["git_blob_sha"] == CINEMATIC_LUT_GIT_BLOB_SHA,
             },
             "elapsed_seconds": round(time.monotonic() - started, 1),
         })
