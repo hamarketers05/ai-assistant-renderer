@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/generate_kokoro_voice.py tools/render_transitions.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -59,7 +59,7 @@ jobs:
           wf = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
           names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
           required = [
-              "Fetch and validate automatic narration",
+              "Fetch or generate validated English narration",
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
               "Find additional free, topic-matched Wikimedia Commons footage",
@@ -91,7 +91,7 @@ jobs:
           if "auto_tts_full." not in voice or "for EXT in wav mp3" not in voice:
               raise SystemExit("Renderer must accept both supported automatic TTS audio formats.")
           render = wf["jobs"]["render"]["steps"][names.index(required[8])].get("run", "")
-          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14"):
+          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
           if "retention-days: 7" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
@@ -139,6 +139,26 @@ jobs:
                   raise SystemExit(f"Premium thumbnail wrong size: {im.size}")
               im.verify()
           print("Topic-matched 3D-style thumbnail generated and verified.")
+          PY
+
+      - name: Smoke-test FFmpeg crossfade renderer
+        run: |
+          set -euo pipefail
+          mkdir -p scenes work
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=blue:s=640x360:r=30:d=2" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_test_a.mp4
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=yellow:s=640x360:r=30:d=2" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_test_b.mp4
+          printf 'test_a\t0\t2\t2\tgenerated\tblue scene\tBlue\ntest_b\t2\t4\t2\tgenerated\tyellow scene\tYellow\n' > work/scenes.tsv
+          python tools/render_transitions.py --target-duration 4 --transition 0.5 --output work/transition-smoke-test.mp4
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          report = json.loads(Path("work/transitions_report.json").read_text())
+          if report.get("scenes") != 2 or report.get("loops_entire_video") is not False:
+              raise SystemExit(f"Transition report mismatch: {report}")
+          duration = float(subprocess.check_output(["ffprobe","-v","error","-show_entries","format=duration","-of","default=noprint_wrappers=1:nokey=1","work/transition-smoke-test.mp4"],text=True))
+          if not 3.8 <= duration <= 4.2:
+              raise SystemExit(f"Transition render duration mismatch: {duration:.2f}s")
+          print("FFmpeg crossfade smoke test passed:", report)
           PY
 
       - name: Generate and probe original background music
