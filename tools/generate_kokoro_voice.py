@@ -12,7 +12,10 @@ def main():
     p.add_argument("--speed",type=float,default=1.0)
     args=p.parse_args()
     script=Path(args.script).read_text(encoding="utf-8").strip()
-    script=re.sub(r"\s+"," ",script).strip()
+    script=re.sub(r"[ \\t]+"," ",script)
+    script=re.sub(r"\\n{3,}","\\n\\n",script).strip()
+    # Kokoro splits on newlines; sentence-level chunks prevent oversized model inputs.
+    script=re.sub(r"(?<=[.!?])\\s+(?=[A-Z0-9\"“])","\\n",script)
     if len(script)<100: raise SystemExit("Kokoro fallback requires the actual long-form narration script.")
     if len(script)>30000: raise SystemExit("Narration is longer than the safe local TTS limit.")
     if not 0.75<=args.speed<=1.2: raise SystemExit("TTS speed must be between 0.75 and 1.2.")
@@ -25,7 +28,7 @@ def main():
     pipeline=KPipeline(lang_code="a")
     pieces=[]
     total_samples=0
-    for _, sentence, audio in pipeline(script, voice=args.voice, speed=args.speed):
+    for _, sentence, audio in pipeline(script, voice=args.voice, speed=args.speed, split_pattern=r"\\n+"):
         if audio is None: continue
         arr=np.asarray(audio,dtype=np.float32).reshape(-1)
         if arr.size:
@@ -33,7 +36,8 @@ def main():
             pieces.append(arr)
             total_samples+=arr.size
             # Small natural breaths between synthesized segments; no long artificial word gaps.
-            pieces.append(np.zeros(int(0.12*24000),dtype=np.float32))
+            pause=0.22 if str(sentence).rstrip().endswith((".", "!", "?")) else 0.12
+            pieces.append(np.zeros(int(pause*24000),dtype=np.float32))
     if not pieces or total_samples<24000*10: raise SystemExit("Kokoro produced less than 10 seconds of voice.")
     audio=np.concatenate(pieces).astype(np.float32)
     peak=float(np.max(np.abs(audio)))
