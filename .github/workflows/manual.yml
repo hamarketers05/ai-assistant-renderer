@@ -84,12 +84,13 @@ jobs:
           .venv/bin/python -c 'import av; major=int(av.__version__.split(".")[0]); assert major < 19, av.__version__; print("PyAV/Faster-Whisper compatibility confirmed:", av.__version__)'
           mkdir -p work output scenes assets
 
-      - name: Validate configuration
+      - name: Validate configuration and approved voice gate
         env:
           WORKER_URL: ${{ vars.NEW_PRODUCTION_WORKER_URL }}
           WORKER_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUDIO_URL: ${{ inputs.audio_url }}
         run: |
           set -euo pipefail
           [[ "$CONTENT_ID" =~ ^[0-9]+$ ]] || { echo "Content ID must be numeric."; exit 1; }
@@ -100,6 +101,7 @@ jobs:
           test -n "$WORKER_TOKEN"
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_KEY"
+          [[ "$AUDIO_URL" == https://* ]] || { echo "APPROVED VOICE GATE: a valid HTTPS URL for the manually uploaded/approved narration is required. Upload the voice first; rendering and scheduling are blocked."; exit 1; }
           test -n "${{ secrets.VECTEEZY_API_KEY }}"
           test -n "${{ secrets.VECTEEZY_ACCOUNT_ID }}"
           echo "Configuration validation passed."
@@ -175,59 +177,31 @@ jobs:
 
           test -s work/scenes.tsv
 
-      - name: Fetch or generate validated English narration
+      - name: Fetch and validate approved narration
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           AUDIO_URL: ${{ inputs.audio_url }}
         run: |
           set -euo pipefail
-          if [ -n "$AUDIO_URL" ]; then
-            curl -fLsS --retry 3 --retry-all-errors --max-time 180 "$AUDIO_URL" -o voice_input
-            echo "Using the supplied, explicitly approved audio URL."
-          else
-            FOUND=0
-            for EXT in wav mp3; do
-              VOICE_PATH="voices/AI_TECH_LAB/${CONTENT_ID}/auto_tts_full.${EXT}"
-              SIGN_RESPONSE=$(curl -sS --max-time 60 \
-                -X POST \
-                -H "Authorization: Bearer $SUPABASE_KEY" \
-                -H "apikey: $SUPABASE_KEY" \
-                -H "Content-Type: application/json" \
-                --data '{"expiresIn":3600}' \
-                "${SUPABASE_URL%/}/storage/v1/object/sign/ai-assistant-audio/${VOICE_PATH}")
-              SIGNED_PATH=$(echo "$SIGN_RESPONSE" | jq -r '.signedURL // empty')
-              if [ -z "$SIGNED_PATH" ]; then
-                echo "No stored ${EXT} narration for content ${CONTENT_ID}; checking next supported format."
-                continue
-              fi
-              case "$SIGNED_PATH" in
-                http://*|https://*) DOWNLOAD_URL="$SIGNED_PATH" ;;
-                /*) DOWNLOAD_URL="${SUPABASE_URL%/}/storage/v1${SIGNED_PATH}" ;;
-                *) DOWNLOAD_URL="${SUPABASE_URL%/}/storage/v1/${SIGNED_PATH}" ;;
-              esac
-              if curl -fLsS --retry 2 --retry-all-errors --max-time 180 "$DOWNLOAD_URL" -o voice_input; then
-                FOUND=1
-                echo "Existing stored narration found."
-                break
-              fi
-              rm -f voice_input
-            done
-            if [ "$FOUND" -ne 1 ]; then
-              echo "No stored narration exists for this content; using open-source Kokoro American-English TTS."
-              sudo apt-get install -y espeak-ng
-              .venv/bin/pip install --disable-pip-version-check 'kokoro>=0.9.4' soundfile
-              .venv/bin/python tools/generate_kokoro_voice.py --script work/script.txt --output work/kokoro_voice.wav --voice af_heart --speed 1.0
-              cp work/kokoro_voice.wav voice_input
-              test -s work/kokoro_tts_report.json
-              cat work/kokoro_tts_report.json
-            fi
-          fi
+          [[ "$AUDIO_URL" == https://* ]] || { echo "Approved voice URL is missing; production is blocked."; exit 1; }
+          curl -fLsS --retry 3 --retry-all-errors --max-time 180 "$AUDIO_URL" -o voice_input
           test -s voice_input
           ffprobe -v error voice_input
           ffmpeg -y -i voice_input -vn -ac 2 -ar 44100 -c:a pcm_s16le voice.wav
           test -s voice.wav
-          echo "Narration is present and validated. Stored audio is preferred; free local Kokoro is the fallback."
+          .venv/bin/python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          source = subprocess.check_output(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0","voice.wav"],text=True).strip()
+          seconds = float(source)
+          if seconds < 30:
+              raise SystemExit("Approved narration is too short for a long-form video.")
+          report = {"approved_audio_url_supplied": True, "decoded": True, "duration_seconds": round(seconds,2),
+                    "gate": "manual voice audio is required; no synthetic fallback is used during rendering"}
+          Path("work/approved_voice_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+          print(json.dumps(report))
+          PY
 
       - name: Discover and download Vecteezy footage
         env:
