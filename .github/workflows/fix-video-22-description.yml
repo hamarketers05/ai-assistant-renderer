@@ -101,7 +101,7 @@ jobs:
             echo "Corrected description still contains the old Reuters path."
             exit 1
           fi
-          grep -Fq "reuters.com/business/ai/microsoft-plans-huge-deployment" <<< "$DESCRIPTION"
+          grep -Fq "reuters.com/business/microsoft-plans-huge-deployment-its-own-ai-chips-with-an-eye-saving-costs-2026-10-12" <<< "$DESCRIPTION"
           jq -n --arg id "$VIDEO_ID" --arg title "$EXPECTED_TITLE" --arg publish_at "$EXPECTED_AT" \
             --arg url "https://www.youtube.com/watch?v=$VIDEO_ID" \
             '{metadata_corrected:true,video_id:$id,title:$title,publish_at:$publish_at,url:$url,checks:"YouTube read-before-update and read-after-update passed",field_changed:"description only"}'
