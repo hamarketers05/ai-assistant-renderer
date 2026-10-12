@@ -61,9 +61,9 @@
     ]
   },
   "production_retry": {
-    "attempt": 2,
-    "updated_at_utc": "2026-10-12T16:53:00Z",
-    "reason": "Retry after improving focused Vecteezy searches and serial, cache-aware Wikimedia Commons requests with exponential backoff.",
+    "attempt": 3,
+    "updated_at_utc": "2026-10-12T17:03:00Z",
+    "reason": "Retry after correcting Vecteezy and Wikimedia hardware-synonym matching; validate free/commercial-use licenses before accepting any stock footage.",
     "publication_gate": "Do not upload or schedule unless four unique, scene-matched, commercially reusable clips are verified, all technical/3D/color/audio/thumbnail gates pass, and YouTube read-after-write confirms the scheduled private upload."
   }
 }
