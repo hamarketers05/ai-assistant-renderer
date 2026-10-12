@@ -2,7 +2,7 @@ name: Renderer Static Validation
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/cinematic-retention-pipeline]
     paths:
       - ".github/workflows/**"
       - "tools/**"
