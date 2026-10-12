@@ -160,7 +160,7 @@ def main():
     audio_filter = (
         "highpass=f=80,lowpass=f=16000,afftdn=nr=4:nf=-32,"
         "equalizer=f=180:t=q:w=1:g=1.5,"
-        "equalizer=f=2800:t=q:w=1:g=1.8,"
+        "equalizer=f=2800:t=q:w=1:g=1.8,deesser=i=0.22:m=0.30:f=0.55,"
         "acompressor=threshold=0.16:ratio=2.4:attack=10:release=160:makeup=3,"
         "loudnorm=I=-16:TP=-1.5:LRA=9"
     )
@@ -339,6 +339,7 @@ def main():
             "subtle duration-preserving librosa pre-emphasis blend for speech presence",
             "high-pass/low-pass filtering",
             "gentle FFT denoising",
+            "light de-essing for sibilance control",
             "light compression",
             "loudness normalization to -16 LUFS target",
             "script-guided punctuation pauses",

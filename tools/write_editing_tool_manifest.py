@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""Record per-video tool usage, deliberate skips, and editing QA evidence."""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+
+def read_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def count_asset_sources(path: Path) -> dict:
+    import json as _json
+    counts: dict[str, int] = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            provider = str(row.get("provider") or "unknown")
+            counts[provider] = counts.get(provider, 0) + 1
+    return counts
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--content-id", required=True)
+    parser.add_argument("--format", choices=("LONG_VIDEO", "SHORT"), required=True)
+    parser.add_argument("--stereo-output", default="SBS")
+    parser.add_argument("--final-video", required=True)
+    parser.add_argument("--thumbnail", default="")
+    parser.add_argument("--output", default="work/editing_tool_manifest.json")
+    args = parser.parse_args()
+
+    final_video = Path(args.final_video)
+    thumb = Path(args.thumbnail) if args.thumbnail else None
+    required_paths = [
+        Path("work/voice_edit_report.json"),
+        Path("work/scene_director_report.json"),
+        Path("work/transitions_report.json"),
+        Path("work/transition_sfx_report.json"),
+        Path("work/music_report.json"),
+        Path("work/opencv_visual_qa.json"),
+        Path("work/rendered_scene_assets_report.json"),
+    ]
+    missing = [str(p) for p in required_paths if not p.is_file()]
+    if not final_video.is_file() or final_video.stat().st_size < 100_000:
+        missing.append(str(final_video))
+    if thumb is not None and (not thumb.is_file() or thumb.stat().st_size < 1000):
+        missing.append(str(thumb))
+    if missing:
+        raise SystemExit("Editing tool manifest blocked; required production evidence missing: " + ", ".join(missing))
+
+    voice = read_json(Path("work/voice_edit_report.json"))
+    scenes = read_json(Path("work/scene_director_report.json"))
+    transitions = read_json(Path("work/transitions_report.json"))
+    sfx = read_json(Path("work/transition_sfx_report.json"))
+    music = read_json(Path("work/music_report.json"))
+    visual_qa = read_json(Path("work/opencv_visual_qa.json"))
+    scene_assets = read_json(Path("work/rendered_scene_assets_report.json"))
+    reuse = read_json(Path("work/asset_reuse_report.json"))
+    evidence = read_json(Path("work/evidence_charts_report.json"))
+    stereo = read_json(Path("work/stereo_3d_report.json"))
+    kokoro = read_json(Path("work/kokoro_audio_quality.json"))
+    thumbnail_brief = read_json(Path("work/thumbnail_brief.json"))
+    provider_counts = count_asset_sources(Path("work/asset_sources.jsonl"))
+
+    scene_count = int(scenes.get("planned_visual_scenes", 0))
+    transition_count = int(transitions.get("scenes", scene_count)) - 1
+    generated_scene_images = len(list(Path("assets").glob("generated_scene_*.png")))
+    generated_hud_overlays = len(list(Path("assets").glob("scene_overlay_*.png")))
+    evidence_charts_generated = list(evidence.get("charts_created") or [])
+    evidence_charts_used = int(scene_assets.get("evidence_charts_used", 0))
+    hud_overlays_applied = int(scene_assets.get("transparent_hud_overlay_applied_count", 0))
+    stock_scene_count = int(scene_assets.get("licensed_stock_broll_scene_count", 0))
+    if voice.get("status") != "passed":
+        raise SystemExit("Editing manifest blocked: automated voice-editing QA did not pass.")
+    if scenes.get("exact_word_timing") is not True or scene_count < 8:
+        raise SystemExit("Editing manifest blocked: scene timing/visual generation evidence is missing.")
+    if transitions.get("transition") is None or transitions.get("rendered_duration_seconds") is None:
+        raise SystemExit("Editing manifest blocked: transition renderer report is incomplete.")
+    if sfx.get("status") != "generated" or int(sfx.get("transition_count", -1)) != transition_count:
+        raise SystemExit("Editing manifest blocked: procedural transition SFX count does not match rendered cuts.")
+    if music.get("status") != "generated" or music.get("uses_external_samples") is not False:
+        raise SystemExit("Editing manifest blocked: original music track was not verified.")
+    if reuse.get("status") != "validated" or reuse.get("previous_video_reuse") is not False:
+        raise SystemExit("Editing manifest blocked: unique-media guard did not pass.")
+    if not visual_qa:
+        raise SystemExit("Editing manifest blocked: final visual QA report is absent.")
+    if scene_assets.get("status") != "passed" or int(scene_assets.get("rendered_scene_count", -1)) != scene_count:
+        raise SystemExit("Editing manifest blocked: actual rendered scene/source manifest is missing or incomplete.")
+    if evidence_charts_used < 0 or evidence_charts_used > len(evidence_charts_generated):
+        raise SystemExit("Editing manifest blocked: chart use count exceeds the evidence chart assets generated.")
+
+    is_short = args.format == "SHORT"
+    stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
+    sbs_lut_used = bool(stereo_quality.get("color_grade_applied") and stereo_quality.get("pinned_lut_integrity_verified"))
+    licensed_clips = sum(provider_counts.values())
+    avg_scene_seconds = round(float(scenes.get("scene_duration_seconds", {}).get("mean", 0)), 2)
+    tools = [
+        {"tool": "FFmpeg", "status": "used", "purpose": "render, animate, transition, assemble, master and encode video/audio"},
+        {"tool": "Python/Pillow", "status": "used", "purpose": "original topic-specific graphics, HUD/lower-thirds, glow and premium 3D-pop-out thumbnail"},
+        {"tool": "Kokoro-82M", "status": "used" if kokoro.get("quality_gate") == "passed" else "unverified", "purpose": "automatic American-English narration", "quality_gate": kokoro.get("quality_gate", "missing")},
+        {"tool": "Faster-Whisper", "status": "used" if int(voice.get("timestamped_words", 0)) > 0 else "unverified", "purpose": "speech validation and word-timestamp alignment"},
+        {"tool": "FFmpeg de-esser/compressor/loudness", "status": "used", "purpose": "speech cleanup, light sibilance control, compression and loudness normalization", "settings": "light de-esser; speech target -16 LUFS before final mix; final mix -14 LUFS"},
+        {"tool": "FFmpeg slow stereo motion", "status": "used", "purpose": "subtle 0.08 Hz motion on the background-music bed only; speech remains centered", "settings": "75% modulation, 75% pulse-width (width=1.5 of max 2), 0.08 Hz; music is side-chain ducked under narration"},
+        {"tool": "Voice-aligned scene director", "status": "used", "purpose": "clause-aware scene chunks driven by final narration word timestamps", "scene_count": scene_count, "average_scene_seconds": avg_scene_seconds},
+        {"tool": "Ken Burns / camera drift", "status": "used", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills", "settings": "generated stills zoom to 1.08; stock framing varies about 1.06-1.105 with slow x/y drift and subtle roll"},
+        {"tool": "Cinematic color grade", "status": "used", "purpose": "restrained contrast/saturation, cool teal-blue shadows, warmer highlights, sharpening, soft vignette and subtle temporal grain", "settings": "contrast=1.10; saturation=1.10; gamma=1.015; cool shadows / warm highlights via colorbalance; unsharp=0.45; vignette=PI/5; noise=1.2 temporal"},
+        {"tool": "Film grain", "status": "used", "purpose": "very light FFmpeg grain, kept subtle for technology detail"},
+        {"tool": "Neon HUD / scene overlay", "status": "used" if hud_overlays_applied > 0 else "skipped", "purpose": "transparent topic label, cyan glow and lower-third applied to licensed B-roll where a matching scene overlay exists", "generated_overlay_files": generated_hud_overlays, "applied_to_stock_scenes": hud_overlays_applied, "stock_scenes_with_footage": stock_scene_count, "skip_reason": None if hud_overlays_applied > 0 else "No licensed B-roll scene qualified for a separate transparent overlay; generated Pillow scenes retain their own built-in HUD/diagram design."},
+        {"tool": "Crossfade / push / digital mosaic transitions", "status": "used", "purpose": "short FFmpeg xfade transitions; occasional pixelize/zoom transitions", "transition_report": transitions.get("transition_types", [])},
+        {"tool": "Original procedural transition SFX", "status": "used", "purpose": "quiet whoosh + digital tick ahead of each rendered scene transition", "transition_count": int(sfx.get("transition_count", 0)), "cue_lead_seconds": sfx.get("cue_lead_seconds", 0.22), "source_license": sfx.get("source_license")},
+        {"tool": "Original topic-aware music", "status": "used", "purpose": "locally synthesized score with voice ducking"},
+        {"tool": "2.35:1 letterboxing", "status": "skipped" if is_short else "used", "reason": "native vertical canvas for Shorts" if is_short else "cinematic bars inside the 16:9 YouTube container"},
+        {"tool": "Premium thumbnail", "status": "used" if thumb is not None else "unverified", "purpose": "1280x720 Pillow composition with 3D pop-out, glow and short title text", "brief_source": "Groq brief" if thumbnail_brief.get("hook") else "local fallback"},
+        {"tool": "MiDaS + FFmpeg stereoscopic render", "status": "used" if (not is_short and stereo.get("status") == "success") else ("not_applicable" if is_short else "unverified"), "purpose": "3D depth and SBS output before upload", "stereo_mode": args.stereo_output},
+        {"tool": "Pinned Rec.709 Kodak 2383 D55 LUT", "status": "used" if sbs_lut_used else "not_applicable", "purpose": "integrity-verified LUT transform in the SBS conversion stage", "integrity_verified": sbs_lut_used, "rights_note": "The existing source repository's commercial license was not independently verified; checksum integrity is not proof of usage rights."},
+        {"tool": "Evidence-supported charts", "status": "used" if evidence_charts_used > 0 else "skipped", "chart_count": evidence_charts_used, "generated_chart_count": len(evidence_charts_generated), "unused_chart_count": max(0, len(evidence_charts_generated) - evidence_charts_used), "reason": "only source-backed charts with a topic/number match to the scene are included; no statistics are invented"},
+        {"tool": "Commercial-use stock clips", "status": "used", "source_manifest_entries": licensed_clips, "providers": provider_counts, "note": "Only entries passing the separate license and relevance gates are eligible for delivery."},
+        {"tool": "FLUX.1 [schnell]", "status": "skipped", "reason": "Official weights are Apache-2.0, but this standard GitHub-hosted CPU job has no attached GPU; the 12B-parameter model is not reliable for a zero-cost per-video CPU render. Existing original Pillow art and licensed B-roll remain the fallback."},
+        {"tool": "ComfyUI + Stable Video Diffusion / AnimateDiff", "status": "skipped", "reason": "GPU-heavy model runtimes and large checkpoints are not a reliable fit for the current free hosted runner. FFmpeg motion is active instead; no paid inference/API is used."},
+        {"tool": "Auto-Editor", "status": "skipped", "reason": "The existing word-timestamped voice editor handles pauses and captions together; a second silence-cut pass would desynchronize verified word timings."},
+        {"tool": "Demucs", "status": "not_applicable", "reason": "Voice narration and the original synthesized music are separate clean tracks, so no mixed audio needs stem separation."},
+        {"tool": "DaVinci Resolve", "status": "not_installed", "reason": "Desktop GUI editor is not usable as a headless GitHub Actions step; its grade is implemented reproducibly with FFmpeg filters."},
+        {"tool": "GIMP / Krita", "status": "not_installed", "reason": "Desktop GUI image editors are not required on the headless runner; Pillow produces the automated thumbnail and overlays."},
+    ]
+    warnings = []
+    if is_short:
+        warnings.append("Shorts keep their native 9:16 canvas, so 2.35:1 letterboxing and 3D SBS conversion are not applied.")
+    if stereo.get("status") == "success" and args.stereo_output == "SBS":
+        if not sbs_lut_used:
+            warnings.append("SBS report did not confirm both LUT application and pinned-file integrity.")
+        else:
+            warnings.append("The pinned external Kodak 2383 D55 LUT checksum is verified, but its upstream commercial-use license remains unverified.")
+    if not evidence:
+        warnings.append("Evidence chart report is missing; charts must not be inferred from unsupported statistics.")
+    elif not evidence_charts_generated:
+        warnings.append("No evidence chart was generated; the script did not contain enough source-linked numeric data to justify a chart.")
+    elif evidence_charts_used == 0:
+        warnings.append("Evidence charts were generated but none matched a narrated scene well enough to insert safely; no unrelated chart was forced into the final video.")
+    if hud_overlays_applied == 0:
+        warnings.append("No separate transparent HUD overlay was applied to stock B-roll in this run; generated Pillow scenes include their own topic-matched graphic styling.")
+    if licensed_clips < 4:
+        raise SystemExit(f"Editing manifest blocked: only {licensed_clips} source-manifest entries; existing commercial-use gate requires at least four.")
+    result = {
+        "status": "passed",
+        "content_id": args.content_id,
+        "format": args.format,
+        "final_video": str(final_video),
+        "final_video_bytes": final_video.stat().st_size,
+        "thumbnail": str(thumb) if thumb else None,
+        "scene_count": scene_count,
+        "visual_assets": {
+            "planned_voice_aligned_scenes": scene_count,
+            "generated_topic_matched_images": generated_scene_images,
+            "transparent_hud_overlays_generated": generated_hud_overlays,
+            "transparent_hud_overlays_applied": hud_overlays_applied,
+            "evidence_charts_generated": len(evidence_charts_generated),
+            "evidence_charts_used": evidence_charts_used,
+            "licensed_stock_source_records": licensed_clips,
+            "licensed_stock_broll_scenes_used": stock_scene_count,
+            "provider_source_counts": provider_counts,
+            "scene_asset_report": "work/rendered_scene_assets_report.json",
+            "transition_sfx_events": int(sfx.get("transition_count", 0)),
+        },
+        "average_scene_seconds": avg_scene_seconds,
+        "transition_count": int(transitions.get("scenes", 0)) - 1,
+        "transition_sfx_count": int(sfx.get("transition_count", 0)),
+        "music": {"status": music.get("status"), "source": music.get("source"), "uses_external_samples": music.get("uses_external_samples")},
+        "commercial_use_stock_source_count": licensed_clips,
+        "editing_tools": tools,
+        "warnings": warnings,
+        "policy": "Each relevant feature must report used, not_applicable, skipped, or not_installed with a reason; no tool is forced when it would reduce reliability or invalidate sync/licensing. Asset counts represent generated/downloaded artifacts actually present for this run; they are not promises of viewer retention or performance.",
+    }
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps({"status": result["status"], "content_id": result["content_id"],
+                      "scene_count": scene_count, "transition_count": result["transition_count"],
+                      "transition_sfx_count": result["transition_sfx_count"], "stock_sources": licensed_clips,
+                      "warnings": warnings, "manifest": str(out)}))
+
+
+if __name__ == "__main__":
+    main()

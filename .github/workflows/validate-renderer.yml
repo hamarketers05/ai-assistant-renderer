@@ -2,7 +2,7 @@ name: Renderer Static Validation
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/cinematic-retention-pipeline]
     paths:
       - ".github/workflows/**"
       - "tools/**"
@@ -41,10 +41,11 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/write_editing_tool_manifest.py
           python - <<'PY'
           from pathlib import Path
           import ast
+          import re
           import yaml
 
           for path in sorted(Path(".github/workflows").glob("*.yml")):
@@ -55,6 +56,14 @@ jobs:
 
           for path in Path("tools").glob("*.py"):
               ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+          manual_workflow = yaml.load(Path(".github/workflows/manual.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+          render_step = next(step for step in manual_workflow["jobs"]["render"]["steps"] if step.get("name") == "Render scenes")
+          embedded = re.search(r"python - <<'PY'\n(.*?)\nPY", render_step.get("run", ""), re.S)
+          if not embedded:
+              raise SystemExit("Could not extract the embedded Python scene-rendering program for syntax validation.")
+          ast.parse(embedded.group(1), filename=".github/workflows/manual.yml:Render scenes embedded Python")
+          print("Embedded scene-rendering Python syntax passed AST validation.")
 
           import librosa
           import numpy as np
@@ -126,7 +135,7 @@ jobs:
                   raise SystemExit(f"Visual novelty guard lacks required logic: {marker}")
           if "actions: read" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Bootstrapping the previous production manifest requires read-only Actions permission.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
           for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
@@ -147,11 +156,11 @@ jobs:
           if "APPROVED VOICE GATE" in workflow_source or "AUDIO_URL: ${{ inputs.audio_url }}" in workflow_source or "Fetch and validate approved narration" in workflow_source:
               raise SystemExit("Renderer must not require a manually approved voice or supplied audio URL.")
           render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
-          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
+          for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "work/transition_sfx.wav", "tools/make_transition_sfx.py", "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08", "drawbox=x=0:y=0:w=iw:h=131", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
           scene_render = wf["jobs"]["render"]["steps"][names.index("Render scenes")].get("run", "")
-          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png", "scene_overlay_", "vignette=PI/5", "saturation=1.18"):
+          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png", "scene_overlay_", "vignette=PI/5", "saturation=1.10", "colorbalance=", "noise=alls=1.2:allf=t"):
               if marker not in scene_render:
                   raise SystemExit(f"Scene motion/3D overlay is missing: {marker}")
           brand_script = Path("tools/make_brand_assets.py").read_text(encoding="utf-8")
@@ -190,6 +199,29 @@ jobs:
           sbs_code = Path("tools/convert_video_midas_sbs.py").read_text(encoding="utf-8")
           if "librosa.effects.preemphasis" not in voice_editor_code or "duration_preserved" not in voice_editor_code:
               raise SystemExit("Required duration-preserving librosa voice enhancement is missing.")
+          if "deesser=i=0.22:m=0.30:f=0.55" not in voice_editor_code:
+              raise SystemExit("Automatic narration must include the validated light de-esser stage.")
+          sfx_code = Path("tools/make_transition_sfx.py").read_text(encoding="utf-8")
+          manifest_code = Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8")
+          for marker in ("synthesize_event", "work/transition_sfx_report.json", "no third-party audio samples".lower()):
+              if marker.lower() not in sfx_code.lower():
+                  raise SystemExit(f"Procedural, royalty-free transition SFX implementation missing: {marker}")
+          for marker in ("FLUX.1 [schnell]", "Demucs", "DaVinci Resolve", "not_installed", "editing_tools", "color grade", "rendered_scene_assets_report.json", "evidence_charts_used", "transparent_hud_overlays_applied"):
+              if marker.lower() not in manifest_code.lower():
+                  raise SystemExit(f"Per-video editing tool manifest incomplete: {marker}")
+          charts_code = Path("tools/make_evidence_charts.py").read_text(encoding="utf-8")
+          for marker in ("charts[:12]", "chart_details", "source_url", "Only source-linked numeric values"):
+              if marker.lower() not in charts_code.lower():
+                  raise SystemExit(f"Evidence chart generation/matching rule missing: {marker}")
+          if "chart_matches(scene_text, detail)" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
+              raise SystemExit("Only a script/source-matched chart may enter the final video.")
+          director_code = Path("tools/scene_director.py").read_text(encoding="utf-8")
+          if "word-timestamped clause-aware scene phrases" not in director_code or "target=max(2.4" not in director_code:
+              raise SystemExit("Scene director must schedule visual change points around short voice-aligned phrases.")
+          transitions_code = Path("tools/render_transitions.py").read_text(encoding="utf-8")
+          for marker in ('"pixelize"', '"zoomin"', 'transition_frames_at_30fps'):
+              if marker not in transitions_code:
+                  raise SystemExit(f"Cinematic short transition option is missing: {marker}")
           for marker in ("CINEMATIC_LUT_URL", "CINEMATIC_LUT_GIT_BLOB_SHA", "cinematic.cube", "cinematic_ffmpeg.cube", "LUT_3D_INPUT_RANGE", "build_rec709_to_cineon_lut", "lut_input_expected", "rec709_to_cineon_transform_applied", "lut3d=file=", "interp=trilinear", "color_grade_applied"):
               if marker not in sbs_code:
                   raise SystemExit(f"Required pinned cinematic LUT integration is missing: {marker}")
@@ -250,6 +282,62 @@ jobs:
               assert result["status"] == "disabled" and result["main_video_untouched"] is True
               assert not unused_output.exists()
           print("Static validation passed: research, Groq, thumbnail, audio/visual QA, upload gate, learning, and safe optional 2D3D export.")
+          PY
+
+      - name: Smoke-test voice-aligned scene cadence and editing tool manifest
+        run: |
+          set -euo pipefail
+          mkdir -p work output assets
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          words = ("AI systems need reliable sources for every important claim because small details "
+                   "change quickly while clear visuals explain the technology in practice today").split()
+          tokens = (words * 6)[:120]
+          script = " ".join(word + ("." if (i + 1) % 12 == 0 else ("," if (i + 1) % 6 == 0 else ""))
+                             for i, word in enumerate(tokens))
+          Path("work/script.txt").write_text(script, encoding="utf-8")
+          timestamp_words = [{"start": round(i * 0.5, 3), "end": round(i * 0.5 + 0.4, 3), "text": word}
+                             for i, word in enumerate(tokens)]
+          Path("work/voice_word_timestamps.json").write_text(json.dumps({
+              "duration_seconds": 60.0, "word_count": len(timestamp_words), "words": timestamp_words
+          }), encoding="utf-8")
+          PY
+          python tools/scene_director.py --script work/script.txt --duration 60 --max-scenes 90 --timestamps work/voice_word_timestamps.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          scene = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
+          average = scene.get("scene_duration_seconds", {}).get("mean", 99)
+          if scene.get("exact_word_timing") is not True or scene.get("planned_visual_scenes", 0) < 12 or average > 4.5:
+              raise SystemExit(f"Voice-aligned 3-4 second scene cadence did not pass: {scene}")
+          n = int(scene["planned_visual_scenes"])
+          Path("work/voice_edit_report.json").write_text(json.dumps({"status":"passed", "timestamped_words":120}),encoding="utf-8")
+          Path("work/transitions_report.json").write_text(json.dumps({"scenes":n,"transition":"alternating cinematic xfade","rendered_duration_seconds":60}),encoding="utf-8")
+          Path("work/transition_sfx_report.json").write_text(json.dumps({"status":"generated","transition_count":n-1,"cue_lead_seconds":0.22,"source_license":"Original synthesized effects; no third-party audio samples."}),encoding="utf-8")
+          Path("work/music_report.json").write_text(json.dumps({"status":"generated","source":"original_synthesized","uses_external_samples":False}),encoding="utf-8")
+          Path("work/opencv_visual_qa.json").write_text(json.dumps({"status":"passed","sample_frames":10}),encoding="utf-8")
+          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"python_pillow_scene_count":n-4}),encoding="utf-8")
+          Path("work/asset_reuse_report.json").write_text(json.dumps({"status":"validated","previous_video_reuse":False,"within_video_duplicates":False}),encoding="utf-8")
+          Path("work/evidence_charts_report.json").write_text(json.dumps({"charts_created":[],"charts_requested":0}),encoding="utf-8")
+          Path("work/stereo_3d_report.json").write_text(json.dumps({"status":"disabled"}),encoding="utf-8")
+          Path("work/kokoro_audio_quality.json").write_text(json.dumps({"quality_gate":"passed"}),encoding="utf-8")
+          Path("work/thumbnail_brief.json").write_text(json.dumps({"hook":"TEST HOOK"}),encoding="utf-8")
+          Path("work/asset_sources.jsonl").write_text("\n".join(json.dumps({"provider":"LicenseFixture", "scene":str(i), "source_url":"https://example.org/"+str(i), "creator":"CI fixture"}) for i in range(4)) + "\n",encoding="utf-8")
+          Path("output/manifest-smoke.mp4").write_bytes(b"fixture" * 20000)
+          from PIL import Image
+          Image.new("RGB",(1280,720),(4,18,36)).save("output/manifest-smoke.jpg",quality=90)
+          PY
+          python tools/write_editing_tool_manifest.py --content-id 9876 --format SHORT --stereo-output SBS --final-video output/manifest-smoke.mp4 --thumbnail output/manifest-smoke.jpg --output work/editing_tool_manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("work/editing_tool_manifest.json").read_text(encoding="utf-8"))
+          if report.get("status") != "passed" or report.get("transition_sfx_count", 0) < 1:
+              raise SystemExit(f"Per-video editing manifest did not pass: {report}")
+          if report.get("visual_assets", {}).get("planned_voice_aligned_scenes", 0) < 12:
+              raise SystemExit(f"Actual visual asset counts were not written: {report}")
+          print("Voice-aligned scene cadence and per-video used/skipped-tool manifest smoke test passed.")
           PY
 
       - name: Smoke-test optional stereoscopic gate without downloading models
@@ -364,6 +452,35 @@ jobs:
               raise SystemExit(f"Transition render duration mismatch: {duration:.2f}s")
           print("FFmpeg crossfade smoke test passed:", report)
           PY
+
+      - name: Smoke-test procedural transition sound effects
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          printf '1\t0\t2.75\t2.75\tgenerated\topening\tOpening\n2\t2.75\t5.5\t2.75\tgenerated\tclosing\tClosing\n' > work/scenes.tsv
+          python tools/make_transition_sfx.py --scenes work/scenes.tsv --voice-duration 25.0 --intro-seconds 4 --content-id 9876 --output work/transition-sfx-smoke.wav
+          test -s work/transition-sfx-smoke.wav
+          test -s work/transition_sfx_report.json
+          python - <<'PY'
+          import json, wave
+          from pathlib import Path
+          report = json.loads(Path("work/transition_sfx_report.json").read_text(encoding="utf-8"))
+          with wave.open("work/transition-sfx-smoke.wav", "rb") as audio:
+              assert audio.getnchannels() == 2 and audio.getframerate() == 44100 and audio.getnframes() > 0
+          if report.get("status") != "generated" or report.get("transition_count") != 1:
+              raise SystemExit(f"Transition SFX report invalid: {report}")
+          if abs(report.get("duration_seconds", 0) - 29.0) > 0.02:
+              raise SystemExit(f"Transition SFX track duration mismatch: {report}")
+          print("Procedural transition SFX smoke test passed; event count and stereo WAV validated.")
+          PY
+
+      - name: Smoke-test cinematic color and audio filter chain
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=640x360:rate=30:duration=2" -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=2" -vf "eq=contrast=1.10:saturation=1.10:gamma=1.015:brightness=0.004,colorbalance=rs=-0.018:gs=0.000:bs=0.018:rm=-0.008:gm=0.000:bm=0.008:rh=0.016:gh=0.004:bh=-0.014:pl=1,unsharp=5:5:0.45:3:3:0.0,vignette=PI/5,noise=alls=1.2:allf=t,drawbox=x=0:y=0:w=iw:h=44:color=black:t=fill" -af "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08,deesser=i=0.22:m=0.30:f=0.55,loudnorm=I=-14:TP=-1.0:LRA=11" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -t 2 work/cinematic-filter-smoke.mp4
+          ffprobe -v error -show_entries stream=codec_type -of csv=p=0 work/cinematic-filter-smoke.mp4 | grep -qx video
+          ffprobe -v error -show_entries stream=codec_type -of csv=p=0 work/cinematic-filter-smoke.mp4 | grep -qx audio
+          echo "Color grade, soft grain, letterbox, slow music motion, de-esser and final loudness chain passed FFmpeg smoke test."
 
       - name: Generate and probe original background music
         run: |

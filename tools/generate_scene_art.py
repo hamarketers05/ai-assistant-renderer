@@ -4,7 +4,7 @@ All diagrams are illustrative, not factual measurements; no external image asset
 """
 import csv, hashlib, os, re
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 W,H=1920,1080
 OUT=Path("assets"); OUT.mkdir(exist_ok=True)
@@ -117,6 +117,10 @@ def main():
         img.save(OUT/f"generated_scene_{scene}.png",quality=95)
         # Transparent lower-third overlay for real footage, driven by this scene's own sentence.
         overlay=Image.new("RGBA",(W,H),(0,0,0,0))
+        glow=Image.new("RGBA",(W,H),(0,0,0,0))
+        gd=ImageDraw.Draw(glow,"RGBA")
+        gd.rounded_rectangle((72,842,1230,1015),radius=26,outline=(*accent,185),width=7)
+        overlay.alpha_composite(glow.filter(ImageFilter.GaussianBlur(18)))
         od=ImageDraw.Draw(overlay,"RGBA")
         od.rounded_rectangle((72,842,1230,1015),radius=26,fill=(2,12,30,218),outline=(*accent,235),width=4)
         od.text((108,866),"AI TECH LAB  /  KEY IDEA",font=font(23,True),fill=(*accent,255))

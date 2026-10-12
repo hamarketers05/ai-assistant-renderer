@@ -337,7 +337,8 @@ jobs:
           set -euo pipefail
           test -s work/voice_word_timestamps.json
           VOICE_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
-          .venv/bin/python tools/scene_director.py --script work/script.txt --duration "$VOICE_SECONDS" --max-scenes 72 --timestamps work/voice_word_timestamps.json
+          if [ "$CONTENT_FORMAT" = "SHORT" ]; then MAX_SCENES=20; else MAX_SCENES=90; fi
+          .venv/bin/python tools/scene_director.py --script work/script.txt --duration "$VOICE_SECONDS" --max-scenes "$MAX_SCENES" --timestamps work/voice_word_timestamps.json
           test -s work/scene_director_report.json
           cat work/scene_director_report.json
           jq -e '.exact_word_timing == true and .sequence_similarity >= 0.55 and .timestamp_word_count >= 5' work/scene_director_report.json >/dev/null
@@ -830,7 +831,7 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
-          import csv, os, re, subprocess
+          import csv, json, os, re, subprocess
           from pathlib import Path
 
           def run(args):
@@ -861,6 +862,33 @@ jobs:
           if not rows:
               raise SystemExit("No scenes found.")
 
+          chart_report = json.loads(Path("work/evidence_charts_report.json").read_text(encoding="utf-8"))
+          chart_files = [Path(p) for p in (chart_report.get("charts_created") or []) if Path(p).is_file()]
+          chart_details = {Path(item.get("path", "")).name: item for item in (chart_report.get("chart_details") or []) if isinstance(item, dict) and item.get("path")}
+          used_chart_names = set()
+          chart_uses = []
+          rendered_asset_records = []
+          stop_words = set("the and for with from into that this these those then than have has had are was were can could will would should about after before your you our their they them its how what when where why which while explain explained latest trend news future technology".split())
+
+          def meaningful_terms(value):
+              return {word for word in re.findall(r"[A-Za-z0-9]+", str(value).lower())
+                      if word not in stop_words and (len(word) > 2 or word in {"ai", "gpu", "cpu", "us"})}
+
+          def number_keys(value):
+              keys = set()
+              for item in re.findall(r"(?<![A-Za-z])\d[\d,]*(?:\.\d+)?%?(?![A-Za-z])", str(value)):
+                  try:
+                      keys.add(f"{float(item.replace(',', '').replace('%', '')):g}")
+                  except ValueError:
+                      pass
+              return keys
+
+          def chart_matches(scene_text, detail):
+              reference = " ".join([str(detail.get("title") or ""), *[str(x) for x in (detail.get("labels") or [])]])
+              shared = meaningful_terms(scene_text) & meaningful_terms(reference)
+              value_match = bool(number_keys(scene_text) & number_keys(" ".join(str(x) for x in (detail.get("values") or []))))
+              return len(shared) >= 2 or (len(shared) >= 1 and value_match)
+
           for i, row in enumerate(rows):
               if len(row) < 7:
                   continue
@@ -873,19 +901,31 @@ jobs:
               stock = Path(f"assets/scene_{scene}.mp4")
               target = Path(f"scenes/scene_{scene}.mp4")
               graphic = Path(f"assets/generated_scene_{scene}.png") if Path(f"assets/generated_scene_{scene}.png").exists() else Path(f"assets/generated_{(i % 6) + 1}.png")
-              chart = Path(f"assets/evidence_chart_{(i % 4) + 1}.png")
-              if chart.exists() and any(token in (row[4] + " " + row[5]).lower() for token in ("chart", "graph", "statistic", "data visualization", "evidence chart")):
-                  graphic = chart
+              chart_selected = False
+              chart_name = ""
+              scene_text = " ".join(str(x) for x in row[4:7])
+              for candidate_path in chart_files:
+                  if candidate_path.name in used_chart_names:
+                      continue
+                  detail = chart_details.get(candidate_path.name, {})
+                  if chart_matches(scene_text, detail):
+                      graphic = candidate_path
+                      chart_selected = True
+                      chart_name = candidate_path.name
+                      used_chart_names.add(chart_name)
+                      chart_uses.append({"scene": scene, "chart": chart_name, "title": str(detail.get("title") or ""), "source_url": str(detail.get("source_url") or "")})
+                      break
 
               resize = shot_filter(i)
-              if stock.exists() and stock.stat().st_size > 10000:
+              has_stock = stock.exists() and stock.stat().st_size > 10000
+              if not chart_selected and has_stock:
                   overlay = Path(f"assets/scene_overlay_{scene}.png")
                   if overlay.exists():
                       run([
                           "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
                           "-loop", "1", "-framerate", "30", "-i", str(overlay),
                           "-t", str(duration), "-filter_complex",
-                          f"[0:v]{resize},eq=contrast=1.14:saturation=1.18:gamma=1.02:brightness=0.008,unsharp=5:5:0.65:3:3:0.0,vignette=PI/5[base];[1:v]scale={width}:{height},format=rgba,fade=t=in:st=0:d=0.3:alpha=1[ov];[base][ov]overlay=0:0:shortest=1,format=yuv420p[v]",
+                          f"[0:v]{resize},eq=contrast=1.10:saturation=1.10:gamma=1.015:brightness=0.004,colorbalance=rs=-0.018:gs=0.000:bs=0.018:rm=-0.008:gm=0.000:bm=0.008:rh=0.016:gh=0.004:bh=-0.014:pl=1,unsharp=5:5:0.45:3:3:0.0,vignette=PI/5,noise=alls=1.2:allf=t[base];[1:v]scale={width}:{height},format=rgba,fade=t=in:st=0:d=0.3:alpha=1[ov];[base][ov]overlay=0:0:shortest=1,format=yuv420p[v]",
                           "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "veryfast",
                           "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                       ])
@@ -893,7 +933,7 @@ jobs:
                       run([
                           "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
                           "-t", str(duration), "-vf",
-                          f"{resize},eq=contrast=1.14:saturation=1.18:gamma=1.02:brightness=0.008,unsharp=5:5:0.65:3:3:0.0,vignette=PI/5",
+                          f"{resize},eq=contrast=1.10:saturation=1.10:gamma=1.015:brightness=0.004,colorbalance=rs=-0.018:gs=0.000:bs=0.018:rm=-0.008:gm=0.000:bm=0.008:rh=0.016:gh=0.004:bh=-0.014:pl=1,unsharp=5:5:0.45:3:3:0.0,vignette=PI/5,noise=alls=1.2:allf=t",
                           "-an", "-c:v", "libx264", "-preset", "veryfast",
                           "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                       ])
@@ -901,7 +941,7 @@ jobs:
                   run([
                       "ffmpeg", "-y", "-loop", "1", "-i", str(graphic),
                       "-t", str(duration), "-vf",
-                      f"{resize},zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)+sin(on/70)*20':y='ih/2-(ih/zoom/2)+cos(on/85)*12':d=1:s={width}x{height}:fps=30,eq=contrast=1.14:saturation=1.18:gamma=1.02:brightness=0.008,unsharp=5:5:0.65:3:3:0.0,vignette=PI/5",
+                      f"{resize},zoompan=z='min(zoom+0.0005,1.08)':x='iw/2-(iw/zoom/2)+sin(on/70)*20':y='ih/2-(ih/zoom/2)+cos(on/85)*12':d=1:s={width}x{height}:fps=30,eq=contrast=1.10:saturation=1.10:gamma=1.015:brightness=0.004,colorbalance=rs=-0.018:gs=0.000:bs=0.018:rm=-0.008:gm=0.000:bm=0.008:rh=0.016:gh=0.004:bh=-0.014:pl=1,unsharp=5:5:0.45:3:3:0.0,vignette=PI/5,noise=alls=1.2:allf=t",
                       "-an", "-c:v", "libx264", "-preset", "veryfast",
                       "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                   ])
@@ -909,9 +949,18 @@ jobs:
               if not target.exists() or target.stat().st_size < 1000:
                   raise SystemExit(f"Scene render failed: {scene}")
 
+              rendered_asset_records.append({
+                  "scene": scene,
+                  "asset_type": "evidence_chart" if chart_selected else ("licensed_stock_broll" if has_stock else "python_pillow_scene"),
+                  "evidence_chart": chart_name or None,
+                  "hud_overlay_applied": bool((not chart_selected) and has_stock and Path(f"assets/scene_overlay_{scene}.png").is_file()),
+                  "color_grade": "FFmpeg cinematic contrast/teal-warm balance/soft grain",
+                  "motion": "Ken Burns/slow drift on scene imagery",
+              })
+
               # Add a restrained, topic-matched 3D hero to the opening scene only.
               # Original footage, narration, and later scenes remain untouched.
-              if i == 0 and Path("assets/ai_security_3d_hero.png").exists():
+              if i == 0 and not chart_selected and Path("assets/ai_security_3d_hero.png").exists():
                   temp_target = target.with_name(target.stem + "_3d.mp4")
                   run([
                       "ffmpeg", "-y", "-i", str(target), "-loop", "1", "-i", "assets/ai_security_3d_hero.png",
@@ -922,6 +971,20 @@ jobs:
                   ])
                   temp_target.replace(target)
                   print(f"Applied 3D hero overlay to opening scene {scene}.")
+
+          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({
+              "status": "passed" if len(rendered_asset_records) == len([r for r in rows if len(r) >= 7]) else "partial",
+              "rendered_scene_count": len(rendered_asset_records),
+              "evidence_chart_files_generated": len(chart_files),
+              "evidence_charts_used": len(chart_uses),
+              "evidence_charts_unused": max(0, len(chart_files) - len(chart_uses)),
+              "chart_uses": chart_uses,
+              "licensed_stock_broll_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "licensed_stock_broll"),
+              "python_pillow_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "python_pillow_scene"),
+              "transparent_hud_overlay_applied_count": sum(1 for x in rendered_asset_records if x["hud_overlay_applied"]),
+              "scenes": rendered_asset_records,
+          }, indent=2, ensure_ascii=False), encoding="utf-8")
+          print(json.dumps({"rendered_scenes": len(rendered_asset_records), "charts_used": len(chart_uses), "hud_overlays_applied": sum(1 for x in rendered_asset_records if x["hud_overlay_applied"])}))
 
           with open("work/concat.txt", "w", encoding="utf-8") as out:
               for row in rows:
@@ -988,6 +1051,9 @@ jobs:
           .venv/bin/python tools/render_transitions.py --target-duration "$AUDIO_DURATION" --output work/visual_track.mp4
           test -s work/transitions_report.json
           cat work/transitions_report.json
+          .venv/bin/python tools/make_transition_sfx.py --scenes work/scenes.tsv --voice-duration "$AUDIO_DURATION" --intro-seconds 4 --content-id "$CONTENT_ID" --output work/transition_sfx.wav
+          test -s work/transition_sfx.wav
+          test -s work/transition_sfx_report.json
           VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
           THUMBNAIL="output/thumbnail_${CONTENT_ID}.jpg"
 
@@ -997,17 +1063,19 @@ jobs:
             VF="fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=36,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=190',fade=t=in:st=0:d=0.35"
             CTA_WIDTH=760
             CTA_Y=1280
+            BARS=""
           else
             WIDTH=1920
             HEIGHT=1080
-            VF="fps=30,scale=1920:1080,setsar=1,subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=55',fade=t=in:st=0:d=0.35"
+            BARS=",drawbox=x=0:y=0:w=iw:h=131:color=black:t=fill,drawbox=x=0:y=949:w=iw:h=131:color=black:t=fill"
+            VF="fps=30,scale=1920:1080,setsar=1${BARS},subtitles=work/captions.srt:force_style='FontName=DejaVu Sans,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=170',fade=t=in:st=0:d=0.35"
             CTA_WIDTH=1180
             CTA_Y=650
           fi
 
           # Four-second animated original brand intro; narration starts immediately afterward.
           ffmpeg -y -loop 1 -framerate 30 -i assets/ai_tech_lab_intro.png \
-            -t 4 -vf "scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='min(zoom+0.0007,1.025)':d=1:s=${WIDTH}x${HEIGHT}:fps=30,fade=t=in:st=0:d=0.6,fade=t=out:st=3.4:d=0.5,format=yuv420p,setsar=1" \
+            -t 4 -vf "scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},zoompan=z='min(zoom+0.0007,1.025)':d=1:s=${WIDTH}x${HEIGHT}:fps=30${BARS},fade=t=in:st=0:d=0.6,fade=t=out:st=3.4:d=0.5,format=yuv420p,setsar=1" \
             -an -c:v libx264 -r 30 -preset veryfast -crf 22 -pix_fmt yuv420p \
             -movflags +faststart work/intro.mp4
 
@@ -1026,8 +1094,8 @@ jobs:
             -movflags +faststart work/branded_visual.mp4
 
           # Original, generated background music is kept under narration using side-chain ducking.
-          ffmpeg -y -i work/branded_visual.mp4 -i work/voice_edited.wav -stream_loop -1 -i work/music.wav \
-            -filter_complex "[1:a]adelay=4000|4000,asetpts=PTS-STARTPTS,asplit=2[voice_sc][voice_mix];[2:a]volume=0.62,asetpts=PTS-STARTPTS[music];[music][voice_sc]sidechaincompress=threshold=0.035:ratio=8:attack=20:release=700[ducked];[voice_mix][ducked]amix=inputs=2:duration=longest:dropout_transition=0,loudnorm=I=-14:TP=-1.0:LRA=11[a]" \
+          ffmpeg -y -i work/branded_visual.mp4 -i work/voice_edited.wav -stream_loop -1 -i work/music.wav -i work/transition_sfx.wav \
+            -filter_complex "[1:a]adelay=4000|4000,asetpts=PTS-STARTPTS,asplit=2[voice_sc][voice_mix];[2:a]volume=0.62,apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08,asetpts=PTS-STARTPTS[music];[3:a]volume=0.14,asetpts=PTS-STARTPTS[sfx];[music][sfx]amix=inputs=2:duration=longest:dropout_transition=0[bed];[bed][voice_sc]sidechaincompress=threshold=0.035:ratio=8:attack=20:release=700[ducked];[voice_mix][ducked]amix=inputs=2:duration=longest:dropout_transition=0,loudnorm=I=-14:TP=-1.0:LRA=11[a]" \
             -map 0:v:0 -map "[a]" -t "$TOTAL_DURATION" \
             -c:v copy -c:a aac -b:a 192k -movflags +faststart "$VIDEO"
 
@@ -1067,14 +1135,17 @@ jobs:
               raise SystemExit("QA failed: output video is too small.")
           scene_report = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
           transition_report = json.loads(Path("work/transitions_report.json").read_text(encoding="utf-8"))
+          sfx_report = json.loads(Path("work/transition_sfx_report.json").read_text(encoding="utf-8"))
           reuse_report = json.loads(Path("work/asset_reuse_report.json").read_text(encoding="utf-8"))
           if scene_report.get("exact_word_timing") is not True or float(scene_report.get("sequence_similarity", 0)) < 0.55:
               raise SystemExit("QA failed: scenes are not aligned to the actual narration transcript.")
-          minimum_scenes = min(28, max(12, int(audio_duration / 14.0))) if fmt != "SHORT" else min(18, max(8, int(audio_duration / 7.0)))
+          minimum_scenes = min(90, max(12, int(audio_duration / 4.2))) if fmt != "SHORT" else min(20, max(8, int(audio_duration / 7.0)))
           if int(scene_report.get("planned_visual_scenes", 0)) < minimum_scenes:
               raise SystemExit(f"QA failed: only {scene_report.get('planned_visual_scenes')} scene-specific visuals; at least {minimum_scenes} required.")
           if abs(float(scene_report.get("voice_duration_seconds", 0)) - audio_duration) > 0.55:
               raise SystemExit("QA failed: scene plan duration does not match final edited narration.")
+          if sfx_report.get("status") != "generated" or int(sfx_report.get("transition_count", -1)) != int(transition_report.get("scenes", 0))-1:
+              raise SystemExit("QA failed: procedural transition SFX do not match rendered scene cuts.")
           if abs(float(transition_report.get("rendered_duration_seconds", 0)) - audio_duration) > 0.25 or float(transition_report.get("final_frame_padding_seconds", 1)) > 0.20:
               raise SystemExit("QA failed: visual timing drift or frozen-tail padding detected.")
           if reuse_report.get("status") != "validated" or reuse_report.get("previous_video_reuse") is not False or reuse_report.get("within_video_duplicates") is not False:
@@ -1219,6 +1290,7 @@ jobs:
             work/captions.srt
             work/music_report.json
             work/evidence_charts_report.json
+            work/rendered_scene_assets_report.json
             work/brand_assets_report.json
             work/seo_report.json
             work/video_review_report.json
@@ -1408,6 +1480,33 @@ jobs:
           test -s "output/AI_TECH_LAB_$CONTENT_ID"_3D_"$STEREO_OUTPUT".mp4
           echo "Only the verified stereoscopic output is eligible for YouTube upload."
 
+      - name: Create per-video editing tool execution manifest
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        env:
+          STEREO_OUTPUT: ${{ inputs.stereo_output }}
+        run: |
+          set -euo pipefail
+          if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
+            FINAL_VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
+          else
+            FINAL_VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          fi
+          .venv/bin/python tools/write_editing_tool_manifest.py --content-id "$CONTENT_ID" --format "$CONTENT_FORMAT" --stereo-output "$STEREO_OUTPUT" --final-video "$FINAL_VIDEO" --thumbnail "output/thumbnail_${CONTENT_ID}.jpg" --output work/editing_tool_manifest.json
+          jq -e '.status == "passed" and .scene_count >= 8' work/editing_tool_manifest.json >/dev/null
+          cat work/editing_tool_manifest.json
+
+      - name: Save editing manifest artifact
+        if: steps.youtube_state.outputs.already_uploaded != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-editing-manifest-${{ inputs.content_id }}
+          path: |
+            work/editing_tool_manifest.json
+            work/transition_sfx_report.json
+            work/rendered_scene_assets_report.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Save verified 3D upload artifact
         if: steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO'
         uses: actions/upload-artifact@v4
@@ -1416,6 +1515,8 @@ jobs:
           path: |
             output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4
             work/stereo_3d_report.json
+            work/editing_tool_manifest.json
+            work/transition_sfx_report.json
           if-no-files-found: error
           retention-days: 30
 

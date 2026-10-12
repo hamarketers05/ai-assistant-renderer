@@ -18,6 +18,7 @@ manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 script_text = script_path.read_text(encoding="utf-8")
 charts = manifest.get("data_charts") or manifest.get("charts") or []
 created = []
+created_details = []
 
 def number_tokens(text):
     tokens = set()
@@ -26,7 +27,7 @@ def number_tokens(text):
     return tokens
 
 explicit_numbers = number_tokens(script_text)
-for index, chart in enumerate(charts[:4], 1):
+for index, chart in enumerate(charts[:12], 1):
     title = str(chart.get("title") or "").strip()[:120]
     source_url = str(chart.get("source_url") or chart.get("source") or "").strip()
     labels = chart.get("labels") or []
@@ -62,10 +63,17 @@ for index, chart in enumerate(charts[:4], 1):
     fig.savefig(path, dpi=160)
     plt.close(fig)
     created.append(str(path))
+    created_details.append({
+        "path": str(path),
+        "title": title,
+        "source_url": source_url,
+        "labels": [str(x) for x in labels],
+        "values": nums,
+    })
 
 Path("work/evidence_charts_report.json").write_text(
-    json.dumps({"charts_created": created, "charts_requested": len(charts),
-                "policy": "Only source-linked numeric values explicitly present in the script."}, indent=2),
+    json.dumps({"charts_created": created, "chart_details": created_details, "charts_requested": len(charts),
+                "policy": "Only source-linked numeric values explicitly present in the script; up to twelve charts are rendered if supported by the sourced script data."}, indent=2),
     encoding="utf-8",
 )
 print(json.dumps({"charts_created": len(created), "charts_requested": len(charts)}))

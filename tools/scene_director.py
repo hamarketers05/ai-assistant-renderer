@@ -87,11 +87,75 @@ def align_words(script_words, asr, duration):
         normalized.append((start,end)); previous=start
     return normalized,exact_ratio,sequence_ratio,mapped_ratio
 
-def make_groups(sentence_data,duration,max_scenes):
-    min_scene=2.4
-    limit=max(1,min(max_scenes,max(1,int(duration//min_scene))))
-    group_size=max(1,math.ceil(len(sentence_data)/limit))
-    return [sentence_data[i:i+group_size] for i in range(0,len(sentence_data),group_size)]
+def make_groups(sentence_data,duration,max_scenes,word_times,display_words,punctuation_marks):
+    """Split long sentences into voice-timed visual phrases near four seconds."""
+    target=max(2.4 if int(max_scenes)<=24 else 3.0,min(4.0,float(duration)/max(1,int(max_scenes))))
+    groups=[]
+    weak_endings={"a","an","the","and","or","to","for","of","in","with","by","on","at","as","from"}
+    for sentence in sentence_data:
+        start_idx=int(sentence["token_start"])
+        limit=int(sentence["token_end"])
+        while start_idx<limit:
+            remaining=float(word_times[limit-1][1])-float(word_times[start_idx][0])
+            if remaining<=target+0.25:
+                end_idx=limit
+            else:
+                candidates=[]
+                min_duration=max(2.2,target-0.9)
+                max_duration=target+1.25
+                for stop in range(start_idx+1,limit+1):
+                    elapsed=float(word_times[stop-1][1])-float(word_times[start_idx][0])
+                    if elapsed<min_duration:
+                        continue
+                    if elapsed>max_duration:
+                        break
+                    punctuation=punctuation_marks[stop-1]
+                    score=abs(elapsed-target)
+                    if punctuation in (",",";",":"):
+                        score-=0.45
+                    elif punctuation in (".","!","?"):
+                        score-=0.65
+                    if re.sub(r"[^a-z]+","",display_words[stop-1].lower()) in weak_endings:
+                        score+=0.35
+                    candidates.append((score,stop))
+                if candidates:
+                    end_idx=min(candidates)[1]
+                else:
+                    end_idx=start_idx+1
+                    while end_idx<limit and float(word_times[end_idx-1][1])-float(word_times[start_idx][0])<target:
+                        end_idx+=1
+            if end_idx<=start_idx:
+                end_idx=start_idx+1
+            groups.append([{
+                "text":" ".join(display_words[start_idx:end_idx]),
+                "token_start":start_idx,
+                "token_end":end_idx,
+                "start":float(word_times[start_idx][0]),
+                "end":float(word_times[end_idx-1][1]),
+            }])
+            start_idx=end_idx
+
+    # Merge tiny phrase fragments instead of flashing to a new visual for a
+    # one-second sentence. Keep all boundaries on recognized word timestamps.
+    min_scene=1.6
+    while len(groups)>1:
+        short=next((i for i,g in enumerate(groups)
+                    if float(g[-1]["end"])-float(g[0]["start"])<min_scene),None)
+        if short is None:
+            break
+        if short==0:
+            groups[0].extend(groups[1]); del groups[1]
+        else:
+            groups[short-1].extend(groups[short]); del groups[short]
+
+    # Hard cap for long scripts to keep CPU depth conversion bounded.
+    while len(groups)>max(1,int(max_scenes)):
+        merge_at=min(range(len(groups)-1),key=lambda i:
+            abs((float(groups[i][-1]["end"])-float(groups[i][0]["start"]))+
+                (float(groups[i+1][-1]["end"])-float(groups[i+1][0]["start"]))-target))
+        groups[merge_at].extend(groups[merge_at+1])
+        del groups[merge_at+1]
+    return groups
 
 def intervals(groups,duration):
     starts=[max(0.0,g[0]["start"]) for g in groups]
@@ -107,7 +171,7 @@ def main():
     p.add_argument("--script",default="work/script.txt")
     p.add_argument("--duration",type=float,required=True)
     p.add_argument("--output",default="work/scenes.tsv")
-    p.add_argument("--max-scenes",type=int,default=72)
+    p.add_argument("--max-scenes",type=int,default=90)
     p.add_argument("--timestamps",default="work/voice_word_timestamps.json")
     a=p.parse_args()
     script=Path(a.script).read_text(encoding="utf-8").strip()
@@ -133,7 +197,17 @@ def main():
     for item in sentence_data:
         item["start"]=word_times[item["token_start"]][0]
         item["end"]=word_times[item["token_end"]-1][1]
-    groups=make_groups(sentence_data,duration,max(1,a.max_scenes))
+    token_matches=list(TOKEN_RE.finditer(script))
+    display_words=[]; punctuation_marks=[]
+    for match in token_matches:
+        rest=script[match.end():]
+        punctuation_match=re.match(r"([,;:.!?]+)",rest)
+        punctuation=punctuation_match.group(1) if punctuation_match else ""
+        display_words.append(match.group(0)+punctuation)
+        punctuation_marks.append(punctuation[-1:] if punctuation else "")
+    if len(display_words)!=len(script_words):
+        raise SystemExit("Scene phrase planner tokenization differs from script alignment.")
+    groups=make_groups(sentence_data,duration,max(1,a.max_scenes),word_times,display_words,punctuation_marks)
     while len(groups)>1:
         spans=intervals(groups,duration)
         short=next((i for i,(lo,hi) in enumerate(spans) if hi-lo<0.80),None)
@@ -162,7 +236,7 @@ def main():
       "exact_token_match_ratio":round(exact_ratio,4),"mapped_script_token_ratio":round(mapped_ratio,4),
       "timestamp_word_count":len(asr),
       "scene_duration_seconds":{"min":round(min(lengths),3),"max":round(max(lengths),3),"mean":round(sum(lengths)/len(lengths),3)},
-      "visual_change_policy":"sentence-specific prompts, capped at 72 scenes; adjacent sentences merged only for readable transitions"}
+      "visual_change_policy":"word-timestamped clause-aware scene phrases targeting about 3-4 seconds, with brief 1.6+ second emphasis shots where word timing requires; short phrases merge to avoid flicker; capped at 90 scenes"}
     Path("work/scene_director_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     print(json.dumps(report))
 if __name__=="__main__": main()
