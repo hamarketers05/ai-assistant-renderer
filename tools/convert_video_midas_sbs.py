@@ -349,7 +349,7 @@ def convert(args) -> int:
                 if return_code != 0:
                     detail = ffmpeg_log.read_text(encoding="utf-8", errors="replace")[-3000:]
                     raise RuntimeError(f"FFmpeg failed with exit code {return_code}: {detail}")
-            except Exception:
+            except Exception as exc:
                 if process.stdin and not process.stdin.closed:
                     try:
                         process.stdin.close()
@@ -358,6 +358,12 @@ def convert(args) -> int:
                 if process.poll() is None:
                     process.kill()
                     process.wait(timeout=30)
+                detail = ffmpeg_log.read_text(encoding="utf-8", errors="replace")[-3000:]
+                if isinstance(exc, BrokenPipeError) or process.returncode not in (None, 0):
+                    raise RuntimeError(
+                        "FFmpeg stopped while receiving SBS frames. "
+                        f"Exit code: {process.returncode}. FFmpeg log: {detail or '(empty)'}"
+                    ) from exc
                 raise
             finally:
                 cap.release()
