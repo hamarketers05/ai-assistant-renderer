@@ -146,7 +146,7 @@ jobs:
               if marker.lower() not in stereo_code.lower():
                   raise SystemExit(f"Optional 2D3D safe-export integration missing: {marker}")
           stereo_step = names.index("Generate optional 2D3D stereoscopic companion without replacing standard master")
-          if "continue-on-error: true" not in wf["jobs"]["render"]["steps"][stereo_step].get("continue-on-error", "false"):
+          if wf["jobs"]["render"]["steps"][stereo_step].get("continue-on-error", "false").lower() != "true":
               raise SystemExit("Optional 3D export must never block the standard 2D production path.")
           manual_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
           for marker in ("stereo_output:", "default: OFF", "output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4", "work/stereo_3d_report.json"):
