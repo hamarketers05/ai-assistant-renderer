@@ -6,7 +6,7 @@ from pathlib import Path
 
 API = "https://commons.wikimedia.org/w/api.php"
 UA = "AI-Tech-Lab-Renderer/1.0 (https://github.com/hamarketers05/ai-assistant-renderer)"
-MAX_SCENES, MAX_DOWNLOADS = 10, 6
+MAX_SCENES, MAX_DOWNLOADS = 18, 10
 MAX_BYTES = 80 * 1024 * 1024
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
 VIDEO_EXTS = {".mp4", ".webm", ".ogv", ".ogg", ".mov", ".m4v"}
@@ -48,7 +48,7 @@ def meta_field(meta, key):
 
 def search_files(query):
     params = {"action":"query","format":"json","list":"search",
-              "srsearch":f"filetype:video {query}","srnamespace":6,"srlimit":8,"srprop":"size|wordcount"}
+              "srsearch":f"filetype:video {query}","srnamespace":6,"srlimit":20,"srprop":"size|wordcount"}
     data = req_json(API + "?" + urllib.parse.urlencode(params))
     return (data.get("query") or {}).get("search") or []
 
@@ -86,7 +86,22 @@ def main():
         if len(terms) < 2: continue
         selected = None
         seen = set()
-        for query in (" ".join(terms[:5]), " ".join(terms[:3])):
+        query_candidates = [
+            " ".join(terms[:5]),
+            " ".join(terms[:3]),
+            " ".join(terms[:2]),
+            "computer security",
+            "cybersecurity network",
+            "computer server data center",
+            "computer code software",
+            "artificial intelligence computer",
+            "digital technology office",
+            "network cables server",
+        ]
+        # Deduplicate while preserving query order; broad fallback searches are still
+        # required to pass the per-scene title/description relevance test below.
+        query_candidates = list(dict.fromkeys(q.strip() for q in query_candidates if q.strip()))
+        for query in query_candidates:
             try: results = search_files(query)
             except Exception as exc:
                 print(f"Commons search failed for scene {scene}: {str(exc)[:140]}"); continue
@@ -114,7 +129,7 @@ def main():
                     title_terms = set(terms_of(title.replace("File:"," ")))
                     desc_terms = set(terms_of(desc))
                     overlap = len(set(terms) & (title_terms | desc_terms)) / max(1,min(5,len(terms)))
-                    if overlap < 0.15: continue
+                    if overlap < 0.08: continue
                     source_url = str(info.get("descriptionurl") or "")
                     if not file_url.startswith("https://") or not source_url.startswith("https://commons.wikimedia.org/"): continue
                     size = int(info.get("size") or 0)
