@@ -1077,7 +1077,7 @@ jobs:
           reuse_report = json.loads(Path("work/asset_reuse_report.json").read_text(encoding="utf-8"))
           if scene_report.get("exact_word_timing") is not True or float(scene_report.get("sequence_similarity", 0)) < 0.55:
               raise SystemExit("QA failed: scenes are not aligned to the actual narration transcript.")
-          minimum_scenes = min(90, max(12, int(audio_duration / 4.5))) if fmt != "SHORT" else min(20, max(8, int(audio_duration / 7.0)))
+          minimum_scenes = min(90, max(12, int(audio_duration / 4.2))) if fmt != "SHORT" else min(20, max(8, int(audio_duration / 7.0)))
           if int(scene_report.get("planned_visual_scenes", 0)) < minimum_scenes:
               raise SystemExit(f"QA failed: only {scene_report.get('planned_visual_scenes')} scene-specific visuals; at least {minimum_scenes} required.")
           if abs(float(scene_report.get("voice_duration_seconds", 0)) - audio_duration) > 0.55:
