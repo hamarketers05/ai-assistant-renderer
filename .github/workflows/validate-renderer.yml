@@ -140,7 +140,7 @@ jobs:
               if marker.lower() not in research_code.lower():
                   raise SystemExit(f"Human-sounding, evidence-aware Personal Persona prompt missing: {marker}")
           thumbnail_code = Path("tools/make_premium_thumbnail.py").read_text(encoding="utf-8")
-          for marker in ("Python/Pillow only", "cinematic bars", "popout", "draw_chip", "draw_shield", "Image.Resampling.LANCZOS"):
+          for marker in ("Python/Pillow only", "cinematic bars", "pop-out", "draw_chip", "draw_shield", "Image.Resampling.LANCZOS"):
               if marker.lower() not in thumbnail_code.lower():
                   raise SystemExit(f"Python/Pillow 3D pop-out thumbnail feature missing: {marker}")
           renderer_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
