@@ -62,7 +62,7 @@ def load_midas():
     # exact dependency repository name that the pinned official MiDaS source requests.
     # This avoids an interactive prompt/EOFError while preserving the official call path.
     hub_dir = Path(torch.hub.get_dir())
-    trusted_file = hub_dir / "trusted_list.txt"
+    trusted_file = hub_dir / "trusted_list"
     trusted_file.parent.mkdir(parents=True, exist_ok=True)
     existing = set(trusted_file.read_text(encoding="utf-8").splitlines()) if trusted_file.exists() else set()
     existing.add("rwightman_gen-efficientnet-pytorch")
