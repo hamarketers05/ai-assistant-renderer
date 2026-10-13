@@ -368,6 +368,7 @@ jobs:
           Path("work/opencv_visual_qa.json").write_text(json.dumps({"status":"passed","sample_frames":10}),encoding="utf-8")
           Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4}),encoding="utf-8")
           Path("work/flux_generation_report.json").write_text(json.dumps({"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback and makes no inference request","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"}),encoding="utf-8")
+          Path("work/visual_coverage_report.json").write_text(json.dumps({"status":"not_applicable_short","content_id":"9876","reason":"Static validation uses a Shorts manifest fixture; long-video budget is independently self-tested."}),encoding="utf-8")
           Path("work/asset_reuse_report.json").write_text(json.dumps({"status":"validated","previous_video_reuse":False,"within_video_duplicates":False}),encoding="utf-8")
           Path("work/evidence_charts_report.json").write_text(json.dumps({"charts_created":[],"charts_requested":0}),encoding="utf-8")
           Path("work/stereo_3d_report.json").write_text(json.dumps({"status":"disabled"}),encoding="utf-8")
