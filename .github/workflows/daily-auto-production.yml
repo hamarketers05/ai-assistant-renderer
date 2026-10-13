@@ -40,6 +40,12 @@ jobs:
         with:
           ref: main
 
+      - name: Check the daily handoff Worker and D1 binding
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 --max-time 20 "$HANDOFF_URL/health" | jq -e '.ok == true and .d1_binding == true' >/dev/null
+          echo "Daily handoff endpoint is online and its D1 binding is present."
+
       - name: Download the research artifact from the successful source run
         uses: actions/download-artifact@v4
         with:
@@ -69,7 +75,6 @@ jobs:
           mkdir -p work
           cp work_package.tmp.json work/daily_content_package.json
           cp "$(find handoff/input -type f -name tavily_evidence.json -print -quit)" work/tavily_evidence.json
-          python -m pip install --disable-pip-version-check --quiet --upgrade pip
           python tools/make_daily_short.py
           test -s work/short_content_package.json
           jq '{title,script_word_count,content_format,qa}' work/short_content_package.json
