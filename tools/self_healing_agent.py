@@ -50,7 +50,7 @@ PATCHABLE = {
     "tools/fetch_free_media.py", "tools/generate_flux_images.py",
     "tools/make_premium_thumbnail.py", "tools/groq_thumbnail_brief.py",
     "tools/daily_auto_handoff.py", "tools/make_daily_short.py",
-    "tools/asset_reuse_guard.py", "tools/convert_video_3d.py",
+    "tools/ai_text_client.py", "tools/asset_reuse_guard.py", "tools/convert_video_3d.py",
     "tools/convert_video_midas_sbs.py", "tools/daily_content_research.py",
     "tools/fetch_free_video.py", "tools/generate_kokoro_voice.py",
     "tools/generate_music.py", "tools/groq_video_review.py",
@@ -454,6 +454,8 @@ def attempt_patch(run, job, log):
             cmd([sys.executable, target, "--self-test"], timeout=90)
         elif target == "tools/self_healing_canary.py":
             cmd([sys.executable, target, "--self-test"], timeout=30)
+        elif target == "tools/ai_text_client.py":
+            cmd([sys.executable, "tools/test_ai_text_client.py"], timeout=30)
         elif target == "tools/self_healing_agent.py":
             cmd([sys.executable, "tools/test_self_healing_agent.py"], timeout=30)
         elif target == "tools/generate_flux_images.py":
