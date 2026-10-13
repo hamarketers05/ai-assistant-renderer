@@ -304,7 +304,18 @@ async function generateAiCompletion(request, env) {
       });
     }
   } catch (e) {
-    console.error("AI_PROXY_WORKERS_AI_FAILURE", String(e && e.message || e).slice(0, 180));
+    const detail = String(e && e.message || e);
+    // Cloudflare error 4006 is a daily free-neuron quota stop, not a transient 502.
+    // Return a stable machine-readable code so callers and the self-healer do not loop or pay.
+    if (/4006|daily free allocation of [\\d,]+ neurons|free allocation.*neurons/i.test(detail)) {
+      console.error("AI_PROXY_WORKERS_AI_QUOTA_EXHAUSTED", "Workers AI daily free allocation exhausted; paid fallback disabled.");
+      return Response.json({
+        ok: false,
+        code: "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED",
+        error: "Cloudflare Workers AI daily free allocation exhausted; no paid fallback was attempted."
+      }, { status: 429, headers: cors() });
+    }
+    console.error("AI_PROXY_WORKERS_AI_FAILURE", detail.slice(0, 180));
     return Response.json({ ok: false, error: "Cloudflare Workers AI fallback could not complete the request" }, { status: 502, headers: cors() });
   }
   const firstChoice = result && result.choices ? result.choices[0] : null;
