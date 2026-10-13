@@ -158,11 +158,11 @@ def duration_seconds(value):
     return int(h or 0) * 3600 + int(m or 0) * 60 + float(s or 0)
 
 AI_TOPIC_PATTERN = re.compile(
-    r"\\b(?:ai|a\\.i\\.|artificial intelligence|machine learning|deep learning|"
+    r"\b(?:ai|a\.i\.|artificial intelligence|machine learning|deep learning|"
     r"generative ai|large language model|large language models|llm|llms|chatgpt|"
     r"openai|anthropic|claude|gemini|grok|cursor ai|copilot|ai agent|ai agents|"
     r"agentic|neural network|neural networks|deepfake|robotics|ai model|ai models|"
-    r"ai-powered|ai driven|ai-driven|generative model|generative models)\\b",
+    r"ai-powered|ai driven|ai-driven|generative model|generative models)\b",
     re.IGNORECASE,
 )
 
@@ -174,7 +174,7 @@ def is_ai_relevant_trend(item):
     text = " ".join(str(item.get(key, "") or "") for key in (
         "title", "description_excerpt", "description", "content", "channel"
     ))
-    return bool(AI_TOPIC_PATTERN.search(re.sub(r"\\s+", " ", text)))
+    return bool(AI_TOPIC_PATTERN.search(re.sub(r"\s+", " ", text)))
 
 
 def collect_ai_trend_signals(chart_items, fallback_fn=None, minimum=5):
@@ -263,11 +263,11 @@ def worker_youtube_trending_fallback():
             continue
         url = str(item.get("url", "") or "").strip()
         video_id = video_id_from_url(url)
-        title = re.sub(r"\\s+", " ", str(item.get("title", "") or "")).strip()
+        title = re.sub(r"\s+", " ", str(item.get("title", "") or "")).strip()
         if not video_id or not title or video_id in seen or not is_ai_relevant_trend(item):
             continue
         seen.add(video_id)
-        description = re.sub(r"\\s+", " ", str(item.get("content", "") or "")).strip()
+        description = re.sub(r"\s+", " ", str(item.get("content", "") or "")).strip()
         rows.append({
             "video_id": video_id,
             "category": "Science & Technology",
