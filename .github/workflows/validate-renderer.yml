@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/ai_text_client.py tools/test_ai_text_client.py tools/make_daily_short.py tools/test_self_healing_agent.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/fetch_free_media.py tools/compose_scene_overlays.py tools/visual_budget.py tools/write_editing_tool_manifest.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/test_daily_content_research.py tools/groq_video_review.py tools/ai_text_client.py tools/test_ai_text_client.py tools/make_daily_short.py tools/test_self_healing_agent.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/fetch_free_media.py tools/compose_scene_overlays.py tools/visual_budget.py tools/write_editing_tool_manifest.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -150,6 +150,7 @@ jobs:
               ["python", "tools/visual_budget.py", "--self-test"],
               ["python", "tools/test_self_healing_agent.py"],
               ["python", "tools/test_ai_text_client.py"],
+              ["python", "tools/test_daily_content_research.py"],
           ]:
               subprocess.run(test, check=True)
           print("Free-media licensing, graph overlays and visual-budget fail-closed self-tests passed.")
