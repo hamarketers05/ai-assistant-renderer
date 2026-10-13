@@ -285,10 +285,14 @@ async function generateAiCompletion(request, env) {
     console.error("AI_PROXY_WORKERS_AI_FAILURE", String(e && e.message || e).slice(0, 180));
     return Response.json({ ok: false, error: "Cloudflare Workers AI fallback could not complete the request" }, { status: 502, headers: cors() });
   }
+  const firstChoice = result && result.choices ? result.choices[0] : null;
   const contentValue = result && (
     result.response || result.text || result.output_text ||
-    (Array.isArray(result.choices) && result.choices[0] && result.choices[0].message && result.choices[0].message.content) ||
-    (result.result && (result.result.response || result.result.text || result.result.output_text))
+    (firstChoice && firstChoice.message && firstChoice.message.content) ||
+    (firstChoice && typeof firstChoice.text === "string" ? firstChoice.text : null) ||
+    (firstChoice && firstChoice.delta && firstChoice.delta.content) ||
+    (result.result && (result.result.response || result.result.text || result.result.output_text ||
+      (result.result.choices && result.result.choices[0] && result.result.choices[0].message && result.result.choices[0].message.content)))
   );
   const content = typeof contentValue === "string" ? contentValue :
     (contentValue && typeof contentValue === "object" ? JSON.stringify(contentValue) : "");
@@ -299,6 +303,10 @@ async function generateAiCompletion(request, env) {
       text_type: typeof (result && result.text),
       output_text_type: typeof (result && result.output_text),
       choices_type: typeof (result && result.choices),
+      choices_is_array: Array.isArray(result && result.choices),
+      choices_keys: result && result.choices && typeof result.choices === "object" ? Object.keys(result.choices).slice(0, 8) : [],
+      first_choice_keys: firstChoice && typeof firstChoice === "object" ? Object.keys(firstChoice).slice(0, 10) : [],
+      first_choice_message_keys: firstChoice && firstChoice.message && typeof firstChoice.message === "object" ? Object.keys(firstChoice.message).slice(0, 8) : [],
       errors: Array.isArray(result && result.errors) ? result.errors.slice(0, 2).map(e => String(e && (e.message || e.code) || "model_error").slice(0, 100)) : []
     };
     console.error("AI_PROXY_EMPTY_MODEL_OUTPUT", JSON.stringify(shape));
