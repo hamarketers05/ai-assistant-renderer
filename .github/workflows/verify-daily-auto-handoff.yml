@@ -1,0 +1,47 @@
+name: Verify Daily Handoff Endpoint (No Upload)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/make_daily_short.py"
+      - "tools/daily_auto_handoff.py"
+      - ".github/workflows/daily-auto-production.yml"
+      - ".github/workflows/verify-daily-auto-handoff.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-no-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Validate Python syntax
+        run: python -m py_compile tools/make_daily_short.py tools/daily_auto_handoff.py
+
+      - name: Verify the deployed handoff Worker and D1 binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev"
+          HEALTH=$(curl -fsS --retry 3 --retry-delay 2 --max-time 20 "$URL/health")
+          printf '%s' "$HEALTH" | jq -e '.ok == true and .status == "online" and .d1_binding == true' >/dev/null
+          echo "Worker online; expected D1 binding confirmed."
+
+      - name: Verify the content endpoint rejects unauthenticated requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/content-create"
+          CODE=$(curl -sS --max-time 20 -o /tmp/handoff-auth.json -w "%{http_code}" \
+            -X POST -H "Content-Type: application/json" --data '{"dry_run":true}' "$URL")
+          test "$CODE" = "401"
+          jq -e '.ok == false and .error == "GitHub Actions token required"' /tmp/handoff-auth.json >/dev/null
+          echo "Unauthenticated content creation rejected; no D1 rows, renders, or uploads created."
