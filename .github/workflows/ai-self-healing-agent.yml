@@ -60,46 +60,6 @@ jobs:
           python -m py_compile tools/self_healing_agent.py
           python tools/self_healing_agent.py
 
-      - name: One-time Workers AI fallback smoke test (never applies a patch)
-        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[fallback-smoke-test]') }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os, urllib.error, urllib.request
-          from pathlib import Path
-          run_id = os.environ['GITHUB_RUN_ID']
-          body = {
-              'workflow_run_id': run_id,
-              'source_run_id': run_id,
-              'failed_workflow': 'Fallback smoke test only',
-              'failed_job': 'No production failure; safe connectivity probe',
-              'target': 'tools/' + 'voice_editor.py',
-              'source': 'def voice_edit():\\n    return True\\n',
-              'log': 'Synthetic test only. No patch is needed. Return NO_SAFE_PATCH; never invent a change.'
-          }
-          request = urllib.request.Request(
-              'https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/self-heal/patch',
-              data=json.dumps(body).encode(),
-              headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'], 'Content-Type': 'application/json', 'User-Agent': 'AI-Tech-Lab-Self-Healing-Agent/1.0'},
-              method='POST'
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=60) as response:
-                  result = json.loads(response.read().decode())
-                  status = response.status
-          except urllib.error.HTTPError as exc:
-              detail = exc.read().decode('utf-8', 'replace')[:1000]
-              print(f'Workers AI fallback HTTP {exc.code}; sanitized response: {detail}')
-              raise SystemExit(1)
-          patch_text = str(result.get('patch', ''))
-          print(json.dumps({'http_status': status, 'ok': result.get('ok'), 'provider': result.get('provider'), 'model': result.get('model'), 'response_chars': len(patch_text), 'patch_applied': False}))
-          if status != 200 or result.get('ok') is not True or result.get('provider') != 'cloudflare_workers_ai' or not patch_text:
-              raise SystemExit('Workers AI fallback failed its non-mutating smoke test.')
-          PY
-
       - name: Save machine-readable recovery report
         if: always()
         uses: actions/upload-artifact@v4
