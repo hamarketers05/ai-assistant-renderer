@@ -56,12 +56,19 @@ def main():
     # Cloudflare fallback returned a transient 502; unrelated "Missing..." text in bundled job
     # logs must not suppress the agent's bounded retry of the failed research run.
     fallback_502_log = (
-        "Groq key absent; authenticated Cloudflare Workers AI fallback is enabled. "
+        "GROQ_API_KEY missing; authenticated Cloudflare Workers AI fallback is enabled. "
         "Authenticated Cloudflare AI fallback returned HTTP 502; Groq primary was unavailable. "
         "Missing existing WORKER_AUTH_TOKEN repository secret."
     )
     assert agent.classify_configuration_failure(fallback_502_log) is None
     assert agent.is_transient(fallback_502_log) is True
+
+    quota_issue = agent.classify_known_infrastructure_failure(
+        {"name": "AI Tech Lab Daily Research and Script"},
+        "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED: Cloudflare Workers AI daily free neuron allocation is exhausted."
+    )
+    assert quota_issue and quota_issue["code"] == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED"
+    assert "never enable billing" in quota_issue["safe_recovery"]
 
     short_script = agent.classify_renderer_input_quality_failure(
         {"name": "AI Assistant Renderer"},
