@@ -820,7 +820,7 @@ jobs:
           set -euo pipefail
           .venv/bin/python tools/asset_reuse_guard.py --mode validate --content-id "$CONTENT_ID" --content-format "$CONTENT_FORMAT"
           test -s work/asset_reuse_report.json
-          jq -e '.status == "validated" and .previous_video_reuse == false and .within_video_duplicates == false and .accepted_new_assets >= 4' work/asset_reuse_report.json >/dev/null
+          jq -e '.status == "validated" and .previous_video_reuse == false and .within_video_duplicates == false and .accepted_new_assets >= .minimum_new_licensed_clips_required' work/asset_reuse_report.json >/dev/null
 
       - name: Add stock creator and license attribution
         run: |
