@@ -5,9 +5,13 @@ import argparse, json, os, re, time, urllib.error, urllib.parse, urllib.request
 from ai_text_client import chat_completion
 from datetime import datetime, timezone
 from pathlib import Path
+from mini_agents import (NATURAL_VOICE_GUIDANCE, agent_execution_report,
+                         category_rotation, evaluate_human_voice, parse_editorial_date,
+                         resolve_category, weekly_tool_scout_plan)
 
 WORK = Path("work")
 _LAST_GROQ_START = 0.0
+_AI_CALL_LOG = []
 TEXT_MODEL = os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-20b")
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3/videos"
 TAVILY_API = "https://api.tavily.com/search"
@@ -88,6 +92,7 @@ def groq_json(system, user, max_tokens=2500, temperature=0.25):
         _LAST_GROQ_START = time.monotonic()
     result = chat_completion(body, ".github/workflows/daily-content-research.yml", timeout=90)
     provider = str(result.get("provider", "groq"))
+    _AI_CALL_LOG.append({"provider": provider, "workflow_path": ".github/workflows/daily-content-research.yml"})
     choices = result.get("choices") or []
     if not choices:
         raise RuntimeError(provider + " returned no completion choices.")
@@ -142,10 +147,13 @@ def youtube_trending(api_key, access_token=""):
     # Preserve the API's current-popularity order separately for each region/category.
     return all_items
 
-def tavily_search(key, query):
-    result = request_json(TAVILY_API, {
+def tavily_search(key, query, include_domains=None):
+    payload = {
         "api_key": key, "query": query, "search_depth": "advanced", "topic": "general",
-        "max_results": 6, "include_answer": False, "include_raw_content": False}, timeout=60)
+        "max_results": 6, "include_answer": False, "include_raw_content": False}
+    if include_domains:
+        payload["include_domains"] = include_domains
+    result = request_json(TAVILY_API, payload, timeout=60)
     return result.get("results", []) if isinstance(result, dict) else []
 
 def clean_sources(results):
@@ -184,6 +192,9 @@ def main():
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
+    editorial_date = args.target_date or parse_editorial_date().isoformat()
+    rotation = category_rotation(editorial_date)
+    scout_plan = weekly_tool_scout_plan(editorial_date)
     review = read_json(Path("learning/latest_video_review.json"), {})
     learning = {
         "last_title": review.get("title", ""),
@@ -195,14 +206,51 @@ def main():
     (outdir / "youtube_trend_signals.json").write_text(json.dumps({
         "source": "YouTube Data API v3 videos.list chart=mostPopular", "region": "US",
         "categories": ["Science & Technology", "Education"],
-        "quota_note": "Two videos.list chart calls; documented quota cost is 1 unit per call.",
+        "editorial_rotation": rotation,
+        "quota_note": "Two videos.list chart calls; documented quota cost is 1 unit per call. No extra YouTube API calls were added.",
         "fetched_at_utc": now.isoformat(), "items": trends}, indent=2), encoding="utf-8")
 
+    # The improvement scout is weekly, uses one Tavily query on Sunday, and accepts official docs only.
+    improvement_report = {
+        "status": "skipped", "scheduled": scout_plan, "sources": [],
+        "auto_installs": False, "auto_production_code_edits": False,
+        "policy": "Official-source research only; changes to dependencies, permissions, paid services, or production code are never self-applied."
+    }
+    if scout_plan.get("enabled"):
+        try:
+            raw_improvements = tavily_search(tv_key, scout_plan["query"], [scout_plan["domain"]])
+            official = []
+            for source in clean_sources(raw_improvements):
+                host = urllib.parse.urlparse(source["url"]).hostname or ""
+                if host == scout_plan["domain"] or host.endswith("." + scout_plan["domain"]):
+                    official.append(source)
+            improvement_report.update({
+                "status": "completed" if official else "no_official_results",
+                "queried_at_utc": datetime.now(timezone.utc).isoformat(),
+                "sources": official[:5],
+                "next_action": "Review official sources and emit testable, free-compatible proposals; no package or workflow mutation from web text."
+            })
+        except Exception as exc:
+            improvement_report.update({"status": "failed_non_blocking", "error_type": type(exc).__name__,
+                                       "note": "The weekly scout failed safely; daily topic research continues."})
+    (outdir / "tool_improvement_research.json").write_text(json.dumps(improvement_report, indent=2, ensure_ascii=False), encoding="utf-8")
+
     topic = groq_json(
-        "You are the US-audience editorial trend strategist for AI Tech Lab. Choose original explainers from evidence, not copied titles. Do not claim search volume or growth when not provided. Return JSON keys: topic, angle, why_now, research_queries (exactly 2 concise Tavily queries), trend_evidence (matching supplied video titles/URLs), avoid_title_similarity. Prefer a distinctive, debate-worthy angle and identify an evidence-grounded prediction or tension worth exploring; avoid generic trend recaps.",
+        "You are the US-audience editorial trend strategist for AI Tech Lab. Choose an original explainer in the assigned editorial category; do not copy trending titles. Do not claim search volume or growth when not provided. Return JSON keys: category (one exact category from the supplied rotation), topic, angle, why_now, category_override_reason, research_queries (exactly 2 concise Tavily queries), trend_evidence (matching supplied video titles/URLs), avoid_title_similarity. Use the scheduled category by default. Override it only when at least three distinct current US trend videos materially support another listed category; state the evidence and reason. Prefer a distinctive, debate-worthy angle and an evidence-grounded prediction or tension; avoid generic trend recaps.\n\n" + NATURAL_VOICE_GUIDANCE,
         json.dumps({"current_us_youtube_popular_videos": trend_sample, "manual_direction_if_any": args.seed_topic,
-                    "target_date": args.target_date or now.date().isoformat(), "previous_video_feedback": learning}, ensure_ascii=False),
-        max_tokens=900)
+                    "target_date_us_eastern": editorial_date, "editorial_category_rotation": rotation,
+                    "weekly_official_tool_improvement_research": improvement_report,
+                    "previous_video_feedback": learning}, ensure_ascii=False),
+        max_tokens=1000)
+    candidate_category = str(topic.get("category", rotation["category"])).strip()
+    category_decision = resolve_category(candidate_category, rotation, trend_sample)
+    if candidate_category in {x["name"] for x in __import__("mini_agents").EDITORIAL_CATEGORIES} and candidate_category != category_decision["category"]:
+        raise SystemExit("Topic strategist requested an off-rotation category without three-video live-trend evidence; no package was released.")
+    topic["category"] = category_decision["category"]
+    topic["category_decision"] = category_decision
+    topic["category_rotation_date_us_eastern"] = editorial_date
+    if not topic.get("category_override_reason") and category_decision.get("override"):
+        topic["category_override_reason"] = "Live US trend evidence passed the three-distinct-video override gate."
     topic_name = re.sub(r"\s+", " ", str(topic.get("topic", ""))).strip()[:180]
     angle = re.sub(r"\s+", " ", str(topic.get("angle", ""))).strip()[:700]
     queries = topic.get("research_queries", [])
@@ -225,11 +273,12 @@ def main():
 
     evidence_context = [{"title": s["title"], "url": s["url"], "date": s["published_date"], "evidence": s["content"]} for s in sources]
     draft = groq_json(
-        """You are the lead English-language YouTube scriptwriter for AI Tech Lab (USA audience). Use ONLY supplied evidence for factual specifics; never invent numbers, quotes, product capabilities, release dates, or market claims. Explain uncertainty and limitations. Create a fresh 6-minute explainer, not a paraphrase. Return JSON keys: title, script, description, tags (array), hook_candidates (array of 3), claims (array of {claim, source_urls, confidence}), visual_direction (array of {section, visual, movement, overlay}), and chapters (array of {label, approximate_position}). Script must be spoken narration only, 700-900 words, US English, a specific hook, clear story arc, varied sentences, accessible but intelligent, concrete evidence-based examples, balanced caveats and concise CTA. No unsupported superlatives. Do not add production instructions inside narration.
+        """You are the lead English-language YouTube scriptwriter for AI Tech Lab (USA audience). Use ONLY supplied evidence for factual specifics; never invent numbers, quotes, product capabilities, release dates, or market claims. Explain uncertainty and limitations. Create a fresh 6-minute explainer in the assigned editorial category, not a paraphrase. Return JSON keys: title, script, description, tags (array), hook_candidates (array of 3), claims (array of {claim, source_urls, confidence}), visual_direction (array of {section, visual, movement, overlay}), and chapters (array of {label, approximate_position}). Script must be spoken narration only, 700-900 words, US English, a specific hook, clear story arc, varied sentences, accessible but intelligent, concrete evidence-based examples, balanced caveats and concise CTA. No unsupported superlatives. Do not add production instructions inside narration.
 
-PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not a generic AI summary bot. Include original unique predictions, hot takes, personal opinions, and futuristic theories, alongside defensible editorial judgment. Clearly distinguish opinions and forecasts from verified facts; ground factual claims in supplied evidence; label uncertainty honestly; never invent numbers, quotations, hands-on tests, or human lived experience. Use a conversational professional voice, varied sentence length and rhythm, vivid analogies, natural transitions, occasional rhetorical questions, and specific real-world stakes. Use first-person editorial framing sparingly (for example, “My take is…” or “I suspect…”), but never pretend to have a human personal life. Avoid canned openings, repetitive transitions, empty hype, and robotic list-reading.
-Include at least one original, defensible hot take and one clearly framed prediction/futuristic theory where supported by the available evidence.""",
-        json.dumps({"topic": topic_name, "editorial_angle": angle, "why_now": topic.get("why_now", ""),
+PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not a generic AI summary bot. Include an original defensible hot take and, when supported by evidence, a clearly framed prediction or futuristic theory. Clearly distinguish opinions and forecasts from verified facts; never invent numbers, quotations, hands-on tests, or human lived experience. Use conversational professional voice, varied sentence lengths, contractions where natural, vivid analogies, specific stakes, and transitions that advance the story. Do not manufacture personal experience. Avoid the same sentence opener repeated three or more times, generic AI hype, list-reading, unnecessary signposting, empty filler, and phrases from the natural-voice guidance.
+
+""" + NATURAL_VOICE_GUIDANCE,
+        json.dumps({"editorial_category": topic["category"], "topic": topic_name, "editorial_angle": angle, "why_now": topic.get("why_now", ""),
                     "youtube_trend_context": trend_sample[:12], "tavily_sources": evidence_context,
                     "previous_video_feedback": learning}, ensure_ascii=False), max_tokens=3300)
     title = re.sub(r"\s+", " ", str(draft.get("title", "")).strip())[:100]
@@ -242,8 +291,11 @@ Include at least one original, defensible hot take and one clearly framed predic
         hooks = [script.split(".")[0].strip()]
 
     audit = groq_json(
-        """You are an independent YouTube hook editor and claim auditor. Review the complete script against only the supplied source evidence. Return JSON keys: score (integer 1-10), selected_hook (one concise opening line), revised_script (complete spoken script, 650-950 words), unsupported_claims (array of exact unsupported claims), corrections_made (array), decision (PASS or REVISE). Improve the first 15 seconds and transitions, preserve supported facts and natural American English. Remove or qualify unsupported claims. Never invent evidence.
-Preserve and sharpen the script's Personal Persona: keep a recognizable editorial point of view, natural spoken rhythm, reasoned hot takes, personal opinions, and a clearly framed futuristic theory or forecast when appropriate. Distinguish commentary from evidence, and remove generic/robotic filler without fabricating lived experience.""",
+        """You are an independent fact-checking editor and human-voice editor. Review the complete script against only the supplied source evidence. Return JSON keys: score (integer 1-10), human_voice_score (integer 1-10), selected_hook (one concise opening line), revised_script (complete spoken script, 650-950 words), unsupported_claims (array of exact unsupported claims), corrections_made (array), robotic_signals (array of specific issues), natural_phrasing_changes (array), decision (PASS or REVISE). Improve the first 15 seconds and transitions, preserve supported facts and natural American English, and revise the narration rather than merely describing problems. Remove or qualify unsupported claims. Never invent evidence.
+
+Preserve a recognizable editorial point of view and natural spoken rhythm. Vary sentence lengths and openings, use contractions when appropriate, prefer specific concrete language, and avoid canned openings, repeated transitions, inflated certainty, empty hype, fake lived experience, and robotic list-reading. Use a reasoned hot take and a clearly framed forecast only when supported. Distinguish factual claims from commentary.
+
+""" + NATURAL_VOICE_GUIDANCE,
         json.dumps({"title": title, "script": script, "hook_candidates": hooks,
                     "claims_for_audit": draft.get("claims", []), "source_evidence": evidence_context,
                     "trend_basis": topic.get("trend_evidence", [])}, ensure_ascii=False),
@@ -257,6 +309,9 @@ Preserve and sharpen the script's Personal Persona: keep a recognizable editoria
         raise SystemExit(f"Groq hook review scored {hook_score}/10. No publish-ready script package was released.")
     if not script or len(script) < 2500:
         raise SystemExit("Final script did not pass length/content validation.")
+    human_voice_qa = evaluate_human_voice(script)
+    if human_voice_qa["score"] < 62:
+        raise SystemExit("Final narration failed the human-voice style gate (score " + str(human_voice_qa["score"]) + "/100); no production package was released.")
 
     tags = draft.get("tags", [])
     if not isinstance(tags, list):
@@ -291,6 +346,9 @@ Preserve and sharpen the script's Personal Persona: keep a recognizable editoria
                                "confidence": str(item.get("confidence", "unrated"))[:40], "source_linked": bool(urls)})
     package = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(), "target_audience": "United States",
+        "editorial_category": topic["category"], "category_rotation": rotation,
+        "category_decision": category_decision, "human_voice_qa": human_voice_qa,
+        "agent_policy_version": "1.0.0", "tool_improvement_research": improvement_report,
         "brand": "AI Tech Lab", "primary_ai": "Groq", "research_provider": "Tavily Search API",
         "trend_provider": "YouTube Data API v3", "trend_basis": topic, "title": title,
         "hook": str(audit.get("selected_hook", hooks[0] if hooks else ""))[:350],
@@ -302,6 +360,30 @@ Preserve and sharpen the script's Personal Persona: keep a recognizable editoria
         "visual_direction": visual_direction, "claims_review": claims_checked,
         "warnings": ["Claims are grounded in the listed Tavily search results; review factual claims before publication. Kokoro narration is generated automatically and must pass audio QA."],
         "sources": sources, "previous_video_learning_applied": learning}
+
+    used_ai_providers = sorted({str(item.get("provider", "")).lower() for item in _AI_CALL_LOG if item.get("provider")})
+    ai_tools = ["Groq"] if "groq" in used_ai_providers else []
+    if any("cloudflare" in item or "workers_ai" in item for item in used_ai_providers):
+        ai_tools.append("Cloudflare Workers AI fallback")
+    scout_status = improvement_report.get("status", "skipped")
+    research_runs = [
+        {"agent_id": "research_scout", "status": "completed", "actual_tools_used": ["YouTube Data API v3", "Tavily Search API"],
+         "evidence_files": ["work/youtube_trend_signals.json", "work/tavily_evidence.json"],
+         "details": {"youtube_trend_items": len(trends), "usable_web_sources": len(sources), "region": "US"}},
+        {"agent_id": "category_editor", "status": "completed", "actual_tools_used": ["US Eastern calendar", "YouTube trend evidence"],
+         "evidence_files": ["work/youtube_trend_signals.json", "work/topic_brief.json"], "details": category_decision},
+        {"agent_id": "scriptwriter", "status": "completed", "actual_tools_used": ai_tools,
+         "evidence_files": ["work/daily_content_package.json", "work/script.txt"], "details": {"human_voice_score": human_voice_qa["score"], "hook_score": hook_score}},
+        {"agent_id": "fact_editor", "status": "completed", "actual_tools_used": ai_tools + ["Tavily source evidence"],
+         "evidence_files": ["work/hook_audit.json", "work/tavily_evidence.json"], "details": {"source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]), "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"])}},
+        {"agent_id": "improvement_scout", "status": "completed" if scout_status == "completed" else "skipped" if not scout_plan.get("enabled") else scout_status,
+         "actual_tools_used": ["Tavily Search API", scout_plan.get("domain", "official documentation")] if scout_status == "completed" else [],
+         "evidence_files": ["work/tool_improvement_research.json"], "details": {"tool": scout_plan.get("tool"), "status": scout_status, "no_automatic_code_changes": True}}
+    ]
+    agent_report = agent_execution_report("research", research_runs, {
+        "target_date_us_eastern": editorial_date, "editorial_category": topic["category"],
+        "ai_providers_observed": used_ai_providers, "policy_version": "1.0.0"})
+    (outdir / "mini_agent_execution_report.json").write_text(json.dumps(agent_report, indent=2, ensure_ascii=False), encoding="utf-8")
     (outdir / "daily_content_package.json").write_text(json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8")
     (outdir / "topic_brief.json").write_text(json.dumps(topic, indent=2, ensure_ascii=False), encoding="utf-8")
     (outdir / "title.txt").write_text(title, encoding="utf-8")
@@ -313,6 +395,9 @@ Preserve and sharpen the script's Personal Persona: keep a recognizable editoria
         "status": "SCRIPT_PACKAGE_READY_FOR_KOKORO_VOICE_PRODUCTION", "title": title,
         "script_words": package["script_word_count"], "hook_score": hook_score,
         "trend_signals": len(trends), "usable_tavily_sources": len(sources),
+        "editorial_category": topic["category"], "rotation_category": rotation["category"],
+        "human_voice_score": human_voice_qa["score"], "tool_improvement_scout": scout_status,
+        "agent_report": "work/mini_agent_execution_report.json",
         "source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]),
         "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"]),
         "next_gate": "Kokoro automatically generates American-English narration; audio QA must pass before rendering."}
