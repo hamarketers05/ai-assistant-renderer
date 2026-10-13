@@ -95,6 +95,52 @@ jobs:
           average = float(scene.get("scene_duration_seconds", {}).get("mean", 99))
           if scene.get("exact_word_timing") is not True or scene.get("planned_visual_scenes", 0) < 12 or average > 4.5:
               raise SystemExit(f"Voice-aligned scene cadence failed: {scene}")
+          # Independently exercise the strict long-video scene target using a local,
+          # source-free fixture. This makes no AI/API calls and produces no publishable video.
+          import subprocess
+          short_script = Path("work/script.txt").read_text(encoding="utf-8")
+          short_timestamps = Path("work/voice_word_timestamps.json").read_text(encoding="utf-8")
+          base_words = ("AI systems need reliable sources for every important claim because small details "
+                        "change quickly while clear visuals explain the technology in practice today").split()
+          long_tokens = (base_words * 60)[:840]
+          long_script = " ".join(
+              word + ("." if (i + 1) % 20 == 0 else ("," if (i + 1) % 5 == 0 else ""))
+              for i, word in enumerate(long_tokens)
+          )
+          long_duration = 323.0
+          long_words_timing = [
+              {"start": round(i * long_duration / len(long_tokens), 4),
+               "end": round(min(long_duration, i * long_duration / len(long_tokens) + 0.30), 4),
+               "text": word}
+              for i, word in enumerate(long_tokens)
+          ]
+          Path("work/long-video-script-fixture.txt").write_text(long_script, encoding="utf-8")
+          Path("work/long-video-timestamps-fixture.json").write_text(json.dumps({
+              "duration_seconds": long_duration, "word_count": len(long_words_timing),
+              "words": long_words_timing
+          }), encoding="utf-8")
+          subprocess.run([
+              "python", "tools/scene_director.py", "--script", "work/long-video-script-fixture.txt",
+              "--duration", str(long_duration), "--max-scenes", "90",
+              "--timestamps", "work/long-video-timestamps-fixture.json",
+              "--output", "work/long-video-scenes-fixture.tsv"
+          ], check=True)
+          long_scene = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
+          long_count = int(long_scene.get("planned_visual_scenes", 0))
+          if long_scene.get("exact_word_timing") is not True or not 80 <= long_count <= 90:
+              raise SystemExit(f"Long-video 80-90 scene gate fixture failed: {long_scene}")
+          if abs(float(long_scene.get("voice_duration_seconds", 0)) - long_duration) > 0.55:
+              raise SystemExit(f"Long-video duration alignment fixture failed: {long_scene}")
+          print(f"Long-video scene planner fixture passed: {long_count} voice-aligned scenes for {long_duration:.0f}s.")
+
+          # Restore the Short fixture for the following manifest smoke test.
+          Path("work/script.txt").write_text(short_script, encoding="utf-8")
+          Path("work/voice_word_timestamps.json").write_text(short_timestamps, encoding="utf-8")
+          subprocess.run([
+              "python", "tools/scene_director.py", "--script", "work/script.txt",
+              "--duration", "60", "--max-scenes", "90", "--timestamps", "work/voice_word_timestamps.json"
+          ], check=True)
+          scene = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
           n = int(scene["planned_visual_scenes"])
           fixtures = {
               "voice_edit_report.json": {"status":"passed","timestamped_words":120},
