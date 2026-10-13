@@ -52,6 +52,7 @@ def main() -> None:
         Path("work/opencv_visual_qa.json"),
         Path("work/rendered_scene_assets_report.json"),
         Path("work/flux_generation_report.json"),
+        Path("work/visual_coverage_report.json"),
     ]
     missing = [str(p) for p in required_paths if not p.is_file()]
     if not final_video.is_file() or final_video.stat().st_size < 100_000:
@@ -69,6 +70,9 @@ def main() -> None:
     visual_qa = read_json(Path("work/opencv_visual_qa.json"))
     scene_assets = read_json(Path("work/rendered_scene_assets_report.json"))
     flux_report = read_json(Path("work/flux_generation_report.json"))
+    visual_coverage = read_json(Path("work/visual_coverage_report.json"))
+    external_media = read_json(Path("work/visual_media_report.json"))
+    chart_overlay_report = read_json(Path("work/chart_overlay_report.json"))
     reuse = read_json(Path("work/asset_reuse_report.json"))
     evidence = read_json(Path("work/evidence_charts_report.json"))
     stereo = read_json(Path("work/stereo_3d_report.json"))
@@ -86,8 +90,14 @@ def main() -> None:
     stock_scene_count = int(scene_assets.get("licensed_stock_broll_scene_count", 0))
     flux_generated_count = max(0, int(flux_report.get("generated_count", 0)))
     flux_used_scene_count = max(0, int(scene_assets.get("cloudflare_flux_image_scene_count", 0)))
+    is_short = args.format == "SHORT"
     if voice.get("status") != "passed":
         raise SystemExit("Editing manifest blocked: automated voice-editing QA did not pass.")
+    if is_short:
+        if visual_coverage.get("status") not in {"not_applicable_short", "passed"}:
+            raise SystemExit("Editing manifest blocked: Shorts visual-budget applicability report is missing.")
+    elif visual_coverage.get("status") != "passed":
+        raise SystemExit("Editing manifest blocked: Full-HD visual coverage gate did not pass.")
     if scenes.get("exact_word_timing") is not True or scene_count < 8:
         raise SystemExit("Editing manifest blocked: scene timing/visual generation evidence is missing.")
     if transitions.get("transition") is None or transitions.get("rendered_duration_seconds") is None:
@@ -105,7 +115,6 @@ def main() -> None:
     if evidence_charts_used < 0 or evidence_charts_used > len(evidence_charts_generated):
         raise SystemExit("Editing manifest blocked: chart use count exceeds the evidence chart assets generated.")
 
-    is_short = args.format == "SHORT"
     stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
     sbs_lut_used = bool(stereo_quality.get("color_grade_applied") and stereo_quality.get("pinned_lut_integrity_verified"))
     licensed_clips = sum(provider_counts.values())
@@ -129,7 +138,10 @@ def main() -> None:
         {"tool": "Premium thumbnail", "status": "used" if thumb is not None else "unverified", "purpose": "1280x720 Pillow composition with 3D pop-out, glow and short title text", "brief_source": "Groq brief" if thumbnail_brief.get("hook") else "local fallback"},
         {"tool": "MiDaS + FFmpeg stereoscopic render", "status": "used" if (not is_short and stereo.get("status") == "success") else ("not_applicable" if is_short else "unverified"), "purpose": "3D depth and SBS output before upload", "stereo_mode": args.stereo_output},
         {"tool": "Pinned Rec.709 Kodak 2383 D55 LUT", "status": "used" if sbs_lut_used else "not_applicable", "purpose": "integrity-verified LUT transform in the SBS conversion stage", "integrity_verified": sbs_lut_used, "rights_note": "The existing source repository's commercial license was not independently verified; checksum integrity is not proof of usage rights."},
-        {"tool": "Evidence-supported charts", "status": "used" if evidence_charts_used > 0 else "skipped", "chart_count": evidence_charts_used, "generated_chart_count": len(evidence_charts_generated), "unused_chart_count": max(0, len(evidence_charts_generated) - evidence_charts_used), "reason": "only source-backed charts with a topic/number match to the scene are included; no statistics are invented"},
+        {"tool": "Evidence-supported charts", "status": "used" if evidence_charts_used > 0 else "skipped", "chart_count": evidence_charts_used, "generated_chart_count": len(evidence_charts_generated), "unused_chart_count": max(0, len(evidence_charts_generated) - evidence_charts_used), "display_mode": "transparent overlay only; never replaces the scene primary image/video", "reason": "only source-backed charts with a topic/number match to the scene are included; no statistics are invented"},
+        {"tool": "Full-HD visual-budget gate", "status": "not_applicable" if is_short else "used", "gate_status": visual_coverage.get("status", "missing"), "visual_counts": visual_coverage.get("visual_counts", {}), "checks": visual_coverage.get("checks", {}), "blocked_upload_if_failed": not is_short},
+        {"tool": "Free commercial-use image/video acquisition", "status": "used" if int(external_media.get("assets_downloaded", 0)) > 0 else "skipped", "providers": external_media.get("providers", {}), "assets_downloaded": external_media.get("assets_downloaded", 0), "report": "work/visual_media_report.json", "note": "Native Full HD sources required for downloaded stills; CC0/Public Domain/CC BY or explicitly permitted provider-specific items only."},
+        {"tool": "Voice-aligned transparent graph overlays", "status": "used" if int(chart_overlay_report.get("evidence_charts_mapped_to_scenes", 0)) > 0 else "skipped", "charts_overlaid": chart_overlay_report.get("evidence_charts_mapped_to_scenes", 0), "scenes_considered": chart_overlay_report.get("scenes_considered", 0), "report": "work/chart_overlay_report.json"},
         {"tool": "Commercial-use stock clips", "status": "used", "source_manifest_entries": licensed_clips, "providers": provider_counts, "note": "Only entries passing the separate license and relevance gates are eligible for delivery."},
         {"tool": "Cloudflare Workers AI FLUX.1 [schnell]", "status": "used" if flux_used_scene_count > 0 else "skipped", "purpose": "generate topic-matched 1920x1080 stills through the authenticated Cloudflare AI binding; actual use is counted from rendered scenes", "model": flux_report.get("model", "@cf/black-forest-labs/flux-1-schnell"), "images_generated": flux_generated_count, "scenes_actually_using_flux": flux_used_scene_count, "max_images_per_render": 6, "free_quota_note": "Cloudflare Workers AI includes 10,000 Neurons/day on Free; requests fall back on quota/capacity errors. Usage above the included allocation may be billed on a Paid plan.", "license": flux_report.get("license", "Apache-2.0"), "license_url": flux_report.get("license_url", "https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"), "skip_reason": None if flux_used_scene_count > 0 else (flux_report.get("fallback_reason") or flux_report.get("reason") or "No generated FLUX still was needed/accepted for a final scene; original Pillow art/licensed B-roll remained active.")},
         {"tool": "ComfyUI + Stable Video Diffusion / AnimateDiff", "status": "skipped", "reason": "GPU-heavy model runtimes and large checkpoints are not a reliable fit for the current free hosted runner. FFmpeg motion is active instead; no paid inference/API is used."},
