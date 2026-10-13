@@ -106,9 +106,104 @@ def duration_seconds(value):
     h, m, s = match.groups()
     return int(h or 0) * 3600 + int(m or 0) * 60 + float(s or 0)
 
+def worker_youtube_trending_fallback():
+    """Use the existing authenticated Main Worker YouTube Data API search integration if chart=list fails."""
+    token = os.getenv("WORKER_AUTH_TOKEN", "").strip()
+    worker_url = os.getenv("WORKER_URL", "https://dark-sunset-a2a1.hamarketers05.workers.dev").rstrip("/")
+    if not token:
+        raise RuntimeError("YouTube chart failed and the authenticated Main Worker fallback is unavailable.")
+    params = urllib.parse.urlencode({
+        "brand": "AI_TECH_LAB",
+        "q": "latest AI news, AI tools, technology breakthroughs and future technology videos in the United States"
+    })
+    result = request_json(
+        worker_url + "/admin/research-self-test?" + params,
+        headers={"Authorization": "Bearer " + token},
+        timeout=100
+    )
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        raise RuntimeError("Main Worker YouTube search fallback did not pass its research self-test.")
+
+    rows = []
+    seen = set()
+
+    def video_id_from_url(value):
+        try:
+            parsed = urllib.parse.urlparse(str(value or ""))
+            host = (parsed.hostname or "").lower()
+            if host not in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}:
+                return ""
+            if host.endswith("youtu.be"):
+                candidate = parsed.path.strip("/").split("/")[0]
+            elif parsed.path == "/watch":
+                candidate = urllib.parse.parse_qs(parsed.query).get("v", [""])[0]
+            elif parsed.path.startswith(("/shorts/", "/live/", "/embed/")):
+                candidate = parsed.path.split("/")[2] if len(parsed.path.split("/")) > 2 else ""
+            else:
+                candidate = ""
+            return candidate if re.fullmatch(r"[A-Za-z0-9_-]{6,}", str(candidate)) else ""
+        except (TypeError, ValueError):
+            return ""
+
+    def add_row(item, default_category="Science & Technology"):
+        if not isinstance(item, dict):
+            return
+        url = str(item.get("url", item.get("source_url", "")) or "").strip()
+        video_id = video_id_from_url(url)
+        title = re.sub(r"\\s+", " ", str(item.get("title", "") or "")).strip()
+        if not video_id or not title or video_id in seen:
+            return
+        seen.add(video_id)
+        try:
+            views = int(item.get("view_count", item.get("views", 0)) or 0)
+        except (TypeError, ValueError):
+            views = 0
+        try:
+            likes = int(item.get("like_count", item.get("likes", 0)) or 0)
+        except (TypeError, ValueError):
+            likes = 0
+        try:
+            velocity = int(item.get("views_per_hour", 0) or 0)
+        except (TypeError, ValueError):
+            velocity = 0
+        rows.append({
+            "video_id": video_id,
+            "category": default_category,
+            "title": title[:220],
+            "channel": str(item.get("channel", item.get("publisher", "")) or "")[:100],
+            "published_at": str(item.get("published_at", item.get("published_date", "")) or ""),
+            "description_excerpt": re.sub(r"\\s+", " ", str(item.get("content", item.get("description", "")) or ""))[:260],
+            "duration_seconds": round(duration_seconds(str(item.get("duration", ""))), 1) if str(item.get("duration", "")).startswith("PT") else 0,
+            "view_count": views,
+            "likes": likes,
+            "views_per_hour": velocity,
+            "url": url if url.startswith("https://") else "https://www.youtube.com/watch?v=" + video_id
+        })
+
+    for item in result.get("evidence", []) if isinstance(result.get("evidence", []), list) else []:
+        add_row(item)
+    candidates = result.get("recommended_topics", [])
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            signals = candidate.get("trend_evidence", [])
+            if isinstance(signals, list):
+                for item in signals:
+                    add_row(item)
+    if len(rows) < 5:
+        raise RuntimeError(
+            "YouTube Data API mostPopular failed and the authenticated Main Worker returned only "
+            + str(len(rows)) + " usable YouTube video signals; refusing to fabricate trend evidence."
+        )
+    print("Trend source: authenticated Main Worker YouTube Data API search fallback; mostPopular chart unavailable.")
+    return rows[:30]
+
+
 def youtube_trending(api_key, access_token=""):
-    # videos.list chart=mostPopular costs 1 quota unit per request (two US categories).
+    # Preferred signal: YouTube Data API v3 videos.list chart=mostPopular (two US categories).
     all_items = []
+    last_error = None
     for category, label in (("28", "Science & Technology"), ("27", "Education")):
         params = {
             "part": "snippet,statistics,contentDetails", "chart": "mostPopular",
@@ -120,15 +215,19 @@ def youtube_trending(api_key, access_token=""):
             params["key"] = api_key
         else:
             raise RuntimeError("YouTube Data API v3 requires the existing OAuth access token or API key.")
-        query = urllib.parse.urlencode(params)
         try:
-            data = request_json(YOUTUBE_API + "?" + query, headers=headers, timeout=35)
-        except RuntimeError:
-            if not access_token or not api_key:
-                raise
-            # If the existing OAuth scope cannot read public charts, fall back to the existing API key secret.
-            params["key"] = api_key
-            data = request_json(YOUTUBE_API + "?" + urllib.parse.urlencode(params), timeout=35)
+            data = request_json(YOUTUBE_API + "?" + urllib.parse.urlencode(params), headers=headers, timeout=35)
+        except RuntimeError as exc:
+            last_error = exc
+            if access_token and api_key:
+                try:
+                    params["key"] = api_key
+                    data = request_json(YOUTUBE_API + "?" + urllib.parse.urlencode(params), timeout=35)
+                except RuntimeError as key_exc:
+                    last_error = key_exc
+                    break
+            else:
+                break
         for item in data.get("items", []):
             snippet, stats = item.get("snippet", {}), item.get("statistics", {})
             video_id = str(item.get("id", ""))
@@ -138,14 +237,18 @@ def youtube_trending(api_key, access_token=""):
                 "title": str(snippet.get("title", ""))[:220],
                 "channel": str(snippet.get("channelTitle", ""))[:100],
                 "published_at": snippet.get("publishedAt", ""),
-                "description_excerpt": re.sub(r"\s+", " ", str(snippet.get("description", "")))[:260],
+                "description_excerpt": re.sub(r"\\s+", " ", str(snippet.get("description", "")))[:260],
                 "duration_seconds": round(duration_seconds(item.get("contentDetails", {}).get("duration", "")), 1),
                 "view_count": views, "likes": int(stats.get("likeCount", 0) or 0),
                 "url": "https://www.youtube.com/watch?v=" + video_id})
-    if len(all_items) < 5:
-        raise RuntimeError("YouTube Data API v3 returned too few US trend signals.")
-    # Preserve the API's current-popularity order separately for each region/category.
-    return all_items
+    if len(all_items) >= 5:
+        return all_items
+    try:
+        return worker_youtube_trending_fallback()
+    except Exception as fallback_exc:
+        original = str(last_error or "YouTube chart returned too few trend signals")[:220]
+        fallback = str(fallback_exc)[:260]
+        raise RuntimeError("YouTube trend collection failed safely. chart_error=" + original + "; worker_fallback=" + fallback) from None
 
 def tavily_search(key, query, include_domains=None):
     """Search Tavily directly when its key is present; otherwise use the authenticated main Worker proxy.
