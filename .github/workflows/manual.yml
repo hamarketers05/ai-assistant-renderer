@@ -245,9 +245,12 @@ jobs:
           jq -r '.seo.description // empty' work/production_manifest.json > work/manifest_description.txt
 
           TITLE=$(cat work/manifest_title.txt)
-          DESCRIPTION=$(cat work/manifest_description.txt)
+          # Preserve the research-backed description delivered through the existing D1
+          # handoff. The production Worker may also return internal audio/storage URLs;
+          # its description is fallback-only and will be sanitized by seo_metadata.py.
+          DESCRIPTION="$INPUT_DESCRIPTION"
           [ -n "$TITLE" ] || TITLE="$INPUT_TITLE"
-          [ -n "$DESCRIPTION" ] || DESCRIPTION="$INPUT_DESCRIPTION"
+          [ -n "$DESCRIPTION" ] || DESCRIPTION="$(cat work/manifest_description.txt)"
 
           printf '%s' "${TITLE:0:100}" > work/title.txt
           printf '%s' "${DESCRIPTION:0:4900}" > work/description.txt
