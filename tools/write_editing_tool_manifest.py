@@ -147,13 +147,25 @@ def main() -> None:
         raise SystemExit("Editing manifest blocked: automated voice-editing QA did not pass.")
     if rubberband.get("status") not in {"used", "skipped"}:
         raise SystemExit("Editing manifest blocked: Rubber Band attempt/report is missing or invalid.")
+    coverage_checks = visual_coverage.get("checks", {})
+    if visual_coverage.get("status") != "passed" or not coverage_checks or any(value is not True for value in coverage_checks.values()):
+        raise SystemExit("Editing manifest blocked: visual-budget checks are missing, incomplete, or failed.")
+    stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
+    if not is_short:
+        if stereo.get("status") != "success":
+            raise SystemExit("Editing manifest blocked: final 3D stereoscopic conversion did not report success.")
+        for key in ("audio_preserved", "duration_matches_master", "video_dimensions_correct_for_mode"):
+            if stereo_quality.get(key) is not True:
+                raise SystemExit(f"Editing manifest blocked: stereoscopic output did not verify {key}.")
+        if args.stereo_output == "SBS" and not (stereo_quality.get("color_grade_applied") is True and stereo_quality.get("pinned_lut_integrity_verified") is True):
+            raise SystemExit("Editing manifest blocked: SBS output did not verify pinned Kodak LUT application and integrity.")
     if video_review.get("review_status") != "completed" or video_review.get("decision") not in {"PASS", "IMPROVE"}:
         raise SystemExit("Editing manifest blocked: mandatory Groq video/vision review did not pass.")
     if is_short:
-        if visual_coverage.get("status") not in {"not_applicable_short", "passed"}:
-            raise SystemExit("Editing manifest blocked: Shorts visual-budget applicability report is missing.")
+        if hud_overlays_applied < 4:
+            raise SystemExit("Editing manifest blocked: Short needs at least four actually applied HUD overlays.")
     elif visual_coverage.get("status") != "passed":
-        raise SystemExit("Editing manifest blocked: Full-HD visual coverage gate did not pass.")
+        raise SystemExit("Editing manifest blocked: Long-video visual coverage gate did not pass.")
     if scenes.get("exact_word_timing") is not True or scene_count < 8:
         raise SystemExit("Editing manifest blocked: scene timing/visual generation evidence is missing.")
     if transitions.get("transition") is None or transitions.get("rendered_duration_seconds") is None:
@@ -171,7 +183,6 @@ def main() -> None:
     if evidence_charts_used < 0 or evidence_charts_used > len(evidence_charts_generated):
         raise SystemExit("Editing manifest blocked: chart use count exceeds the evidence chart assets generated.")
 
-    stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
     sbs_lut_used = bool(stereo_quality.get("color_grade_applied") and stereo_quality.get("pinned_lut_integrity_verified"))
     licensed_clips = sum(stock_provider_counts.values())
     avg_scene_seconds = round(float(scenes.get("scene_duration_seconds", {}).get("mean", 0)), 2)

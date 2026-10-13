@@ -152,7 +152,7 @@ jobs:
           print("Free-media licensing, graph overlays and visual-budget fail-closed self-tests passed.")
 
           budget_code = Path("tools/visual_budget.py").read_text(encoding="utf-8")
-          for marker in ('"rendered_scene_count_between_70_and_90"', '"at_least_70_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"at_least_25_hud_overlays_applied"', '"native_full_hd_output"'):
+          for marker in ('"rendered_scene_count_between_70_and_90"', '"at_least_70_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"at_least_25_hud_overlays_applied"', '"native_full_hd_output"', '"native_vertical_output"', '"at_least_4_hud_overlays_applied"', '"at_least_2_flux_images_actually_used"', '"at_least_4_vecteezy_assets_verified"'):
               if marker not in budget_code:
                   raise SystemExit(f"Strict long-video visual budget missing: {marker}")
           media_code = Path("tools/fetch_free_media.py").read_text(encoding="utf-8")
@@ -181,6 +181,10 @@ jobs:
               raise SystemExit("Final Groq video/vision QA must run on every production video; skip bypass is forbidden.")
           if "work/video_review_report.json" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
               raise SystemExit("Per-video editing manifest must require actual Groq review evidence.")
+          manifest_code = Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8")
+          for marker in ('stereo.get("status") != "success"', 'stereo_quality.get("pinned_lut_integrity_verified") is True', 'any(value is not True for value in coverage_checks.values())'):
+              if marker not in manifest_code:
+                  raise SystemExit(f"Per-video manifest must verify stereo/LUT and every visual-budget check: {marker}")
           if "count_rendered_stock_sources" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
               raise SystemExit("Per-video manifest must count only license records matching rendered stock scenes.")
           if '"applied_to_scenes": hud_overlays_applied' not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
@@ -388,7 +392,16 @@ jobs:
           ]
           Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4,"scenes":fixture_scene_assets}),encoding="utf-8")
           Path("work/flux_generation_report.json").write_text(json.dumps({"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback and makes no inference request","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"}),encoding="utf-8")
-          Path("work/visual_coverage_report.json").write_text(json.dumps({"status":"not_applicable_short","content_id":"9876","reason":"Static validation uses a Shorts manifest fixture; long-video budget is independently self-tested."}),encoding="utf-8")
+          Path("work/visual_coverage_report.json").write_text(json.dumps({
+              "status":"passed","content_id":"9876","content_format_target":"native 1080x1920 AI Tech Lab Short",
+              "checks":{"native_vertical_output":True,"duration_in_20_to_60_second_window":True,
+                        "rendered_scene_count_between_8_and_20":True,"at_least_8_unique_primary_visual_assets":True,
+                        "at_least_4_hud_overlays_applied":True,"at_least_2_flux_images_actually_used":True,
+                        "at_least_4_vecteezy_assets_verified":True,"caption_file_has_at_least_5_cues":True,
+                        "every_rendered_scene_has_primary_asset_record":True},
+              "visual_counts":{"rendered_scene_placements":n,"unique_primary_visual_assets":n,
+                               "hud_overlay_placements":4,"subtitle_cue_placements":8}
+          }),encoding="utf-8")
           Path("work/asset_reuse_report.json").write_text(json.dumps({"status":"validated","previous_video_reuse":False,"within_video_duplicates":False}),encoding="utf-8")
           Path("work/evidence_charts_report.json").write_text(json.dumps({"charts_created":[],"charts_requested":0}),encoding="utf-8")
           Path("work/stereo_3d_report.json").write_text(json.dumps({"status":"disabled"}),encoding="utf-8")
