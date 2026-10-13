@@ -478,6 +478,41 @@ def restart_missed_daily_research(runs, retried_daily):
     except Exception as exc:
         REPORT["unresolved"].append("Missed daily research could not be restarted: " + str(exc)[:180])
 
+def resume_repaired_canary(all_runs):
+    """Resume only the dedicated canary once a logged repair commit exists."""
+    candidates = [
+        r for r in all_runs
+        if r.get("name") == "Self-Healing E2E Repair Test"
+        and r.get("conclusion") == "failure"
+        and r.get("status") == "completed"
+        and (created := dt(r.get("created_at"))) is not None
+        and NOW - created <= timedelta(hours=30)
+        and get_patched_already(int(r.get("id", 0)))
+    ]
+    if not candidates:
+        return
+    failed = max(candidates, key=lambda r: r.get("created_at", ""))
+    failed_at = dt(failed.get("created_at"))
+    for candidate in all_runs:
+        if candidate.get("name") != "Self-Healing E2E Repair Test":
+            continue
+        candidate_at = dt(candidate.get("created_at"))
+        if candidate_at and failed_at and candidate_at > failed_at:
+            if candidate.get("status") in {"queued", "in_progress"} or candidate.get("conclusion") == "success":
+                return
+    try:
+        cmd([sys.executable, "tools/self_healing_canary.py", "--self-test"], timeout=30)
+        dispatch("self-healing-e2e-test.yml")
+        REPORT["actions"].append({
+            "action": "resume_repaired_canary",
+            "workflow": "self-healing-e2e-test.yml",
+            "source_run_id": failed.get("id"),
+            "reason": "A safe repair commit exists and the repaired canary passes locally; dispatched the original test workflow explicitly because GITHUB_TOKEN pushes do not trigger push workflows."
+        })
+    except Exception as exc:
+        REPORT["unresolved"].append("Repaired canary could not be safely resumed: " + str(exc)[:220])
+
+
 def main():
     if not TOKEN:
         raise SystemExit("GITHUB_TOKEN is required.")
@@ -489,6 +524,7 @@ def main():
     probe_workers()
     retried_daily = analyze(data)
     restart_missed_daily_research(data, retried_daily)
+    resume_repaired_canary(data)
     REPORT["finished_at"] = datetime.now(timezone.utc).isoformat()
     REPORT["overall"] = "healthy" if not REPORT["unresolved"] else "attention_required"
     (WORK / "self_healing_report.json").write_text(json.dumps(REPORT, ensure_ascii=False, indent=2), encoding="utf-8")
