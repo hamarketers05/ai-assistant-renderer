@@ -210,7 +210,7 @@ def attempt_patch(run, job, log):
         diff = get_diff(text)
     except ValueError as exc:
         return False, str(exc)
-    headers = set(re.findall(r"^(?:---|\\+\\+\\+) [ab]/([^\\t\\n]+)", diff, re.M))
+    headers = set(re.findall(r"^(?:---|\+\+\+) [ab]/([^\t\n]+)", diff, re.M))
     if headers != {target} or "/dev/null" in diff or "GIT binary patch" in diff:
         return False, "Generated patch violated single-file allowlist; rejected."
     patch_file = WORK / "auto_patch.diff"
@@ -255,7 +255,7 @@ def attempt_patch(run, job, log):
         return False, "Patch rejected by local validation: " + str(exc)[:450]
 
 def retry_failed(run, failed_jobs):
-    status, _ = api("POST", f"/repos/{REPO}/actions/runs/{run['id']}/rerun-failed-jobs", {})
+    status, _ = api("POST", f"/repos/{REPO}/actions/runs/{run['id']}/rerun-failed-jobs")
     if status not in (201, 202, 204):
         raise RuntimeError(f"Failed-job rerun returned HTTP {status}.")
     REPORT["actions"].append({"action": "rerun_failed_jobs", "workflow": run.get("name"),
