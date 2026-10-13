@@ -426,14 +426,22 @@ def tavily_search(key, query, include_domains=None):
 def clean_sources(results):
     out, seen = [], set()
     for item in results:
+        if not isinstance(item, dict):
+            continue
         url = str(item.get("url", "")).strip()
         title = re.sub(r"\s+", " ", str(item.get("title", "")).strip())
         content = re.sub(r"\s+", " ", str(item.get("content", "")).strip())
         if not url.startswith("https://") or url in seen or not title or not content:
             continue
         seen.add(url)
-        out.append({"title": title[:220], "url": url[:1000], "content": content[:1100],
-                    "published_date": str(item.get("published_date", ""))[:60], "score": item.get("score")})
+        out.append({
+            "title": title[:220], "url": url[:1000], "content": content[:1100],
+            "published_date": str(item.get("published_date", ""))[:80],
+            "score": item.get("score"),
+            "publisher": str(item.get("publisher", ""))[:160],
+            "source_type": str(item.get("source_type", "web_search"))[:50],
+            "source_tier": str(item.get("source_tier", "unknown"))[:50]
+        })
         if len(out) >= 10:
             break
     return out
@@ -564,13 +572,16 @@ def main():
         raw_results.extend(tavily_search(tv_key, query, ["example.com", "github.com"]))
     sources = clean_sources(raw_results)
     if len(sources) < 4:
-        raise SystemExit(f"Tavily returned only {len(sources)} usable HTTPS sources; at least four are required.")
+        raise SystemExit(f"Research providers returned only {len(sources)} usable HTTPS sources; at least four are required.")
+    provider_names = sorted(_RESEARCH_PROVIDER_NAMES)
+    research_provider = " + ".join(provider_names) if provider_names else "Unspecified source provider"
     (outdir / "tavily_evidence.json").write_text(json.dumps({
-        "provider": "Tavily Search API", "queries": queries,
+        "provider": research_provider, "queries": queries,
         "fetched_at_utc": datetime.now(timezone.utc).isoformat(), "sources": sources},
         indent=2, ensure_ascii=False), encoding="utf-8")
+    print("Verified research evidence providers: " + research_provider)
 
-    evidence_context = [{"title": s["title"], "url": s["url"], "date": s["published_date"], "evidence": s["content"]} for s in sources]
+    evidence_context = [{"title": s["title"], "url": s["url"], "date": s["published_date"], "publisher": s.get("publisher", ""), "evidence": s["content"]} for s in sources]
     draft = groq_json(
         """You are the lead English-language YouTube scriptwriter for AI Tech Lab (USA audience). Use ONLY supplied evidence for factual specifics; never invent numbers, quotes, product capabilities, release dates, or market claims. Explain uncertainty and limitations. Create a fresh 6-minute explainer in the assigned editorial category, not a paraphrase. HUMAN VALUE REQUIREMENT: every video must help a real viewer understand or decide something useful. Identify the target viewer's real question, explain why the development matters in everyday life/work/business, include at least one concrete scenario or decision framework, state practical next steps or what to watch for, explain meaningful trade-offs/limitations, and end with a specific takeaway rather than a generic summary. Do not invent hands-on experience or claim the channel tested a tool unless the supplied evidence proves it. Keep advice proportional to evidence and distinguish facts, analysis, opinion, and forecasts. Return JSON keys: title, script, description, tags (array), hook_candidates (array of 3), claims (array of {claim, source_urls, confidence}), visual_direction (array of {section, visual, movement, overlay}), and chapters (array of {label, approximate_position}). Script must be spoken narration only, 700-900 words, US English, a specific hook, clear story arc, varied sentences, accessible but intelligent, concrete evidence-based examples, balanced caveats and concise CTA. No unsupported superlatives. Do not add production instructions inside narration.
 
@@ -659,7 +670,7 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         "category_decision": category_decision, "title_similarity_to_previous": title_similarity,
         "human_voice_qa": human_voice_qa,
         "agent_policy_version": "1.0.0", "tool_improvement_research": improvement_report,
-        "brand": "AI Tech Lab", "primary_ai": "Groq", "research_provider": "Tavily Search API",
+        "brand": "AI Tech Lab", "primary_ai": "Groq", "research_provider": research_provider,
         "trend_provider": "YouTube Data API v3", "trend_basis": topic, "title": title,
         "hook": str(audit.get("selected_hook", hooks[0] if hooks else ""))[:350],
         "hook_audit": {"score": hook_score, "human_voice_score": auditor_voice_score,
@@ -669,7 +680,7 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         "script_word_count": len(re.findall(r"\b[\w'-]+\b", script)), "script": script,
         "description": description, "tags": normalized_tags, "chapters": draft.get("chapters", []),
         "visual_direction": visual_direction, "claims_review": claims_checked,
-        "warnings": ["Claims are grounded in the listed Tavily search results; review factual claims before publication. Kokoro narration is generated automatically and must pass audio QA."],
+        "warnings": ["Claims are grounded in the listed source evidence; review factual claims before publication. Public RSS summaries may be brief and do not replace opening and checking important source pages. Kokoro narration is generated automatically and must pass audio QA."],
         "sources": sources, "previous_video_learning_applied": learning}
 
     used_ai_providers = sorted({str(item.get("provider", "")).lower() for item in _AI_CALL_LOG if item.get("provider")})
@@ -677,8 +688,9 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
     if any("cloudflare" in item or "workers_ai" in item for item in used_ai_providers):
         ai_tools.append("Cloudflare Workers AI fallback")
     scout_status = improvement_report.get("status", "skipped")
+    research_tools_used = list(provider_names)
     research_runs = [
-        {"agent_id": "research_scout", "status": "completed", "actual_tools_used": ["YouTube Data API v3", "Tavily Search API"],
+        {"agent_id": "research_scout", "status": "completed", "actual_tools_used": ["YouTube Data API v3"] + research_tools_used,
          "evidence_files": ["work/youtube_trend_signals.json", "work/tavily_evidence.json"],
          "details": {"youtube_trend_items": len(trends), "usable_web_sources": len(sources), "region": "US"}},
         {"agent_id": "category_editor", "status": "completed", "actual_tools_used": ["US Eastern calendar", "YouTube trend evidence"],
@@ -707,7 +719,7 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
     summary = {
         "status": "SCRIPT_PACKAGE_READY_FOR_KOKORO_VOICE_PRODUCTION", "title": title,
         "script_words": package["script_word_count"], "hook_score": hook_score,
-        "trend_signals": len(trends), "usable_tavily_sources": len(sources),
+        "trend_signals": len(trends), "usable_research_sources": len(sources), "research_providers": provider_names,
         "editorial_category": topic["category"], "rotation_category": rotation["category"],
         "human_voice_score": human_voice_qa["score"], "independent_voice_audit_score": auditor_voice_score,
         "tool_improvement_scout": scout_status,
