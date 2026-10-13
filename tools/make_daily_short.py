@@ -24,6 +24,10 @@ def parse_json(text):
             lines = lines[:-1]
         text = "\n".join(lines).strip()
     obj = json.loads(text)
+    if not isinstance(obj, dict):
+        raise RuntimeError("AI provider returned valid JSON, but not a JSON object.")
+    return obj
+
 def main():
     if not KEY and not (os.getenv("GITHUB_TOKEN", "").strip() and os.getenv("GITHUB_RUN_ID", "").isdigit()):
         raise SystemExit("Groq key and authenticated Cloudflare Workers AI fallback context are both missing.")
