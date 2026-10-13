@@ -85,7 +85,8 @@ jobs:
               "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/self-heal/patch",
               data=json.dumps(payload).encode("utf-8"),
               headers={"Authorization": "Bearer " + os.environ["GITHUB_TOKEN"],
-                       "Content-Type": "application/json", "Accept": "application/json"},
+                       "Content-Type": "application/json", "Accept": "application/json",
+                       "User-Agent": "AI-Tech-Lab-Self-Healing-Agent/1.0"},
               method="POST")
           try:
               with urllib.request.urlopen(request, timeout=35) as response:
