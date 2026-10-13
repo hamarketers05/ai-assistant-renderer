@@ -254,6 +254,20 @@ def classify_known_infrastructure_failure(run, log):
             "root_cause": "The live no-publish validator reached independent script QA but did not release the package. The job log's summary alone does not distinguish a missing approval boolean from an explicit rejection.",
             "safe_recovery": "Inspect the matching validation artifact's audit object before any repair. Main Worker v420 fills an omitted approval flag only if both explicit hook/human scores are >=7 and unsupported_current_claims is an explicit empty array. Never normalize an explicit approved=false, low scores, malformed output, or non-empty/unknown unsupported claims. Rerun no-publish validation; publishing stays blocked until the full contract passes."
         }
+    # The Main Worker trend-to-script route wraps an upstream Groq 429 in HTTP 502.
+    # The daily workflow only logs the outer status and body, so the generic transient
+    # classifier must not immediately re-dispatch another paid-quota-free but rate-limited
+    # generation attempt before the provider window resets.
+    direct_route_groq_429 = (
+        "groq request failed: http 429" in lower
+        or ("groq request failed" in lower and "http 429" in lower)
+    )
+    if direct_route_groq_429:
+        return {
+            "code": "GROQ_RATE_LIMITED",
+            "root_cause": "The Main Worker trend-to-script request returned outer HTTP 502 with an explicit inner 'Groq request failed: HTTP 429' detail. This is upstream provider rate/token throttling, not evidence of a missing secret or a deterministic code defect.",
+            "safe_recovery": "Do not immediately auto-re-dispatch this generation from the outer HTTP 502: the current caller does not retain an upstream Retry-After/reset header. Keep the script and publishing gates blocked until the provider rate window recovers; retry at most once only when a real reset/wait interval is known and fits the timeout. Do not cascade into an exhausted Workers AI free allocation, never enable paid billing, and do not bypass evidence/script/audio QA."
+        }
     live_groq_span_429 = (
         "fetch /openai/v1/chat/completions" in lower
         or "api.groq.com/openai/v1/chat/completions" in lower
