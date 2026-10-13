@@ -64,7 +64,7 @@ jobs:
           set -euo pipefail
           find handoff/input -type f -maxdepth 5 -print
           test -n "$(find handoff/input -type f -name daily_content_package.json -print -quit)"
-          test -n "$(find handoff/input -type f -name tavily_evidence.json -print -quit)"
+          test -n "$(find handoff/input -type f -name research_evidence.json -print -quit)"
           test -n "$GITHUB_TOKEN"
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -82,7 +82,7 @@ jobs:
           cp "$(find handoff/input -type f -name daily_content_package.json -print -quit)" work_package.tmp.json
           mkdir -p work
           cp work_package.tmp.json work/daily_content_package.json
-          cp "$(find handoff/input -type f -name tavily_evidence.json -print -quit)" work/tavily_evidence.json
+          cp "$(find handoff/input -type f -name research_evidence.json -print -quit)" work/research_evidence.json
           python tools/make_daily_short.py
           test -s work/short_content_package.json
           jq '{title,script_word_count,content_format,qa}' work/short_content_package.json
@@ -96,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           cp "$(find handoff/input -type f -name daily_content_package.json -print -quit)" work/daily_content_package.json
-          cp "$(find handoff/input -type f -name tavily_evidence.json -print -quit)" work/tavily_evidence.json
+          cp "$(find handoff/input -type f -name research_evidence.json -print -quit)" work/research_evidence.json
           python tools/daily_auto_handoff.py
           test -s work/auto_handoff_result.json
           cat work/auto_handoff_result.json
