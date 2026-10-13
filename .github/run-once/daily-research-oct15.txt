@@ -1,0 +1,1 @@
+One-time authorization token for the October 15, 2026 AI Tech Lab research run. This sentinel is removed immediately after triggering.
