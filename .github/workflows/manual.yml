@@ -173,9 +173,19 @@ jobs:
         run: |
           set -euo pipefail
           test -s work/script.txt
-          .venv/bin/python tools/generate_kokoro_voice.py --script work/script.txt --output work/kokoro_voice.wav --voice af_heart --speed 1.0
-          test -s work/kokoro_voice.wav
-          ffmpeg -y -i work/kokoro_voice.wav -af "highpass=f=75,lowpass=f=12000,acompressor=threshold=-18dB:ratio=2.0:attack=15:release=180,loudnorm=I=-16:TP=-1.5:LRA=9" -ar 44100 -ac 2 -c:a pcm_s16le voice.wav
+          if [ -n "$INPUT_AUDIO_URL" ]; then
+            [ "$VOICE_AUDIO_APPROVED" = "true" ] || { echo "A prior audio object can only be reused after voice_audio_approved=true."; exit 1; }
+            [[ "$INPUT_AUDIO_URL" =~ ^ai-tech-lab/[0-9]+/kokoro[.]mp3$ ]] || { echo "INPUT_AUDIO_URL must be an object path like ai-tech-lab/123/kokoro.mp3; full signed URLs are rejected."; exit 1; }
+            curl -fsS --retry 2 --retry-delay 2 --max-time 120 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$INPUT_AUDIO_URL" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/kokoro_upload.mp3
+            test -s work/kokoro_upload.mp3
+            ffmpeg -y -i work/kokoro_upload.mp3 -ar 44100 -ac 2 -c:a pcm_s16le voice.wav
+            .venv/bin/python -c 'import json; from pathlib import Path; Path("work/kokoro_tts_report.json").write_text(json.dumps({"engine":"Kokoro-82M","voice":"af_heart","language":"American English","source":"previously generated preview reused after approval","sample_rate":44100,"manual_voice_required":True},indent=2),encoding="utf-8")'
+            echo "Reusing the exact previously previewed Kokoro MP3 after explicit approval."
+          else
+            .venv/bin/python tools/generate_kokoro_voice.py --script work/script.txt --output work/kokoro_voice.wav --voice af_heart --speed 1.0
+            test -s work/kokoro_voice.wav
+            ffmpeg -y -i work/kokoro_voice.wav -af "highpass=f=75,lowpass=f=12000,acompressor=threshold=-18dB:ratio=2.0:attack=15:release=180,loudnorm=I=-16:TP=-1.5:LRA=9" -ar 44100 -ac 2 -c:a pcm_s16le voice.wav
+          fi
           test -s voice.wav
           .venv/bin/python - <<'PY'
           import json, subprocess
@@ -185,7 +195,7 @@ jobs:
           audio=next((s for s in streams if s.get("codec_type")=="audio"),None)
           if not audio or int(audio.get("sample_rate",0))!=44100 or duration<30:
               raise SystemExit("Kokoro audio quality gate failed: missing audio, wrong sample rate, or narration shorter than 30 seconds.")
-          report={"engine":"Kokoro-82M","voice":"af_heart","post_processing":["high-pass 75 Hz","low-pass 12 kHz","light compression","EBU loudness normalization"],"duration_seconds":round(duration,2),"sample_rate":44100,"manual_voice_approval_required":False,"quality_gate":"passed"}
+          report={"engine":"Kokoro-82M","voice":"af_heart","post_processing":["high-pass 75 Hz","low-pass 12 kHz","light compression","EBU loudness normalization"],"duration_seconds":round(duration,2),"sample_rate":44100,"manual_voice_approval_required":True,"quality_gate":"passed"}
           Path("work/kokoro_audio_quality.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
           print(json.dumps(report))
           PY
@@ -193,7 +203,9 @@ jobs:
           test -n "$SUPABASE_KEY"
           # Keep the lossless WAV locally for editing; store a compact MP3 hand-off.
           # Supabase Free limits individual uploads to 50 MB; this narration WAV is ~71 MB.
-          ffmpeg -hide_banner -loglevel error -y -i voice.wav -vn -c:a libmp3lame -b:a 128k -ar 44100 -ac 2 work/kokoro_upload.mp3
+          if [ ! -s work/kokoro_upload.mp3 ]; then
+            ffmpeg -hide_banner -loglevel error -y -i voice.wav -vn -c:a libmp3lame -b:a 128k -ar 44100 -ac 2 work/kokoro_upload.mp3
+          fi
           test -s work/kokoro_upload.mp3
           UPLOAD_BYTES=$(stat -c%s work/kokoro_upload.mp3)
           [ "$UPLOAD_BYTES" -lt $((20*1024*1024)) ] || { echo "Compressed Kokoro hand-off unexpectedly exceeds 20 MiB."; exit 1; }
@@ -317,7 +329,7 @@ jobs:
           qa=json.loads(Path("work/kokoro_audio_quality.json").read_text(encoding="utf-8"))
           if tts.get("engine")!="Kokoro-82M" or qa.get("quality_gate")!="passed":
               raise SystemExit("Kokoro narration did not pass the automated audio gate.")
-          print(json.dumps({"engine":tts["engine"],"voice":tts["voice"],"duration_seconds":qa["duration_seconds"],"manual_approval":False}))
+          print(json.dumps({"engine":tts["engine"],"voice":tts["voice"],"duration_seconds":qa["duration_seconds"],"manual_approval_required":True}))
           PY
 
       - name: Edit generated narration, add pauses and script cues, and generate captions
