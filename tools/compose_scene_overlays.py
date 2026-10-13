@@ -79,7 +79,7 @@ def main():
         draw.rectangle((410, 60, 630, 380), fill=(255, 185, 60))
         sample.save(chart)
         Path("work/scenes.tsv").write_text(
-            "1\\t0\\t5\\t5\\tgenerated\\tAI chip performance improved\\tPerformance comparison\\n",
+            "1\t0\t5\t5\tgenerated\tAI chip performance improved\tPerformance comparison\n",
             encoding="utf-8")
         Path("work/evidence_charts_report.json").write_text(json.dumps({
             "charts_created": [str(chart)],
