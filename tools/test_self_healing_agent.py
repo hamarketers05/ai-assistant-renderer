@@ -153,7 +153,10 @@ artifact: ai-tech-lab-research-
         "HTTP 422 youtube_category_trend_gate BLOCKED_INSUFFICIENT_CATEGORY_RELATED_YOUTUBE_VIDEOS distinct_video_count=2",
     )
     assert trend_gate and trend_gate["code"] == "YOUTUBE_CATEGORY_TREND_EVIDENCE_INSUFFICIENT"
-    assert "Keep the trend gate closed" in trend_gate["safe_recovery"]
+    assert "two bounded category-targeted" in trend_gate["safe_recovery"].lower()
+    assert "scheduled_rotation_fallback" in trend_gate["safe_recovery"].lower()
+    assert "never call it a live trend" in trend_gate["safe_recovery"].lower()
+    assert "Tavily and paid search are forbidden" in trend_gate["safe_recovery"]
     obsolete_voice_gate = agent.classify_known_infrastructure_failure(
         {"name": "Renderer Static Validation"},
         "Renderer is missing the explicit Kokoro voice-approval release gate.",
