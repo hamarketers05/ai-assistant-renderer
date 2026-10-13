@@ -84,3 +84,5 @@ jobs:
           print(json.dumps({"test": "vision", "status": "PASS", "provider": vision.get("provider"), "model": vision.get("model"), "response_chars": len(vision_out)}))
           print("AI_FALLBACK_TEXT_AND_VISION_PASS: no code changed and no video upload or publishing was attempted.")
           PY
+
+# Fallback verification refresh 2026-10-13: rerun text and vision checks after Worker diagnostics update.
