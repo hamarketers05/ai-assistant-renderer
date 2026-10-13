@@ -1,0 +1,86 @@
+name: Verify authenticated AI fallback (no upload)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-ai-fallback.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Check text and vision provider fallback
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Verify authenticated text inference and vision inference
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.error, urllib.request
+
+          URL = "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/ai/generate"
+          TOKEN = os.environ["GITHUB_TOKEN"]
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          RUN = os.environ["GITHUB_RUN_ID"]
+          WORKFLOW = ".github/workflows/verify-ai-fallback.yml"
+          PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6l8AAAAASUVORK5CYII="
+
+          def call(body):
+              body.update({"workflow_run_id": RUN, "workflow_path": WORKFLOW, "repository": REPO})
+              req = urllib.request.Request(
+                  URL, data=json.dumps(body).encode(),
+                  headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"},
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=75) as response:
+                      result = json.loads(response.read().decode())
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode("utf-8", "replace")[:450]
+                  raise SystemExit("AI fallback HTTP " + str(exc.code) + ": " + detail)
+              if result.get("ok") is not True or not result.get("choices"):
+                  raise SystemExit("AI fallback did not return a valid chat-completion response: " + str(result.get("error", "unknown"))[:250])
+              return result
+
+          text = call({
+              "model": "openai/gpt-oss-20b", "max_tokens": 80, "temperature": 0,
+              "messages": [
+                  {"role": "system", "content": "Reply exactly with the single token AI_FALLBACK_TEXT_PASS."},
+                  {"role": "user", "content": "Run the connectivity check. Reply exactly AI_FALLBACK_TEXT_PASS."}
+              ]
+          })
+          text_out = str(text["choices"][0]["message"].get("content", "")).strip()
+          if "AI_FALLBACK_TEXT_PASS" not in text_out:
+              raise SystemExit("Text inference response did not contain the expected test marker.")
+          print(json.dumps({"test": "text", "status": "PASS", "provider": text.get("provider"), "model": text.get("model"), "response_chars": len(text_out)}))
+
+          vision = call({
+              "model": "qwen/qwen3.8-27b", "task": "vision", "max_tokens": 120, "temperature": 0,
+              "response_format": {"type": "json_object"},
+              "messages": [{
+                  "role": "user",
+                  "content": [
+                      {"type": "text", "text": "This is an isolated vision API test using a tiny 1x1 PNG. Return only JSON with keys test and description. Set test to PASS and give a short literal image description."},
+                      {"type": "image_url", "image_url": {"url": PIXEL}}
+                  ]
+              }]
+          })
+          vision_out = str(vision["choices"][0]["message"].get("content", "")).strip()
+          try:
+              v = json.loads(vision_out)
+          except json.JSONDecodeError:
+              raise SystemExit("Vision fallback response was not valid JSON.")
+          if v.get("test") != "PASS" or not str(v.get("description", "")).strip():
+              raise SystemExit("Vision fallback did not pass its response checks.")
+          print(json.dumps({"test": "vision", "status": "PASS", "provider": vision.get("provider"), "model": vision.get("model"), "response_chars": len(vision_out)}))
+          print("AI_FALLBACK_TEXT_AND_VISION_PASS: no code changed and no video upload or publishing was attempted.")
+          PY
