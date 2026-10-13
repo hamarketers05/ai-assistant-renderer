@@ -119,6 +119,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--content-id", default="")
+    parser.add_argument("--format", choices=("LONG_VIDEO", "SHORT"), default="LONG_VIDEO")
     parser.add_argument("--video", default="")
     parser.add_argument("--output", default="work/visual_coverage_report.json")
     parser.add_argument("--min-unique", type=int, default=70)
@@ -126,6 +127,19 @@ def main() -> None:
     args = parser.parse_args()
     if args.self_test:
         self_test()
+        return
+    if args.format == "SHORT":
+        short_report = {
+            "status": "not_applicable_short",
+            "content_id": str(args.content_id),
+            "content_format_target": "9:16 Short uses its separate 20-60 second QA profile",
+            "reason": "The 6-minute landscape visual-budget thresholds apply only to LONG_VIDEO; Shorts retain native vertical output.",
+            "long_video_gate": "not_run",
+            "upload_blocked_if_any_check_fails": False,
+        }
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(json.dumps(short_report, indent=2)+"\\n", encoding="utf-8")
+        print(json.dumps(short_report))
         return
     scene_report = read_json(Path("work/rendered_scene_assets_report.json"))
     if scene_report.get("status") != "passed":
