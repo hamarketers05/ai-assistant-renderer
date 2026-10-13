@@ -11,7 +11,7 @@ on:
         description: "Focused English AI topic for live Cloudflare research verification"
         required: false
         type: string
-        default: "AI agent security incidents unauthorized internet access and safety evaluations"
+        default: "Meta Muse Wonder Wonder Full new AI models October 2026 agentic capabilities"
 permissions:
   contents: read
 
@@ -23,7 +23,7 @@ jobs:
       WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
 # Main Worker trims both configured and supplied bearer tokens before comparing.
       WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
-      RESEARCH_QUERY: ${{ inputs.query || 'AI agent security incidents unauthorized internet access and safety evaluations' }}
+      RESEARCH_QUERY: ${{ inputs.query || 'Meta Muse Wonder Wonder Full new AI models October 2026 agentic capabilities' }}
     steps:
       - name: Run protected Cloudflare research
         shell: bash
