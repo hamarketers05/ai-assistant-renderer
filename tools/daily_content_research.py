@@ -716,7 +716,7 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         max_tokens=3300, temperature=0.15)
     revised = re.sub(r"\r\n?", "\n", str(audit.get("revised_script", "")).strip())
     revised_words = len(re.findall(r"\b[\w'-]+\b", revised))
-    if 650 <= revised_words <= 1000:
+    if 700 <= revised_words <= 1000:
         script = revised
     hook_score = int(audit.get("score", 0) or 0)
     try:
