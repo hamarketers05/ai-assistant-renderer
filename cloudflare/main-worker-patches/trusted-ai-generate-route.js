@@ -25,7 +25,15 @@ async function nfTrustedAiGenerate(request,env){
  const requestedJsonMode=!!(body.response_format&&typeof body.response_format==="object"&&["json_object","json_schema"].includes(body.response_format.type));
  const response=(out)=>{const content=String(out&&out.text||"").trim();if(!content)throw new Error("Groq returned empty content");return Response.json({ok:true,provider:"groq",id:"chatcmpl_"+crypto.randomUUID(),object:"chat.completion",created:Math.floor(Date.now()/1000),model:String(out.model||env.GROQ_MODEL||"openai/gpt-oss-20b"),choices:[{index:0,message:{role:"assistant",content},finish_reason:"stop"}],usage:{latency_ms:Number(out.latency_ms||0)},json_mode_fallback:requestedJsonMode},{headers:{"Cache-Control":"no-store"}})};
  try{
-  const out=await nfGroqText(env,clean,maxTokens,60000,false,null);
+  let out;
+  try{
+   out=await nfGroqText(env,clean,maxTokens,60000,false,null,"medium");
+  }catch(firstError){
+   const firstMessage=String(firstError&&firstError.message||firstError);
+   if(!firstMessage.toLowerCase().includes("empty content"))throw firstError;
+   await nfLog(env,"WARN","TRUSTED_AI_PROXY","Groq returned no final text at medium reasoning effort; retrying once with low effort.");
+   out=await nfGroqText(env,clean,maxTokens,60000,false,null,"low");
+  }
   return response(out);
  }catch(e){
   const message=String(e&&e.message||e),marker="HTTP ",pos=message.lastIndexOf(marker),statusText=pos>=0?message.slice(pos+marker.length,pos+marker.length+3):"",digits=statusText.length===3&&statusText.split("").every(c=>c>="0"&&c<="9"),upstream=digits?Number(statusText):0;
