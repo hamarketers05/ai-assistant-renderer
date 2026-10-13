@@ -24,6 +24,7 @@ on:
       - "Verify Daily Handoff Endpoint (No Upload)"
       - "Midas SBS Validation"
       - "Self-Healing E2E Repair Test"
+      - "Verify and correct Maia 300 YouTube source metadata"
     types: [completed]
   workflow_dispatch:
 
@@ -38,7 +39,7 @@ concurrency:
 
 jobs:
   self-heal:
-    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_branch == 'main') }}
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.name == 'Verify and correct Maia 300 YouTube source metadata')) }}
     name: Monitor, diagnose, safely recover and report
     runs-on: ubuntu-latest
     timeout-minutes: 30
