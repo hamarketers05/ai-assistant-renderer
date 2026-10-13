@@ -239,7 +239,7 @@ def main():
     (outdir / "tool_improvement_research.json").write_text(json.dumps(improvement_report, indent=2, ensure_ascii=False), encoding="utf-8")
 
     topic = groq_json(
-        "You are the US-audience editorial trend strategist for AI Tech Lab. Choose an original explainer in the assigned editorial category; do not copy trending titles. Do not claim search volume or growth when not provided. Return JSON keys: category (one exact category from the supplied rotation), topic, angle, why_now, category_override_reason, research_queries (exactly 2 concise Tavily queries), trend_evidence (matching supplied video titles/URLs), avoid_title_similarity. Use the scheduled category by default. Override it only when at least three distinct current US trend videos materially support another listed category; state the evidence and reason. Prefer a distinctive, debate-worthy angle and an evidence-grounded prediction or tension; avoid generic trend recaps.\n\n" + NATURAL_VOICE_GUIDANCE,
+        "You are the US-audience editorial trend strategist for AI Tech Lab. Choose an original explainer in the assigned editorial category; do not copy trending titles. Do not claim search volume or growth when not provided. Return JSON keys: category (one exact category from the supplied rotation), topic, angle, why_now, category_override_reason, research_queries (exactly 2 concise Tavily queries), trend_evidence (matching supplied video titles/URLs), avoid_title_similarity, improvement_recommendations (array of at most 3 objects with idea, source_url, free_tier_impact, validation_test, implementation_mode). Only recommend an improvement if supported by the supplied official documentation; never recommend paid tools, new secrets, broader permissions, or automatic production-code changes. Use the scheduled category by default. Override it only when at least three distinct current US trend videos materially support another listed category; state the evidence and reason. Prefer a distinctive, debate-worthy angle and an evidence-grounded prediction or tension; avoid generic trend recaps.\n\n" + NATURAL_VOICE_GUIDANCE,
         json.dumps({"current_us_youtube_popular_videos": trend_sample, "manual_direction_if_any": args.seed_topic,
                     "target_date_us_eastern": editorial_date, "editorial_category_rotation": rotation,
                     "weekly_official_tool_improvement_research": improvement_report,
@@ -257,6 +257,32 @@ def main():
     topic["category_rotation_date_us_eastern"] = editorial_date
     if not topic.get("category_override_reason") and category_decision.get("override"):
         topic["category_override_reason"] = "Live US trend evidence passed the three-distinct-video override gate."
+    recommendations = topic.get("improvement_recommendations", [])
+    if not isinstance(recommendations, list):
+        recommendations = []
+    checked_recommendations = []
+    official_urls = {str(item.get("url", "")) for item in improvement_report.get("sources", [])}
+    for item in recommendations[:3]:
+        if not isinstance(item, dict):
+            continue
+        source_url = str(item.get("source_url", "")).strip()
+        if scout_plan.get("enabled") and source_url not in official_urls:
+            continue
+        if not scout_plan.get("enabled"):
+            continue
+        checked_recommendations.append({
+            "idea": str(item.get("idea", ""))[:350],
+            "source_url": source_url,
+            "free_tier_impact": str(item.get("free_tier_impact", ""))[:250],
+            "validation_test": str(item.get("validation_test", ""))[:350],
+            "implementation_mode": str(item.get("implementation_mode", "test_required"))[:60],
+            "auto_implemented": False
+        })
+    improvement_report["recommendations"] = checked_recommendations
+    improvement_report["policy"] = "Official-source ideas are filtered to exact retrieved official URLs. Recommendations remain pending until they pass offline tests and cost/security checks; no web-derived code is auto-executed."
+    improvement_report["proposal_status"] = "proposals_ready_for_review" if checked_recommendations else ("no_supported_proposals" if scout_plan.get("enabled") else "not_scheduled_this_day")
+    (outdir / "tool_improvement_research.json").write_text(json.dumps(improvement_report, indent=2, ensure_ascii=False), encoding="utf-8")
+
     topic_name = re.sub(r"\s+", " ", str(topic.get("topic", ""))).strip()[:180]
     angle = re.sub(r"\s+", " ", str(topic.get("angle", ""))).strip()[:700]
     queries = topic.get("research_queries", [])
