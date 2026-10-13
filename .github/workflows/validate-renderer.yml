@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/fetch_free_media.py tools/compose_scene_overlays.py tools/visual_budget.py tools/write_editing_tool_manifest.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/ai_text_client.py tools/make_daily_short.py tools/test_self_healing_agent.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/fetch_free_media.py tools/compose_scene_overlays.py tools/visual_budget.py tools/write_editing_tool_manifest.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -92,7 +92,7 @@ jobs:
               "Enforce Full-HD six-minute visual budget before QA and upload",
               "QA rendered production",
               "Verify narration, music, captions, and premium thumbnail assets",
-              "Groq router reviews rendered video, visual match, audio assets and thumbnail",
+              "Groq primary / Workers AI fallback reviews rendered video, visual match, audio assets and thumbnail",
               "Save video artifacts",
               "Persist final QA feedback for the next video",
               "Block upload if final quality review found critical issues",
@@ -141,7 +141,7 @@ jobs:
                   raise SystemExit(f"Visual novelty guard lacks required logic: {marker}")
           if "actions: read" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Bootstrapping the previous production manifest requires read-only Actions permission.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "Enforce Full-HD six-minute visual budget before QA and upload", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "Enforce Full-HD six-minute visual budget before QA and upload", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq primary / Workers AI fallback reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
           import subprocess
           for test in [
               ["python", "tools/fetch_free_media.py", "--self-test"],
@@ -211,7 +211,7 @@ jobs:
           research_names = [step.get("name", "") for step in research_wf["jobs"]["research-and-script"]["steps"]]
           if not any(item.get("cron") == "0 14 * * *" for item in research_wf.get("on", {}).get("schedule", [])):
               raise SystemExit("Daily US topic research schedule is missing.")
-          if not all(x in research_names for x in ["Verify free-provider configuration", "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq", "Ask Groq for a topic-specific thumbnail brief and render the preview", "Publish research package artifact for Kokoro voice production"]):
+          if not all(x in research_names for x in ["Verify free-provider configuration", "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq primary / Workers AI fallback", "Generate an AI thumbnail brief with Groq primary / Workers AI fallback and render the preview", "Publish research package artifact for Kokoro voice production"]):
               raise SystemExit("Daily research stages are missing or out of order.")
           if not all(x in Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8") for x in ["WORKER_AUTH_TOKEN", "TAVILY_API_KEY", "GROQ_API_KEY", "openai/gpt-oss-20b", "/youtube/access-token"]):
               raise SystemExit("Daily topic workflow is not configured for YouTube v3 + Tavily + Groq.")
