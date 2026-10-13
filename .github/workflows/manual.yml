@@ -1468,7 +1468,7 @@ jobs:
             sudo apt-get install -y git
             .venv/bin/python tools/convert_video_3d.py \
               --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
-              --output "output/AI_TECH_LAB_$CONTENT_ID"_3D_"$STEREO_OUTPUT".mp4 \
+              --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4" \
               --mode "$STEREO_OUTPUT" \
               --content-format "$CONTENT_FORMAT" \
               --report work/stereo_3d_report.json \
@@ -1477,7 +1477,7 @@ jobs:
               --require-success
           fi
           jq -e '.status == "success" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
-          test -s "output/AI_TECH_LAB_$CONTENT_ID"_3D_"$STEREO_OUTPUT".mp4
+          test -s "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
           echo "Only the verified stereoscopic output is eligible for YouTube upload."
 
       - name: Create per-video editing tool execution manifest
