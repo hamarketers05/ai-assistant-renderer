@@ -144,6 +144,7 @@ jobs:
           n = int(scene["planned_visual_scenes"])
           if n < 4:
               raise SystemExit(f"Scene-art fixture requires at least four planned scenes, got {n}")
+          Path("work/title.txt").write_text("CI scene-art visual QA: AI chip inference and power efficiency", encoding="utf-8")
           subprocess.run(["python", "tools/generate_scene_art.py"], check=True)
           source_art = Path("tools/generate_scene_art.py").read_text(encoding="utf-8")
           if 'caption_text="\\n".join(caption_lines)' not in source_art or 'od.multiline_text((108,906),caption_text' not in source_art:
