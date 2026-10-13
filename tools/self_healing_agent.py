@@ -172,6 +172,14 @@ def classify_known_infrastructure_failure(run, log):
     """Recognize recurring infrastructure failures whose correct response is auth/config, not code edits."""
     name = str(run.get("name") or "")
     lower = str(log or "").lower()
+    if "groq_rate_limited" in lower or (
+        "trusted_ai_proxy" in lower and "http 429" in lower and "groq" in lower
+    ):
+        return {
+            "code": "GROQ_RATE_LIMITED",
+            "root_cause": "The authenticated Main Worker reached Groq's free-tier rate/token limit. This is a shared upstream capacity limit, not a code or credential defect.",
+            "safe_recovery": "The caller now respects Groq request spacing and the Main Worker supplies a Retry-After hint. Retry this research stage at most once after the bounded wait; do not cascade into the exhausted Workers AI allocation and never enable paid billing."
+        }
     if "workers_ai_free_allocation_exhausted" in lower or (
         "4006" in lower and "daily free allocation" in lower and "neurons" in lower
     ):
