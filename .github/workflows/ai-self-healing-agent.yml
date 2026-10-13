@@ -8,6 +8,16 @@ on:
       - ".github/workflows/ai-self-healing-agent.yml"
   schedule:
     - cron: "*/15 * * * *"
+  workflow_run:
+    workflows:
+      - "AI Tech Lab Daily Research and Script"
+      - "AI Tech Lab Automatic Daily Production Handoff"
+      - "AI Assistant Renderer"
+      - "CI Workflow Guard"
+      - "Renderer Static Validation"
+      - "Verify Daily Handoff Endpoint (No Upload)"
+      - "Midas SBS Validation"
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +31,7 @@ concurrency:
 
 jobs:
   self-heal:
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_branch == 'main') }}
     name: Monitor, diagnose, safely recover and report
     runs-on: ubuntu-latest
     timeout-minutes: 30
