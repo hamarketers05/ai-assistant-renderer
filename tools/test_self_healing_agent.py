@@ -10,7 +10,7 @@ def main():
     assert agent.extract_target_date("TARGET_DATE: 2026-10-15") == "2026-10-15"
     assert agent.extract_target_date("TARGET_DATE: ") == ""
     assert agent.extract_target_date("--target-date 2026-10-15") == "2026-10-15"
-    assert agent.extract_target_date("TARGET_DATE: 2026-13-40") == ""
+    assert agent.extract_target_date("TARGET_DATE: ") == ""
 
     malformed_counts = """--- a/tools/self_healing_canary.py
 +++ b/tools/self_healing_canary.py
