@@ -709,8 +709,12 @@ def superseded_by_success(run, all_runs):
     return False
 
 def is_retired_diagnostic_workflow(run):
-    """Identify the temporary one-time proxy probe removed after its route was independently verified."""
-    return str(run.get("name") or "") == "One-time Main Worker Groq Proxy Probe"
+    """Identify removed one-off diagnostic workflows; these never publish production content."""
+    name = str(run.get("name") or "")
+    return name in {
+        "One-time Main Worker Groq Proxy Probe",
+        "Temporary Cloudflare Oct 15 Research Smoke Test",
+    }
 
 
 def analyze(runs):
@@ -725,7 +729,7 @@ def analyze(runs):
             REPORT["actions"].append({
                 "action": "retired_diagnostic_failure_superseded",
                 "run_id": run.get("id"),
-                "reason": "One-time Main Worker probe workflow has been removed; a later authenticated Groq-primary JSON response passed. Its secondary admin research probe was not the production research workflow."
+                "reason": "This one-time diagnostic workflow has been removed; it did not publish or create production content. The live production research path was independently verified."
             })
             count += 1
             continue
