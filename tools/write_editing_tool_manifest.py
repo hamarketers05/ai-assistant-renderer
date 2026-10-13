@@ -180,6 +180,19 @@ def main() -> None:
         raise SystemExit("Editing manifest blocked: OpenCV sampled-frame visual QA must explicitly pass.")
     if scene_assets.get("status") != "passed" or int(scene_assets.get("rendered_scene_count", -1)) != scene_count:
         raise SystemExit("Editing manifest blocked: actual rendered scene/source manifest is missing or incomplete.")
+    rendered_rows = [row for row in (scene_assets.get("scenes") or []) if isinstance(row, dict)]
+    if len(rendered_rows) != scene_count:
+        raise SystemExit("Editing manifest blocked: scene-by-scene render evidence does not match the planned scene count.")
+    missing_primary_assets = [str(row.get("scene") or "?") for row in rendered_rows if not str(row.get("primary_asset") or "").strip()]
+    if missing_primary_assets:
+        raise SystemExit("Editing manifest blocked: rendered scenes lack primary asset evidence: " + ", ".join(missing_primary_assets[:12]))
+    graded_scene_count = sum(1 for row in rendered_rows if str(row.get("color_grade") or "").strip())
+    motion_scene_count = sum(1 for row in rendered_rows if str(row.get("motion") or "").strip())
+    if graded_scene_count != scene_count or motion_scene_count != scene_count:
+        raise SystemExit(
+            "Editing manifest blocked: cinematic color grade and camera-motion evidence must exist for every rendered scene "
+            f"(grade={graded_scene_count}/{scene_count}, motion={motion_scene_count}/{scene_count})."
+        )
     if evidence_charts_used < 0 or evidence_charts_used > len(evidence_charts_generated):
         raise SystemExit("Editing manifest blocked: chart use count exceeds the evidence chart assets generated.")
 
@@ -203,8 +216,8 @@ def main() -> None:
         {"tool": "FFmpeg slow stereo motion", "status": "used", "purpose": "subtle 0.08 Hz motion on the background-music bed only; speech remains centered", "settings": "75% modulation, 75% pulse-width (width=1.5 of max 2), 0.08 Hz; music is side-chain ducked under narration"},
         {"tool": "Voice-aligned scene director", "status": "used", "purpose": "clause-aware scene chunks driven by final narration word timestamps", "scene_count": scene_count, "average_scene_seconds": avg_scene_seconds},
         {"tool": "Visual novelty/reuse guard", "status": reuse.get("status", "unverified"), "purpose": "prevent repeated assets within a video or across verified recent deliveries", "previous_video_reuse": reuse.get("previous_video_reuse"), "within_video_duplicates": reuse.get("within_video_duplicates")},
-        {"tool": "Ken Burns / camera drift", "status": "used", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills", "settings": "generated stills zoom to 1.08; stock framing varies about 1.06-1.105 with slow x/y drift and subtle roll"},
-        {"tool": "Cinematic color grade", "status": "used", "purpose": "restrained contrast/saturation, cool teal-blue shadows, warmer highlights, sharpening, soft vignette and subtle temporal grain", "settings": "contrast=1.10; saturation=1.10; gamma=1.015; cool shadows / warm highlights via colorbalance; unsharp=0.45; vignette=PI/5; noise=1.2 temporal"},
+        {"tool": "Ken Burns / camera drift", "status": "used" if motion_scene_count == scene_count else "failed", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills", "applied_to_scenes": motion_scene_count, "all_scenes_verified": motion_scene_count == scene_count, "settings": "generated stills zoom to 1.08; stock framing varies about 1.06-1.105 with slow x/y drift and subtle roll"},
+        {"tool": "Cinematic color grade", "status": "used" if graded_scene_count == scene_count else "failed", "purpose": "restrained contrast/saturation, cool teal-blue shadows, warmer highlights, sharpening, soft vignette and subtle temporal grain", "applied_to_scenes": graded_scene_count, "all_scenes_verified": graded_scene_count == scene_count, "settings": "contrast=1.10; saturation=1.10; gamma=1.015; cool shadows / warm highlights via colorbalance; unsharp=0.45; vignette=PI/5; noise=1.2 temporal"},
         {"tool": "Film grain", "status": "used", "purpose": "very light FFmpeg grain, kept subtle for technology detail"},
         {"tool": "Neon HUD / scene overlay", "status": "used" if hud_overlays_applied > 0 else "skipped", "purpose": "transparent topic label, cyan glow and lower-third composited over scheduled primary visuals of any supported type", "generated_overlay_files": generated_hud_overlays, "applied_to_scenes": hud_overlays_applied, "primary_stock_scenes_available": stock_scene_count, "skip_reason": None if hud_overlays_applied > 0 else "No eligible transparent composite was successfully applied in this run."},
         {"tool": "Crossfade / push / digital mosaic transitions", "status": "used", "purpose": "short FFmpeg xfade transitions; occasional pixelize/zoom transitions", "transition_report": transitions.get("transition_types", [])},
