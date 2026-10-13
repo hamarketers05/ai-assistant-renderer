@@ -89,7 +89,9 @@ def align_words(script_words, asr, duration):
 
 def make_groups(sentence_data,duration,max_scenes,word_times,display_words,punctuation_marks):
     """Split long sentences into voice-timed visual phrases near four seconds."""
-    target=max(2.4 if int(max_scenes)<=24 else 3.0,min(4.0,float(duration)/max(1,int(max_scenes))))
+    # Long-form QA requires 80-90 scenes. Use the actual scene budget (rather than a 3 s floor)
+    # so a 4-minute script can still produce enough word-aligned cuts without filler footage.
+    target=max(2.25 if int(max_scenes)<=24 else 2.55,min(3.4,float(duration)/max(1,int(max_scenes))))
     groups=[]
     weak_endings={"a","an","the","and","or","to","for","of","in","with","by","on","at","as","from"}
     for sentence in sentence_data:
@@ -137,7 +139,7 @@ def make_groups(sentence_data,duration,max_scenes,word_times,display_words,punct
 
     # Merge tiny phrase fragments instead of flashing to a new visual for a
     # one-second sentence. Keep all boundaries on recognized word timestamps.
-    min_scene=1.6
+    min_scene=1.6 if int(max_scenes)<=24 else 1.35
     while len(groups)>1:
         short=next((i for i,g in enumerate(groups)
                     if float(g[-1]["end"])-float(g[0]["start"])<min_scene),None)
