@@ -61,6 +61,23 @@ jobs:
           python -m py_compile tools/self_healing_agent.py
           python tools/self_healing_agent.py
 
+      - name: One-time GitHub signed-log redirect verification
+        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[log-fetch-smoke-test]') }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "tools")
+          from self_healing_agent import fetch_logs
+          log = fetch_logs(115168101487)
+          if "self_healing_canary.py" not in log or "AssertionError" not in log:
+              raise SystemExit("Signed-log download completed but did not contain expected isolated canary failure evidence.")
+          print("GITHUB_SIGNED_LOG_REDIRECT_TEST_PASS: failed-step log retrieved without forwarding GitHub Authorization to the signed blob URL; chars=" + str(len(log)))
+          PY
+
       - name: Save machine-readable recovery report
         if: always()
         uses: actions/upload-artifact@v4
