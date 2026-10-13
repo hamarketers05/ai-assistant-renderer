@@ -15,10 +15,10 @@ MIN_WIDTH, MIN_HEIGHT = 1920, 1080
 MAX_API_REQUESTS = 120
 MIN_API_INTERVAL_SECONDS = 1.25
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
-ANCHORS = set("ai chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
+ANCHORS = set("ai artificial intelligence automation automated agent agents robot robots robotics cybersecurity cyber security privacy fraud software code coding programming algorithm algorithms neural model models developer developers workplace factory industry industries worker workers finance fairness bias biased oversight autonomy autonomous chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
 # One-word matches are accepted only when they name a distinctive hardware concept.
 # Generic anchors such as "data", "power", "center", or "network" are insufficient alone.
-SPECIFIC_SINGLE_ANCHORS = set("chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter megawatt megawatts networking bandwidth circuit circuits hardware motherboard transistor transistors".split())
+SPECIFIC_SINGLE_ANCHORS = set("ai artificial intelligence automation agent agents robot robots robotics cybersecurity security privacy fraud software code programming algorithm neural chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter megawatt megawatts networking bandwidth circuit circuits hardware motherboard transistor transistors".split())
 MIN_VIDEO_RELEVANCE = 0.30
 API_REQUESTS = 0
 LAST_API_REQUEST = 0.0
@@ -109,6 +109,16 @@ def topic_queries(text):
     """Return a small set of reusable searches based on real hardware concepts."""
     anchors = anchor_terms(text)
     queries = []
+    # Topic-family searches cover the full AI Tech Lab niche, not only AI chips.
+    # Per-file titles/descriptions, resolution, license, and repeat-use checks remain mandatory.
+    if anchors & {"ai", "artificial", "intelligence", "automation", "automated", "agent", "agents", "robot", "robots", "robotics", "algorithm", "algorithms", "neural", "model", "models"}:
+        queries.extend(["AI automation robot", "artificial intelligence agent"])
+    if anchors & {"cybersecurity", "cyber", "security", "privacy", "fraud", "bias", "biased"}:
+        queries.extend(["cyber security computer", "computer security automation"])
+    if anchors & {"software", "code", "coding", "programming", "developer", "developers", "algorithm", "algorithms"}:
+        queries.extend(["software developer computer", "computer programming code"])
+    if anchors & {"worker", "workers", "workplace", "factory", "industry", "industries", "finance"}:
+        queries.extend(["robot automation workplace", "industrial automation robot"])
     if anchors & {"chip", "chips", "chiplet", "semiconductor", "processor", "silicon", "microchip", "wafer", "maia"}:
         queries.extend(["computer chip semiconductor", "microchip processor"])
     if anchors & {"gpu", "nvidia", "accelerator", "inference", "compute", "computing"}:
@@ -119,7 +129,7 @@ def topic_queries(text):
         queries.append("data center cooling")
     if anchors & {"memory", "circuit", "motherboard", "transistor", "hardware"}:
         queries.append("computer hardware")
-    # Remove duplicates and keep the query set small so Commons can be used politely.
+    # Remove duplicates and keep each scene to four focused, reusable API searches.
     return list(dict.fromkeys(q for q in queries if q))[:4]
 
 def relevance_score(scene_text, title, description):
@@ -195,12 +205,18 @@ def self_test():
     irrelevant = relevance_score("Maia data sharing and hardware context", "Packaging data for sharing.webm", "A public health information-sharing training clip")
     relevant_chip = relevance_score("Maia inference chip", "Exposing a Chip on Board (COB).webm", "Close-up video of a silicon chip")
     relevant_power = relevance_score("AI data center power and cooling", "Data center power cooling systems", "Server racks and cooling infrastructure")
+    relevant_ai = relevance_score("AI automation and autonomous agents", "Industrial robot automation demonstration", "Robots performing automated tasks")
+    ai_queries = topic_queries("AI automation agents oversight")
     if irrelevant[0] != 0.0 or irrelevant[2]:
         raise SystemExit("Generic-media rejection self-test failed: generic 'data' overlap was accepted.")
     if relevant_chip[0] < MIN_VIDEO_RELEVANCE or not (set(relevant_chip[2]) & SPECIFIC_SINGLE_ANCHORS):
         raise SystemExit("Relevant chip-footage self-test failed.")
     if relevant_power[0] < MIN_VIDEO_RELEVANCE or len(relevant_power[2]) < 2:
         raise SystemExit("Relevant data-center/power-footage self-test failed.")
+    if relevant_ai[0] < MIN_VIDEO_RELEVANCE or not (set(relevant_ai[2]) & {"automation", "robot", "robots", "ai", "agent", "agents"}):
+        raise SystemExit("Relevant AI automation/agent-footage self-test failed.")
+    if not any("automation" in q.lower() or "artificial intelligence" in q.lower() for q in ai_queries):
+        raise SystemExit("AI/automation scene did not produce a focused free-media query.")
     print(json.dumps({
         "status": "self_test_passed",
         "minimum_relevance_score": MIN_VIDEO_RELEVANCE,
