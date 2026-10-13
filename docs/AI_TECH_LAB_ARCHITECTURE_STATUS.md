@@ -108,3 +108,10 @@ The Main Worker has an authenticated `/research` route which calls `nfResearchTo
 
 ### No false-completion rule
 A successful voice-preview job means only that Kokoro generated a preview and the run stopped at the required approval gate. It does not mean final video rendered, QA passed, or YouTube upload/scheduling completed.
+
+
+### Kokoro preview measurements — 2026-10-13 13:48 UTC
+- The completed preview run `38406679472` reports `Kokoro-82M`, voice `af_heart`, American English, post-processing high-pass 75 Hz, low-pass 12 kHz, light compression and EBU loudness normalization. Automated audio QA passed at 44.1 kHz stereo and **376.27 seconds (6:16)**.
+- This is 16.27 seconds above the project's preferred 296–360 second narration envelope. It has not yet passed a human listening check, and the output length still needs a final editorial decision/validation before upload.
+- The matching Supabase audio object path is `ai-tech-lab/23/kokoro.mp3`; the script SHA is also preserved in the artifact for exact-audio/script binding. Artifact download: https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38406679472/artifacts/11818419118.
+- The preview package title/script is the 856-word research package, not the older D1 id 23 title/script shown in the original content row. At release, verify that the production manifest updates content id 23 to the exact approved title/script and matching hash; never reuse this audio with a different script.
