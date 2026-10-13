@@ -88,6 +88,13 @@ def anchor_terms(text):
     tokens = concept_terms(text)
     expanded = set(tokens)
     aliases = {
+        "ai": {"artificial", "intelligence", "automation"},
+        "artificial": {"ai", "intelligence"}, "intelligence": {"ai", "artificial"},
+        "agent": {"automation", "robot"}, "agents": {"automation", "robot", "robots"},
+        "robot": {"automation", "agent"}, "robots": {"automation", "agents"},
+        "robotics": {"robot", "automation"}, "automated": {"automation", "robot"},
+        "cybersecurity": {"cyber", "security"}, "cyber": {"security", "cybersecurity"},
+        "software": {"code", "algorithm"}, "programming": {"software", "code"},
         "microchip": {"chip", "processor"}, "microchips": {"chip", "processor"},
         "cpu": {"processor"}, "gpus": {"gpu", "processor", "accelerator"},
         "gpu": {"processor", "accelerator"}, "accelerators": {"accelerator", "processor", "chip"},
