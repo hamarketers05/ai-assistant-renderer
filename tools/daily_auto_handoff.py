@@ -77,6 +77,7 @@ def dispatch_payload(pkg, content_id, fmt, publish_at):
             "script": str(pkg.get("script", "")),
             "description": str(pkg.get("description", ""))[:4900],
             "tags": str(tags)[:480],
+            "editorial_category": str(pkg.get("editorial_category", "")),
             "publish_at": publish_at,
         },
     }
@@ -99,7 +100,10 @@ def main():
         raise SystemExit("Short-form QA failed; no content records or renderer runs were created.")
     starts = (datetime.now(NY).date() + timedelta(days=1)).isoformat()
     common_sources = sources[:12]
-    long_req = make_request(package, common_sources, "LONG_VIDEO", starts, require_pair=True)
+    editorial_category = str(package.get("editorial_category", "")).strip()
+    if not editorial_category:
+        raise SystemExit("Editorial category missing from research package; no production dispatch is allowed.")
+    long_req = make_request(package, common_sources, "LONG_VIDEO", starts, category=editorial_category, require_pair=True)
     long_result = request_json(WORKER_URL + "/content-create", long_req, GITHUB_TOKEN)
     if DRY_RUN:
         short_req = make_request(short, common_sources, "SHORT", starts, category=str(long_result.get("category", "")))
@@ -107,6 +111,8 @@ def main():
         result = {
             "status": "DRY_RUN_VALIDATED_NO_D1_WRITES_NO_RENDER_NO_UPLOAD",
             "source_run_id": SOURCE_RUN_ID,
+            "editorial_category": editorial_category,
+            "category_rotation": package.get("category_rotation", {}),
             "long": long_result,
             "short": short_result,
             "planned_publish_times": {"long_local": "12:00 America/New_York", "short_local": "17:00 America/New_York"},
@@ -121,7 +127,9 @@ def main():
     short_result = request_json(WORKER_URL + "/content-create", short_req, GITHUB_TOKEN)
     if str(short_result.get("slot_date") or effective_date) != effective_date:
         raise SystemExit("Long/Short slot dates diverged; renderer dispatch blocked to avoid mismatched daily pair.")
-    results = {"source_run_id": SOURCE_RUN_ID, "slot_date": effective_date, "category": category, "long": long_result, "short": short_result}
+    results = {"source_run_id": SOURCE_RUN_ID, "slot_date": effective_date, "category": category or editorial_category,
+               "editorial_category": editorial_category, "category_rotation": package.get("category_rotation", {}),
+               "long": long_result, "short": short_result}
     if long_result.get("already_published_or_scheduled") and short_result.get("already_published_or_scheduled"):
         results["status"] = "ALREADY_SCHEDULED_NO_DUPLICATE_DISPATCH"
         Path("work/auto_handoff_result.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
