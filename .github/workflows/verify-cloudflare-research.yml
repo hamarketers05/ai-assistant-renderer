@@ -1,5 +1,5 @@
 name: Verify Cloudflare Free-Source Research
-# Re-run this gate after the Main Worker JSON recovery and script pre-save fact-check update.
+# Script generation reuses this fresh verified D1 research record to avoid duplicate provider calls.
 # Main Worker now conservatively cross-checks shared current headlines across independent publishers.
 
 on:
@@ -49,12 +49,14 @@ jobs:
           fi
           echo "PASS: Cloudflare returned primary sources, independent reporting and at least one cross-checked claim."
           TOPIC=$(jq -r '.topic_recommendation.topic' work/cloudflare-research.json)
-          SCRIPT_BODY=$(jq -nc --arg topic "$TOPIC" '{topic:$topic}')
+          RESEARCH_ID=$(jq -r '.research_id' work/cloudflare-research.json)
+          test "$RESEARCH_ID" -gt 0
+          SCRIPT_BODY=$(jq -nc --arg topic "$TOPIC" --argjson research_id "$RESEARCH_ID" '{topic:$topic,research_id:$research_id}')
           SCRIPT_CODE=$(curl -sS --retry 1 --retry-delay 2 --max-time 180 -o work/script-package.json -w "%{http_code}" \
             -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" -H "Content-Type: application/json" \
             --data "$SCRIPT_BODY" "$WORKER_URL/admin/generate-script")
           echo "Protected script generation/fact-check HTTP status: $SCRIPT_CODE"
-          jq '{ok,stage,content_id,topic,title,word_count,verified_event,source_count,independent_publishers,fact_check,content_status,next_stage,error,unsupported_claim_count,unsupported_examples}' work/script-package.json
+          jq '{ok,stage,research_id,content_id,topic,title,word_count,verified_event,source_count,independent_publishers,fact_check,content_status,next_stage,error,unsupported_claim_count,unsupported_examples}' work/script-package.json
           test "$SCRIPT_CODE" = "200" || { echo "SAFE BLOCK: script generation or fact-check did not pass; no voice/render/upload requested."; exit 2; }
           jq -e '.ok == true and (.word_count >= 850) and (.word_count <= 1000) and (.fact_check.approved == true) and ((.fact_check.unsupported_claim_count // 1) == 0) and .content_status == "WAITING_FOR_VOICE"' work/script-package.json >/dev/null
       - name: Store diagnostic artifact
