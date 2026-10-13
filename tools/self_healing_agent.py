@@ -219,10 +219,10 @@ def incident(title, body):
 def get_patched_already(run_id):
     return bool(cmd(["git", "log", "--all", "--format=%s", "--grep", f"SELF-HEAL PATCH run={run_id}"]).strip())
 
-def normalize_diff_hunk_counts(diff):
-    """Recompute unified-diff hunk counts so well-formed model edits apply reliably."""
+def normalize_diff_hunk_counts(diff, source_lines=None):
+    """Recompute hunk counts and recover omitted diff prefixes only when source evidence makes it safe."""
     lines = diff.splitlines()
-    changed = False
+    source_set = set(source_lines) if source_lines is not None else None
     i = 0
     while i < len(lines):
         if not lines[i].startswith("@@ "):
@@ -238,22 +238,52 @@ def normalize_diff_hunk_counts(diff):
             line = lines[j]
             if line.startswith("diff --git "):
                 break
-            if line.startswith(" "):
-                old_count += 1
+            if line.startswith("\\ No newline at end of file"):
+                j += 1
+                continue
+            if line.startswith("+"):
                 new_count += 1
             elif line.startswith("-"):
                 old_count += 1
-            elif line.startswith("+"):
-                new_count += 1
-            elif line.startswith("\\ No newline at end of file"):
-                pass
+            elif line.startswith(" "):
+                # Correct context has one diff marker plus the exact old source line.
+                context = line[1:]
+                if source_set is not None and context not in source_set and line in source_set:
+                    lines[j] = " " + line  # model supplied a raw old-source line without the context marker
+                    old_count += 1
+                    new_count += 1
+                elif source_set is not None and context not in source_set:
+                    # If neither representation matches source, treat it as an omitted '+' only;
+                    # git apply --check and the target's self-test remain mandatory.
+                    lines[j] = "+" + line
+                    new_count += 1
+                else:
+                    old_count += 1
+                    new_count += 1
+            elif line == "":
+                if source_set is None:
+                    raise ValueError("Empty diff line has no prefix and no source context to disambiguate it.")
+                if "" in source_set:
+                    lines[j] = " "
+                    old_count += 1
+                    new_count += 1
+                else:
+                    lines[j] = "+"
+                    new_count += 1
+            elif source_set is not None:
+                # Some model responses omit the first diff marker entirely.
+                if line in source_set:
+                    lines[j] = " " + line
+                    old_count += 1
+                    new_count += 1
+                else:
+                    lines[j] = "+" + line
+                    new_count += 1
             else:
                 raise ValueError("Unified diff contains a line without a valid context/add/remove prefix.")
             j += 1
         corrected = f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{suffix}"
-        if corrected != lines[i]:
-            lines[i] = corrected
-            changed = True
+        lines[i] = corrected
         if old_count == 0 and new_count == 0:
             raise ValueError("Unified-diff hunk is empty.")
         i = j
@@ -262,14 +292,14 @@ def normalize_diff_hunk_counts(diff):
     return "\n".join(lines) + "\n"
 
 
-def get_diff(text):
+def get_diff(text, source_lines=None):
     # Strip optional model commentary/fence and select the unified diff body.
     lines = text.strip().splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("--- a/")), None)
     if start is None:
         raise ValueError("No unified diff returned.")
     diff = "\n".join(lines[start:]).strip() + "\n"
-    return normalize_diff_hunk_counts(diff)
+    return normalize_diff_hunk_counts(diff, source_lines=source_lines)
 
 def request_patch_model(prompt, system, run, target):
     """Use Groq first, then an authenticated Cloudflare Workers AI fallback."""
@@ -370,7 +400,7 @@ def attempt_patch(run, job, log):
     if text == "NO_SAFE_PATCH":
         return False, "AI found no safe minimal patch (provider: " + provider + ")."
     try:
-        diff = get_diff(text)
+        diff = get_diff(text, source_lines=path.read_text(encoding="utf-8").splitlines())
     except ValueError as exc:
         preview = (" Model response: " + text[:140].replace("\\n", " ")) if target == "tools/self_healing_canary.py" else ""
         return False, str(exc) + preview
