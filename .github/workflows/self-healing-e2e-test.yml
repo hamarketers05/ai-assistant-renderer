@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "tools/self_healing_canary.py"
+      - "tools/self_healing_agent.py"
+      - "tools/test_self_healing_agent.py"
   workflow_dispatch:
 
 permissions:
