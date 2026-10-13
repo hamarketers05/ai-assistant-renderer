@@ -241,6 +241,16 @@ def classify_known_infrastructure_failure(run, log):
             "root_cause": "The live AI Tech Lab writer previously requested a rewrite only for drafts under 850 words, so an overlength draft (observed at 1048 words) reached the hard 850–1000-word gate without repair.",
             "safe_recovery": "Main Worker v418 now requests one evidence-locked rewrite for either underlength (<850) or overlength (>1000) drafts, then rechecks 850–1000 words. Rerun the no-publishing validator only when a free text provider is available; never waive the word-count, factual-claim, hook or voice QA gates, and never retry publishing from this failure."
         }
+    if (
+        name == "Verify Cloudflare Trend Script (No Publishing)"
+        and "natural_script_audit" in lower
+        and "independent groq qa did not approve script" in lower
+    ):
+        return {
+            "code": "CLOUDFLARE_NATURAL_AUDIT_NEEDS_ARTIFACT_DIAGNOSIS",
+            "root_cause": "The live no-publish validator reached independent script QA but did not release the package. The job log's summary alone does not distinguish a missing approval boolean from an explicit rejection.",
+            "safe_recovery": "Inspect the matching validation artifact's audit object before any repair. Main Worker v420 fills an omitted approval flag only if both explicit hook/human scores are >=7 and unsupported_current_claims is an explicit empty array. Never normalize an explicit approved=false, low scores, malformed output, or non-empty/unknown unsupported claims. Rerun no-publish validation; publishing stays blocked until the full contract passes."
+        }
     live_groq_span_429 = (
         "fetch /openai/v1/chat/completions" in lower
         or "api.groq.com/openai/v1/chat/completions" in lower
