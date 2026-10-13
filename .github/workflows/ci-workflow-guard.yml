@@ -39,8 +39,19 @@ jobs:
       - name: Smoke-test cinematic renderer components
         run: |
           set -euo pipefail
-          python -m py_compile tools/scene_director.py tools/render_transitions.py tools/make_transition_sfx.py tools/write_editing_tool_manifest.py tools/make_evidence_charts.py tools/generate_scene_art.py
+          python -m py_compile tools/scene_director.py tools/render_transitions.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/write_editing_tool_manifest.py tools/make_evidence_charts.py tools/generate_scene_art.py
           mkdir -p work scenes output assets
+          python tools/generate_flux_images.py --self-test --output work/flux_self_test_report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from PIL import Image
+          report = json.loads(Path("work/flux_self_test_report.json").read_text(encoding="utf-8"))
+          with Image.open("work/flux-image-self-test.png") as image:
+              assert image.size == (1920, 1080), image.size
+          assert report.get("status") == "self_test_passed"
+          print("FLUX composition self-test passed with no model request or AI quota use.")
+          PY
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=blue:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_1.mp4
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=yellow:s=640x360:r=30:d=3" -an -c:v libx264 -pix_fmt yuv420p scenes/scene_2.mp4
           printf '1\t0\t2.75\t2.75\tgenerated\tAI overview\tAI overview\n2\t2.75\t5.5\t2.75\tgenerated\tAI security\tAI security\n' > work/scenes.tsv
@@ -87,7 +98,8 @@ jobs:
               "transition_sfx_report.json": {"status":"generated","transition_count":n-1,"cue_lead_seconds":0.22,"source_license":"Original synthesized effects; no third-party audio samples."},
               "music_report.json": {"status":"generated","source":"original_synthesized","uses_external_samples":False},
               "opencv_visual_qa.json": {"status":"passed","sample_frames":10},
-              "rendered_scene_assets_report.json": {"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"python_pillow_scene_count":n-4},
+              "rendered_scene_assets_report.json": {"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4},
+              "flux_generation_report.json": {"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback without calling Workers AI","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"},
               "asset_reuse_report.json": {"status":"validated","previous_video_reuse":False,"within_video_duplicates":False},
               "evidence_charts_report.json": {"charts_created":[],"charts_requested":0},
               "stereo_3d_report.json": {"status":"disabled"},
