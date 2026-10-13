@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       seed_topic:
-        description: "Optional search direction; the topic must still pass the YouTube category-trend gate"
+        description: "Optional search direction; if live evidence is sparse, use the scheduled category evergreen fallback without claiming it is trending"
         required: false
         type: string
       target_date:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   cloudflare-research-and-script:
-    name: Cloudflare YouTube trend gate to Groq natural script
+    name: Cloudflare live-trend recovery or scheduled-category explainer to Groq script
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout for the existing production handoff contract
         uses: actions/checkout@v4
 
-      - name: Request category-verified trend research and natural script from Cloudflare
+      - name: Request authentic category-aware research with bounded YouTube recovery and evergreen fallback
         shell: bash
         run: |
           set -euo pipefail
@@ -61,10 +61,10 @@ jobs:
           jq -e '
             .ok == true and
             .stage == "cloudflare_trend_script_ready" and
-            (.trend_verification.distinct_video_count >= 3) and
+            ((.trend_verification.gate == "PASS" and .trend_verification.distinct_video_count >= 3 and .qa.trend_category_gate == "PASS") or (.trend_verification.gate == "SCHEDULED_ROTATION_FALLBACK" and .trend_verification.fallback == "scheduled_category_evergreen_explainer" and .trend_verification.selected_current_trend == false and .qa.trend_category_gate == "SCHEDULED_ROTATION_FALLBACK")) and
             (.script_word_count >= 850 and .script_word_count <= 1000) and
             (.hook_audit.score >= 7 and .hook_audit.human_voice_score >= 7) and
-            (.qa.trend_category_gate == "PASS" and .qa.human_voice_audit == "PASS") and
+            (.qa.human_voice_audit == "PASS" and (.qa.unsupported_current_claims // 0) == 0) and
             (.category_rotation.date_us_eastern == .target_date or .category_rotation.date_us_eastern == null or .category_rotation.date_us_eastern == .category_decision.date_us_eastern)
           ' work/cloudflare_trend_script.json >/dev/null
           jq --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
@@ -85,13 +85,15 @@ jobs:
             script:.script,
             description:.description,
             tags:.tags,
-            trend_basis:.trend_basis,
+            trend_basis:(.trend_basis + {gate:.trend_verification.gate,fallback:.trend_verification.fallback,selected_current_trend:(.trend_verification.selected_current_trend != false)}),
             trend_verification:.trend_verification,
+            trend_mode:.trend_mode,
+            state_store_mode:.state_store_mode,
             sources:.sources,
             claims_review:[],
             visual_direction:[],
             chapters:[],
-            warnings:["Tavily is disabled for this pipeline. Free public RSS/Atom and arXiv are research context; retain caution around unsupported current-event claims."],
+            warnings:(["Tavily is disabled for this pipeline. YouTube Data API v3 provides category trend signals; official/independent RSS and arXiv provide research context."] + (if .trend_mode == "SCHEDULED_ROTATION_FALLBACK" then ["Evergreen fallback used because no reliable three-video category trend sample was found; do not describe this package as a live trend."] else [] end)),
             previous_video_learning_applied:{}
           }' work/cloudflare_trend_script.json > work/daily_content_package.json
           jq '{
@@ -107,7 +109,7 @@ jobs:
           jq -r '.description' work/daily_content_package.json > work/description.txt
           jq -r '(.tags // []) | join(",")' work/daily_content_package.json > work/tags.txt
           jq '{score:.hook_audit.score,human_voice_score:.hook_audit.human_voice_score,decision:"PASS",notes:.hook_audit.notes}' work/daily_content_package.json > work/hook_audit.json
-          jq '{status:"CLOUDFLARE_TREND_SCRIPT_READY",title,script_words:.script_word_count,category:.editorial_category,category_date:.category_rotation.date_us_eastern,distinct_trending_videos:.trend_verification.distinct_video_count,source_context_count:(.sources|length),hook_score:.hook_audit.score,human_voice_score:.hook_audit.human_voice_score,provider:.provider,research_provider:.research_provider}' work/cloudflare_trend_script.json > work/research_summary.json
+          jq '{status:(if .trend_mode == "LIVE_TREND" then "CLOUDFLARE_TREND_SCRIPT_READY" else "CLOUDFLARE_EVERGREEN_FALLBACK_READY" end),title,script_words:.script_word_count,category:.editorial_category,category_date:.category_rotation.date_us_eastern,trend_mode:.trend_mode,distinct_trending_videos:.trend_verification.distinct_video_count,source_context_count:(.sources|length),hook_score:.hook_audit.score,human_voice_score:.hook_audit.human_voice_score,provider:.provider,research_provider:.research_provider,state_store_mode:.state_store_mode}' work/cloudflare_trend_script.json > work/research_summary.json
           jq '{editorial_category,category_rotation,category_decision,trend_basis,trend_verification}' work/daily_content_package.json > work/topic_brief.json
           jq '{category:.editorial_category,trend_verification:.trend_verification,videos:.trend_verification.videos}' work/daily_content_package.json > work/youtube_trend_signals.json
           jq '{stage:"research_and_script",status:"completed",provider:.provider,research_provider:.research_provider,trend_verification:.trend_verification,hook_audit:.hook_audit}' work/cloudflare_trend_script.json > work/mini_agent_execution_report.json
