@@ -61,9 +61,10 @@ def check_static() -> list[dict]:
         absent = [e.get(key, "") for e in entries if not e.get(key) or not (ROOT / e[key]).is_file()]
         add(label, "FAIL" if absent else "PASS",
             "Missing tracked paths: " + ", ".join(absent[:12]) if absent else f"{len(entries)} catalog paths exist")
-    route_codes = [r.get("code") for r in routes]
-    add("incident-routes", "PASS" if routes and len(route_codes) == len(set(route_codes)) and all(route_codes) else "FAIL",
-        f"{len(routes)} routes; route codes unique and non-empty")
+    route_codes = [r.get("code") or r.get("label") for r in routes if isinstance(r, dict)]
+    route_recovery = [r.get("safe_recovery") or r.get("permitted_recovery") for r in routes if isinstance(r, dict)]
+    add("incident-routes", "PASS" if routes and len(route_codes) == len(set(route_codes)) and all(isinstance(x, str) and x.strip() for x in route_codes) and len(route_recovery) == len(routes) and all(isinstance(x, str) and x.strip() for x in route_recovery) else "FAIL",
+        f"{len(routes)} routes; identifiers unique and recovery guidance present")
     protected = " ".join(str(x) for x in catalog.get("protected_operations", []))
     add("protected-operations", "PASS" if all(t.lower() in protected.lower() for t in PROTECTED_TERMS) else "FAIL",
         "Credential, billing, publishing and QA protections must remain catalogued")
