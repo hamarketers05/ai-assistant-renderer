@@ -116,7 +116,7 @@ def classify_configuration_failure(log):
     # A missing optional Groq primary is expected when authenticated Workers AI is configured.
     # If the fallback itself returned a retryable 408/425/429/5xx, prioritize transient recovery;
     # do not misclassify the unrelated word "missing" elsewhere in a bundled job log as a secret issue.
-    if re.search(r"authenticated cloudflare ai fallback returned http\\s+(408|425|429|500|502|503|504)\\b", lower):
+    if re.search(r"authenticated cloudflare ai fallback returned http\s+(408|425|429|500|502|503|504)\b", lower):
         return None
     missing_key = (
         "groq_api_key missing" in lower
@@ -172,6 +172,14 @@ def classify_known_infrastructure_failure(run, log):
     """Recognize recurring infrastructure failures whose correct response is auth/config, not code edits."""
     name = str(run.get("name") or "")
     lower = str(log or "").lower()
+    if "workers_ai_free_allocation_exhausted" in lower or (
+        "4006" in lower and "daily free allocation" in lower and "neurons" in lower
+    ):
+        return {
+            "code": "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED",
+            "root_cause": "Cloudflare Workers AI returned quota-exhaustion error 4006; the account's daily free-neuron allocation is exhausted. Retrying the same model will not create more allowance.",
+            "safe_recovery": "Prefer the existing Main Worker Groq primary through the WORKER_AUTH_TOKEN-protected internal AI route. If that primary is unavailable or rate-limited, stop and wait for the free allocation reset; never enable billing, upgrade, or loop retries."
+        }
     if name == "Validate MiDaS SBS Pipeline" and (
         "keyerror: 'authorization'" in lower or ("keyerror" in lower and '"authorization"' in lower)
     ):
