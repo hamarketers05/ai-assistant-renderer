@@ -44,3 +44,6 @@ function nfEditorialTrendGate(items,categoryName){
 // -> at least 3 distinct category-related videos, natural Groq / Workers AI script,
 // -> 850-1000 spoken words and independent natural-voice/current-claim audit.
 // This route returns a package; it does not upload or schedule a video.
+
+// Trigger the no-publishing GitHub-runner verification after the workflow was added.
+// Runtime status remains pending until the GitHub Actions log is inspected.
