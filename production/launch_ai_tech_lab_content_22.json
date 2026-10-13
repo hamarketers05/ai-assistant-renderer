@@ -65,5 +65,6 @@
     "updated_at_utc": "2026-10-12T17:14:00Z",
     "reason": "Retry after fixing the Commons video-extension/whitespace matching defect, broadening cached free-licensed media discovery, and adding a hard stop for Vecteezy downloads unless its API plan is explicitly confirmed as Free.",
     "publication_gate": "Do not upload or schedule unless four unique, scene-matched, commercially reusable clips are verified, all technical/3D/color/audio/thumbnail gates pass, and YouTube read-after-write confirms the scheduled private upload."
-  }
+  },
+  "video_id": "qGfh_E2Idls"
 }
