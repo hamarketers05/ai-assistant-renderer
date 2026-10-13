@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
+from seo_source_safety import extract_public_urls, sanitize_description
 
 WORK = Path("work")
 MANIFEST = json.loads((WORK / "production_manifest.json").read_text(encoding="utf-8"))
@@ -107,19 +108,18 @@ def chapters():
 
 def extract_sources():
     urls = []
-    url_pattern = re.compile(r"https?://[^\s\"'<>)}\]]+")
-    candidate_text = json.dumps(MANIFEST, ensure_ascii=False)
-    for url in url_pattern.findall(candidate_text):
-        url = url.rstrip(".,;:")
+    # Cite only public HTTPS pages from the manifest and the retained evidence/credit
+    # sections of the description. The shared sanitizer rejects signed storage links.
+    candidate_text = json.dumps(MANIFEST, ensure_ascii=False) + "\n" + DESCRIPTION
+    for url in extract_public_urls(candidate_text):
         parsed = urlparse(url)
-        if parsed.scheme != "https" or not parsed.netloc:
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        if not host:
             continue
-        host = parsed.netloc.lower().removeprefix("www.")
         if host.endswith(("youtube.com", "google.com")) and "trends.google.com" not in host:
             continue
-        if any(url == old for old in urls):
-            continue
-        urls.append(url)
+        if url not in urls:
+            urls.append(url)
     # Preserve the most reliable source list ahead of secondary/community links.
     preferred = ("reuters.com", "apnews.com", "nvidia.com", "microsoft.com", "openai.com",
                  "anthropic.com", "deepmind.google", "blog.google", "nist.gov", "ftc.gov",
@@ -131,6 +131,7 @@ def extract_sources():
 
 def main():
     global DESCRIPTION
+    DESCRIPTION, removed_unsafe_urls = sanitize_description(DESCRIPTION)
     title = clean_title(TITLE)
     if FMT == "SHORT" and "#shorts" not in title.lower():
         suffix = " #Shorts"
@@ -188,6 +189,7 @@ def main():
         "format": FMT, "title_characters": len(title), "description_characters": min(len(DESCRIPTION), 4900),
         "tag_count": len(final_tags), "tag_characters": len(", ".join(final_tags)),
         "source_url_count": len(sources), "chapters_added": FMT != "SHORT" and len(chapter_lines) >= 3,
+        "unsafe_internal_urls_removed": len(removed_unsafe_urls),
         "title": title, "tags": final_tags, "source_urls": sources,
         "policy": "SEO phrases are derived from supplied script/manifest. No views/rankings/search volumes are invented."
     }
