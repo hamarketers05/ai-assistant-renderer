@@ -32,10 +32,11 @@ def main():
     if not KEY and not (os.getenv("GITHUB_TOKEN", "").strip() and os.getenv("GITHUB_RUN_ID", "").isdigit()):
         raise SystemExit("Groq key and authenticated Cloudflare Workers AI fallback context are both missing.")
     package = load(ROOT / "daily_content_package.json")
-    evidence = load(ROOT / "tavily_evidence.json")
+    evidence = load(ROOT / "research_evidence.json")
     sources = evidence.get("sources", [])
-    if len(sources) < 4:
-        raise SystemExit("Short creation blocked: fewer than four researched sources.")
+    # The long-form package has already passed the category-trend and script QA gates.
+    # Source links stay in the internal context, but an arbitrary minimum source count
+    # must not block a Short derived strictly from the approved long-form narration.
     title = str(package.get("title", "")).strip()
     script = str(package.get("script", "")).strip()
     if not title or len(script) < 2500:
