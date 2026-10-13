@@ -210,9 +210,13 @@ jobs:
           for marker in ("FLUX.1 [schnell]", "Cloudflare Workers AI FLUX.1", "flux_generation_report.json", "cloudflare_flux_image_scene_count", "Demucs", "DaVinci Resolve", "not_installed", "editing_tools", "color grade", "rendered_scene_assets_report.json", "evidence_charts_used", "transparent_hud_overlays_applied"):
               if marker.lower() not in manifest_code.lower():
                   raise SystemExit(f"Per-video editing tool manifest incomplete: {marker}")
-          for marker in ("Generate bounded topic-matched FLUX stills", "--max-images 6", "/generate-image", "WORKER_AUTH_TOKEN", "flux_image_used", "cloudflare_flux_image_scene_count"):
+          for marker in ("Generate bounded topic-matched FLUX stills", "--max-images 6", "WORKER_AUTH_TOKEN", "flux_image_used", "cloudflare_flux_image_scene_count"):
               if marker.lower() not in renderer_text.lower():
                   raise SystemExit(f"Bounded Cloudflare FLUX render integration missing: {marker}")
+          flux_code = Path("tools/generate_flux_images.py").read_text(encoding="utf-8")
+          for marker in ('"/generate-image"', "MAX_IMAGES_PER_CONTENT = 25", "ImageOps.fit", "local fallback visuals retained"):
+              if marker.lower() not in flux_code.lower():
+                  raise SystemExit(f"FLUX endpoint/cap/fallback implementation missing: {marker}")
           if not (renderer_text.index("Generate script-matched illustrated scenes") < renderer_text.index("Generate bounded topic-matched FLUX stills") < renderer_text.index("Generate topic-matched 3D hero overlay") < renderer_text.index("Render scenes")):
               raise SystemExit("FLUX generation must run after local fallback creation and before scene rendering.");
           charts_code = Path("tools/make_evidence_charts.py").read_text(encoding="utf-8")
