@@ -97,11 +97,17 @@ jobs:
           n = int(scene["planned_visual_scenes"])
           fixtures = {
               "voice_edit_report.json": {"status":"passed","timestamped_words":120},
+              "rubberband_report.json": {"status":"skipped","reason":"Static fixture does not alter voice pitch."},
+              "video_review_report.json": {"review_status":"completed","decision":"PASS","overall_score":10,"blocking_issues":[]},
               "transitions_report.json": {"scenes":n,"transition":"alternating cinematic xfade","rendered_duration_seconds":60},
               "transition_sfx_report.json": {"status":"generated","transition_count":n-1,"cue_lead_seconds":0.22,"source_license":"Original synthesized effects; no third-party audio samples."},
               "music_report.json": {"status":"generated","source":"original_synthesized","uses_external_samples":False},
               "opencv_visual_qa.json": {"status":"passed","sample_frames":10},
-              "rendered_scene_assets_report.json": {"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"chart_overlay_applied_count":0,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4,"scenes":[{"primary_asset":"assets/generated_scene_"+str(i)+".png","asset_type":"python_pillow_scene","flux_image_used":False,"hud_overlay_applied":False,"chart_overlay_applied":False} for i in range(n)]},
+              "rendered_scene_assets_report.json": {"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"chart_overlay_applied_count":0,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4,"scenes":[
+                  {"scene":str(i),"primary_asset":"assets/fixture_stock_"+str(i)+".mp4","asset_type":"licensed_stock_broll","flux_image_used":False,"hud_overlay_applied":i<3,"chart_overlay_applied":False}
+                  if i<4 else
+                  {"scene":str(i),"primary_asset":"assets/generated_scene_"+str(i)+".png","asset_type":"python_pillow_scene","flux_image_used":False,"hud_overlay_applied":False,"chart_overlay_applied":False}
+                  for i in range(n)]},
               "flux_generation_report.json": {"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback without calling Workers AI","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"},
               "asset_reuse_report.json": {"status":"validated","previous_video_reuse":False,"within_video_duplicates":False},
               "evidence_charts_report.json": {"charts_created":[],"charts_requested":0},
@@ -115,7 +121,11 @@ jobs:
           for name, obj in fixtures.items():
               Path("work",name).write_text(json.dumps(obj),encoding="utf-8")
           Path("work/asset_sources.jsonl").write_text("\n".join(
-              json.dumps({"provider":"LicenseFixture","scene":str(i),"source_url":"https://example.org/"+str(i),"creator":"CI fixture"})
+              json.dumps({"provider":"Wikimedia Commons","scene":str(i),"asset_id":"fixture-video-"+str(i),
+                          "asset_path":"assets/fixture_stock_"+str(i)+".mp4",
+                          "source_url":"https://commons.wikimedia.org/wiki/File:Fixture_"+str(i),
+                          "creator":"CI fixture","license_label":"CC BY 4.0",
+                          "license_url":"https://creativecommons.org/licenses/by/4.0/", "commercial_use_allowed":True})
               for i in range(4))+"\n",encoding="utf-8")
           Path("output/manifest-smoke.mp4").write_bytes(b"fixture" * 20000)
           from PIL import Image, ImageDraw
