@@ -127,7 +127,7 @@ def fetch_logs(job_id):
                 names = [n for n in z.namelist() if n.lower().endswith((".txt", ".log"))]
                 selected = [
                     n for n in names
-                    if (match := re.search(r"(?:^|/)([0-9]+)_.*\\.txt$", n))
+                    if (match := re.search(r"(?:^|/)([0-9]+)_.*\.txt$", n))
                     and int(match.group(1)) in failed_numbers
                 ]
                 raw = b"\n".join(z.read(n) for n in (selected or names))
