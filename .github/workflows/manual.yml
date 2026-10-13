@@ -462,6 +462,8 @@ jobs:
 
           
           STOP_WORDS = set("the and for with from into that this these those then than have has had are was were can could will would should about after before your you our their they them its how what when where why which while explain explained latest trend news future technology artificial intelligence".split())
+          GENERIC_MEDIA_TERMS = set("data information info sharing share tutorial training presentation slides overview introduction guide manual file files image images video media content platform service services device devices product products general basics basic digital technology system systems management example examples quality development using used use lab source sources health public epi series packaging education teaching course courses report reports".split())
+          SPECIFIC_MEDIA_TERMS = set("chip chiplet silicon semiconductor semiconductors processor processors cpu gpu gpus accelerator accelerators nvidia maia inference megawatt megawatts server servers rack racks cooling electricity power silicon wafer wafer wafers circuit circuits transistor transistors network networking bandwidth memory motherboard".split())
 
           def significant_terms(text):
               terms = []
@@ -471,7 +473,7 @@ jobs:
               return terms[:12]
 
           def semantic_terms(text):
-              tokens = set(significant_terms(str(text or "").replace("-", " ")))
+              tokens = set(significant_terms(str(text or "").replace("-", " "))) - GENERIC_MEDIA_TERMS
               aliases = {
                   "microchip": {"chip", "processor"}, "microchips": {"chip", "processor"},
                   "cpu": {"processor"}, "gpu": {"processor", "accelerator"}, "gpus": {"processor", "accelerator"},
@@ -483,14 +485,20 @@ jobs:
               }
               for token in list(tokens):
                   tokens.update(aliases.get(token, set()))
-              return tokens
+              return tokens - GENERIC_MEDIA_TERMS
 
           def relevance(query, title, description):
-              # Expand equivalent hardware terms but still demand overlap with a focused scene query.
+              # Generic catalogue words never count as evidence. Two distinctive matches are
+              # required; one single-token match is allowed only for a specific hardware anchor.
               needed = semantic_terms(query)
               available = semantic_terms(str(title or "") + " " + str(description or ""))
               matching = sorted(needed & available)
-              return round(len(matching) / max(1, len(needed)), 3), matching
+              if len(matching) < 2 and not (set(matching) & SPECIFIC_MEDIA_TERMS):
+                  return 0.0, matching
+              score = len(matching) / max(1, len(needed))
+              if len(matching) < 2:
+                  score = min(score, 0.40)
+              return round(score, 3), matching
 
           def focused_search_query(scene_text):
               lower = re.sub(r"\s+", " ", str(scene_text or "").lower())
@@ -583,8 +591,8 @@ jobs:
                   asset_title = find_value(item, {"title", "name", "resource_title", "asset_title", "display_name"})
                   asset_description = find_value(item, {"description", "summary", "keywords", "tags", "category"})
                   relevance_score, matching_terms = relevance(query, asset_title, asset_description)
-                  if not asset_title or relevance_score < 0.20:
-                      print(f"Skipping {rid}: weak scene relevance ({relevance_score:.3f}); query={query!r}; title={asset_title!r}")
+                  if not asset_title or relevance_score < 0.45 or len(matching_terms) < 2:
+                      print(f"Skipping {rid}: weak/too-generic scene relevance ({relevance_score:.3f}); query={query!r}; title={asset_title!r}; matching={matching_terms}")
                       continue
                   try:
                       download_calls += 1
