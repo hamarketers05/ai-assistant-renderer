@@ -15,6 +15,13 @@ export default {
       try { return await generateSelfHealPatch(request, env); }
       catch (_) { return Response.json({ ok: false, error: "Patch generation unavailable." }, { status: 502 }); }
     }
+    if (url.pathname === "/ai/generate" && request.method === "POST") {
+      try { return await generateAiCompletion(request, env); }
+      catch (e) {
+        console.error("AI_PROXY_FAILURE", String(e && e.message || e).slice(0, 180));
+        return Response.json({ ok: false, error: "AI inference failed safely." }, { status: 502, headers: cors() });
+      }
+    }
     if (url.pathname !== "/content-create" || request.method !== "POST") {
       return Response.json({ ok: false, error: "Not found" }, { status: 404 });
     }
@@ -172,6 +179,120 @@ async function receiveSelfHealReport(request, env) {
   }
   await env.DB.batch(statements);
   return Response.json({ ok: true, saved: true, run_id: runId, status, health_probes_passed: health.filter(x => x.ok).length, health_probes_total: health.length });
+}
+
+async function generateAiCompletion(request, env) {
+  const auth = String(request.headers.get("Authorization") || "").match(/^Bearer\\s+(.+)$/i);
+  const token = auth ? auth[1].trim() : "";
+  if (!token) return Response.json({ ok: false, error: "GitHub Actions token required" }, { status: 401, headers: cors() });
+  const length = Number(request.headers.get("Content-Length") || "0");
+  if (length > 8_000_000) return Response.json({ ok: false, error: "AI request exceeds the safe payload limit" }, { status: 413, headers: cors() });
+  let body;
+  try { body = await request.json(); }
+  catch (_) { return Response.json({ ok: false, error: "Valid JSON required" }, { status: 400, headers: cors() }); }
+  const runId = String(body.workflow_run_id || "").trim();
+  const requestedPath = String(body.workflow_path || "");
+  const allowed = new Set([
+    ".github/workflows/daily-content-research.yml",
+    ".github/workflows/daily-auto-production.yml",
+    ".github/workflows/manual.yml",
+    ".github/workflows/self-healing-watchdog.yml",
+    ".github/workflows/ai-self-healing-agent.yml",
+    ".github/workflows/verify-ai-fallback.yml"
+  ]);
+  if (!/^\\d{5,}$/.test(runId) || !allowed.has(requestedPath)) {
+    return Response.json({ ok: false, error: "Workflow run or caller path is not allowed" }, { status: 400, headers: cors() });
+  }
+  const verify = await fetch("https://api.github.com/repos/hamarketers05/ai-assistant-renderer/actions/runs/" + encodeURIComponent(runId), {
+    headers: { "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "AI-Tech-Lab-Workers-AI-Fallback/1.0" }
+  });
+  if (!verify.ok) return Response.json({ ok: false, error: "GitHub could not verify the active workflow run", github_status: verify.status }, { status: 403, headers: cors() });
+  const run = await verify.json();
+  if ((run.repository && run.repository.full_name !== "hamarketers05/ai-assistant-renderer")
+      || run.path !== requestedPath || run.head_branch !== "main"
+      || run.status !== "in_progress"
+      || !["schedule", "workflow_dispatch", "workflow_run", "push"].includes(run.event)) {
+    return Response.json({ ok: false, error: "Only an active approved main-branch workflow may request AI inference" }, { status: 403, headers: cors() });
+  }
+  const incoming = Array.isArray(body.messages) ? body.messages : [];
+  if (!incoming.length || incoming.length > 12) return Response.json({ ok: false, error: "Between 1 and 12 messages are required" }, { status: 400, headers: cors() });
+  let total = 0, hasImage = false;
+  for (const msg of incoming) {
+    if (!msg || !["system", "user", "assistant"].includes(String(msg.role || ""))) return Response.json({ ok: false, error: "Invalid message role" }, { status: 400, headers: cors() });
+    if (typeof msg.content === "string") {
+      total += msg.content.length;
+      if (msg.content.length > 45000) return Response.json({ ok: false, error: "Message exceeds the safe text limit" }, { status: 413, headers: cors() });
+    } else if (Array.isArray(msg.content) && msg.content.length <= 8) {
+      for (const part of msg.content) {
+        if (part && part.type === "text" && typeof part.text === "string") {
+          total += part.text.length;
+        } else if (part && part.type === "image_url" && part.image_url && typeof part.image_url.url === "string") {
+          const data = part.image_url.url;
+          if (!/^data:image\\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=_-]+$/.test(data) || data.length > 2_100_000) {
+            return Response.json({ ok: false, error: "Only small base64-encoded review images are accepted" }, { status: 413, headers: cors() });
+          }
+          total += data.length;
+          hasImage = true;
+        } else {
+          return Response.json({ ok: false, error: "Unsupported multimodal content block" }, { status: 400, headers: cors() });
+        }
+      }
+    } else {
+      return Response.json({ ok: false, error: "Message content must be text or approved text/image parts" }, { status: 400, headers: cors() });
+    }
+    if (total > 7_500_000) return Response.json({ ok: false, error: "AI request exceeds the safe total payload limit" }, { status: 413, headers: cors() });
+  }
+  const maxTokens = Math.min(2600, Math.max(1, Number(body.max_tokens || 1000)));
+  const temperature = Math.min(1, Math.max(0, Number(body.temperature ?? 0.2)));
+  const responseFormat = body.response_format && body.response_format.type === "json_object" ? { type: "json_object" } : undefined;
+  const requestedModel = String(body.model || "");
+  const vision = hasImage || body.task === "vision";
+  if (env.GROQ_API_KEY) {
+    const groqModel = requestedModel.startsWith("@cf/") ? (vision ? String(env.GROQ_VISION_MODEL || "qwen/qwen3.8-27b") : String(env.GROQ_MODEL || "openai/gpt-oss-20b")) : (requestedModel || String(env.GROQ_MODEL || "openai/gpt-oss-20b"));
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 55000);
+      let groqResponse;
+      try {
+        groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST", signal: controller.signal,
+          headers: { "Authorization": "Bearer " + env.GROQ_API_KEY, "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ model: groqModel, messages: incoming, max_tokens: maxTokens, temperature, ...(responseFormat ? { response_format: responseFormat } : {}) })
+        });
+      } finally { clearTimeout(timer); }
+      if (groqResponse.ok) {
+        const result = await groqResponse.json();
+        if (Array.isArray(result.choices) && result.choices.length && result.choices[0].message) {
+          return Response.json({ ...result, ok: true, provider: "groq" }, { headers: cors() });
+        }
+      }
+      console.warn("AI_PROXY_GROQ_FALLBACK", groqResponse.status);
+    } catch (e) {
+      console.warn("AI_PROXY_GROQ_FALLBACK", String(e && e.name || "provider_error").slice(0, 80));
+    }
+  }
+  if (!env.AI) return Response.json({ ok: false, error: "Groq failed and Workers AI binding is unavailable" }, { status: 503, headers: cors() });
+  const model = vision ? "@cf/qwen/qwen3.8-27b" : "@cf/zai-org/glm-4.7-flash";
+  const started = Date.now();
+  let result;
+  try {
+    result = await env.AI.run(model, {
+      messages: incoming, max_tokens: maxTokens, temperature,
+      ...(responseFormat ? { response_format: responseFormat } : {})
+    });
+  } catch (e) {
+    console.error("AI_PROXY_WORKERS_AI_FAILURE", String(e && e.message || e).slice(0, 180));
+    return Response.json({ ok: false, error: "Cloudflare Workers AI fallback could not complete the request" }, { status: 502, headers: cors() });
+  }
+  const content = String(result && (result.response || result.text || result.output_text) || "");
+  if (!content.trim()) return Response.json({ ok: false, error: "AI provider returned empty content" }, { status: 502, headers: cors() });
+  return Response.json({
+    id: "cf-" + crypto.randomUUID(), object: "chat.completion",
+    created: Math.floor(Date.now() / 1000), model,
+    choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+    provider: "cloudflare_workers_ai", ok: true, latency_ms: Date.now() - started
+  }, { headers: cors() });
 }
 
 async function generateSelfHealPatch(request, env) {
