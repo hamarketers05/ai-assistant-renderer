@@ -34,14 +34,38 @@ def make_icon(draw,kind,cx,cy):
         line(draw,pts,c,12); line(draw,[(cx-55,cy-5),(cx-12,cy+38),(cx+65,cy-48)],white,15)
         rounded(draw,(cx+175,cy-70,cx+285,cy+55),18,(8,40,70),c,5)
         draw.arc((cx+202,cy-115,cx+258,cy-15),180,360,fill=pale,width=10)
-    elif any(k in kind for k in ("cloud","server","internet","remote")):
+    elif any(k in kind for k in ("cloud","server","internet","remote","data center","datacenter","rack","cooling")):
         draw.ellipse((cx-145,cy-45,cx-35,cy+65),fill=(8,53,86),outline=c,width=7)
         draw.ellipse((cx-60,cy-105,cx+70,cy+65),fill=(8,53,86),outline=c,width=7)
         draw.ellipse((cx+20,cy-50,cx+150,cy+65),fill=(8,53,86),outline=c,width=7)
         rounded(draw,(cx-120,cy+5,cx+125,cy+75),22,(8,53,86),c,5)
         for yy in (cy+115,cy+160,cy+205):
             rounded(draw,(cx-115,yy,cx+115,yy+27),8,(10,38,68),pale,3)
-    elif any(k in kind for k in ("graph","chart","performance","speed","compare","benchmark","data")):
+    elif any(k in kind for k in ("power","electricity","megawatt","energy","kilowatt","cooling load")):
+        # Original energy/compute metaphor; it contains no fabricated labels or measurements.
+        rounded(draw,(cx-190,cy-160,cx+190,cy+160),30,(5,25,49),c,5)
+        bolt=[(cx+15,cy-140),(cx-75,cy-10),(cx-5,cy-10),(cx-45,cy+140),(cx+90,cy-40),(cx+20,cy-40),(cx+15,cy-140)]
+        line(draw,bolt,(255,190,75),13)
+        for k in range(4):
+            yy=cy-105+k*70
+            line(draw,[(cx-165,yy),(cx-105,yy)],pale,4)
+            line(draw,[(cx+120,yy),(cx+165,yy)],pale,4)
+    elif any(k in kind for k in ("chip","processor","semiconductor","gpu","cpu","chiplet")):
+        # Distinct processor/package diagram for semiconductor and inference scenes.
+        rounded(draw,(cx-185,cy-150,cx+185,cy+150),24,(4,18,39),c,7)
+        rounded(draw,(cx-138,cy-108,cx+138,cy+108),18,(7,48,79),pale,4)
+        rounded(draw,(cx-82,cy-62,cx+82,cy+62),15,(2,18,40),c,4)
+        for k in range(7):
+            xx=cx-120+k*40
+            line(draw,[(xx,cy-135),(xx,cy-107)],pale,4)
+            line(draw,[(xx,cy+108),(xx,cy+135)],pale,4)
+        for k in range(5):
+            yy=cy-80+k*40
+            line(draw,[(cx-165,yy),(cx-138,yy)],pale,4)
+            line(draw,[(cx+138,yy),(cx+165,yy)],pale,4)
+        for dx,dy in ((-35,-20),(35,-20),(-35,20),(35,20)):
+            draw.ellipse((cx+dx-7,cy+dy-7,cx+dx+7,cy+dy+7),fill=(255,190,75))
+    elif any(k in kind for k in ("graph","chart","performance","speed","compare","benchmark","throughput")):
         rounded(draw,(cx-190,cy-150,cx+190,cy+180),20,(7,29,55),c,4)
         for yy in (cy-75,cy,cy+75): line(draw,[(cx-150,yy),(cx+150,yy)],(34,70,96),2)
         bars=[(cx-115,cy+70,cx-65,cy+135),(cx-35,cy+5,cx+15,cy+135),(cx+45,cy-65,cx+95,cy+135)]
@@ -79,18 +103,34 @@ def main():
         content_seed=os.getenv("CONTENT_ID","unique-video")
         digest=hashlib.sha256((content_seed+scene+kind+title).encode()).digest()
         accent=(0,190+digest[0]%50,220+digest[1]%35)
-        img=Image.new("RGB",(W,H))
-        px=img.load()
-        for y in range(H):
+        # Render the gradient in Pillow's native drawing path instead of millions of
+        # Python pixel operations; this keeps 80-90-scene videos practical on free runners.
+        img=Image.new("RGB",(W,H),(3,10,27))
+        bg=ImageDraw.Draw(img)
+        for y in range(0,H,4):
             t=y/H
-            col=(3+int(4*t),10+int(18*t),27+int(28*t))
-            for x in range(W): px[x,y]=col
+            col=(3+int(7*t)+digest[0]%4, 8+int(19*t)+digest[1]%6, 22+int(36*t)+digest[2]%8)
+            bg.rectangle((0,y,W,min(H,y+4)),fill=col)
         d=ImageDraw.Draw(img,"RGBA")
-        # Circuit pattern and luminous nodes give each frame visual texture.
-        for x in range(80,W,160):
-            d.line((x,120,x,930),fill=(10,70,105,110),width=2)
-            for y in range(140,940,160):
-                d.ellipse((x-5,y-5,x+5,y+5),fill=(*accent,150))
+        # Vary the ambient motif by scene seed, so fallback illustrations do not repeat
+        # the exact same circuit-grid backdrop on every shot.
+        pattern=digest[3]%4
+        if pattern in (0,1):
+            for x in range(80,W,160 if pattern==0 else 220):
+                d.line((x,120,x,930),fill=(10,70,105,95),width=2)
+                for y in range(140+(digest[4]%35),940,150 if pattern==0 else 190):
+                    d.ellipse((x-5,y-5,x+5,y+5),fill=(*accent,130))
+        elif pattern==2:
+            for k in range(-H,W,190):
+                d.line((k,120,k+H,930),fill=(10,70,105,95),width=3)
+            for x,y in ((240,270),(610,600),(980,250),(1440,680),(1680,360)):
+                d.ellipse((x-10,y-10,x+10,y+10),outline=(*accent,180),width=4)
+        else:
+            for radius in (100,180,270,370):
+                d.ellipse((W-480-radius,H//2-radius,W-480+radius,H//2+radius),
+                          outline=(*accent,80),width=3)
+            for x in range(100,W,260):
+                d.line((x,130,x,950),fill=(10,70,105,50),width=1)
         d.rounded_rectangle((55,55,W-55,H-55),radius=34,outline=(*accent,220),width=3)
         d.text((100,78),"AI TECH LAB  /  EXPLAINED",font=font(27,True),fill=(*accent,255))
         head=(row[6] or row[5] or title).strip()
@@ -124,8 +164,10 @@ def main():
         od=ImageDraw.Draw(overlay,"RGBA")
         od.rounded_rectangle((72,842,1230,1015),radius=26,fill=(2,12,30,218),outline=(*accent,235),width=4)
         od.text((108,866),"AI TECH LAB  /  KEY IDEA",font=font(23,True),fill=(*accent,255))
-        caption=" ".join(wrap(od,head,font(35,True),1040)[:2])
-        od.text((108,910),caption,font=font(35,True),fill=(247,250,255,255),stroke_width=1,stroke_fill=(0,0,0,200))
+        caption_lines=wrap(od,head,font(32,True),1040)[:2]
+        caption_text="\n".join(caption_lines)
+        od.multiline_text((108,906),caption_text,font=font(32,True),fill=(247,250,255,255),
+                          spacing=5,stroke_width=1,stroke_fill=(0,0,0,200))
         overlay.save(OUT/f"scene_overlay_{scene}.png")
         made+=1
     if made<4: raise SystemExit(f"Visual QA failed: only {made} script-matched scenes generated.")
