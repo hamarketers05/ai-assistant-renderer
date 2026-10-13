@@ -16,6 +16,10 @@ jobs:
     name: Activate MiDaS and test FFmpeg SBS end-to-end
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # PyTorch Hub validates the pinned GitHub model commit; a token prevents
+      # anonymous shared-runner API limits from turning into KeyError: Authorization.
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
