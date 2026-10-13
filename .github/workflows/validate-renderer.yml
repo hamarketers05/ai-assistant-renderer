@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/write_editing_tool_manifest.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/write_editing_tool_manifest.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -207,9 +207,14 @@ jobs:
           for marker in ("synthesize_event", "work/transition_sfx_report.json", "no third-party audio samples".lower()):
               if marker.lower() not in sfx_code.lower():
                   raise SystemExit(f"Procedural, royalty-free transition SFX implementation missing: {marker}")
-          for marker in ("FLUX.1 [schnell]", "Demucs", "DaVinci Resolve", "not_installed", "editing_tools", "color grade", "rendered_scene_assets_report.json", "evidence_charts_used", "transparent_hud_overlays_applied"):
+          for marker in ("FLUX.1 [schnell]", "Cloudflare Workers AI FLUX.1", "flux_generation_report.json", "cloudflare_flux_image_scene_count", "Demucs", "DaVinci Resolve", "not_installed", "editing_tools", "color grade", "rendered_scene_assets_report.json", "evidence_charts_used", "transparent_hud_overlays_applied"):
               if marker.lower() not in manifest_code.lower():
                   raise SystemExit(f"Per-video editing tool manifest incomplete: {marker}")
+          for marker in ("Generate bounded topic-matched FLUX stills", "--max-images 6", "/generate-image", "WORKER_AUTH_TOKEN", "flux_image_used", "cloudflare_flux_image_scene_count"):
+              if marker.lower() not in renderer_text.lower():
+                  raise SystemExit(f"Bounded Cloudflare FLUX render integration missing: {marker}")
+          if not (renderer_text.index("Generate script-matched illustrated scenes") < renderer_text.index("Generate bounded topic-matched FLUX stills") < renderer_text.index("Generate topic-matched 3D hero overlay") < renderer_text.index("Render scenes")):
+              raise SystemExit("FLUX generation must run after local fallback creation and before scene rendering.");
           charts_code = Path("tools/make_evidence_charts.py").read_text(encoding="utf-8")
           for marker in ("charts[:12]", "chart_details", "source_url", "Only source-linked numeric values"):
               if marker.lower() not in charts_code.lower():
@@ -285,6 +290,21 @@ jobs:
           print("Static validation passed: research, Groq, thumbnail, audio/visual QA, upload gate, learning, and safe optional 2D3D export.")
           PY
 
+      - name: Smoke-test FLUX composition without consuming AI quota
+        run: |
+          set -euo pipefail
+          python tools/generate_flux_images.py --self-test --output work/flux_self_test_report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("work/flux_self_test_report.json").read_text(encoding="utf-8"))
+          from PIL import Image
+          with Image.open("work/flux-image-self-test.png") as image:
+              assert image.size == (1920, 1080), image.size
+          assert report.get("status") == "self_test_passed"
+          print("FLUX image compose self-test passed locally; no network call or AI quota consumed.")
+          PY
+
       - name: Smoke-test voice-aligned scene cadence and editing tool manifest
         run: |
           set -euo pipefail
@@ -318,7 +338,8 @@ jobs:
           Path("work/transition_sfx_report.json").write_text(json.dumps({"status":"generated","transition_count":n-1,"cue_lead_seconds":0.22,"source_license":"Original synthesized effects; no third-party audio samples."}),encoding="utf-8")
           Path("work/music_report.json").write_text(json.dumps({"status":"generated","source":"original_synthesized","uses_external_samples":False}),encoding="utf-8")
           Path("work/opencv_visual_qa.json").write_text(json.dumps({"status":"passed","sample_frames":10}),encoding="utf-8")
-          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"python_pillow_scene_count":n-4}),encoding="utf-8")
+          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4}),encoding="utf-8")
+          Path("work/flux_generation_report.json").write_text(json.dumps({"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback and makes no inference request","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"}),encoding="utf-8")
           Path("work/asset_reuse_report.json").write_text(json.dumps({"status":"validated","previous_video_reuse":False,"within_video_duplicates":False}),encoding="utf-8")
           Path("work/evidence_charts_report.json").write_text(json.dumps({"charts_created":[],"charts_requested":0}),encoding="utf-8")
           Path("work/stereo_3d_report.json").write_text(json.dumps({"status":"disabled"}),encoding="utf-8")
