@@ -25,6 +25,16 @@ def _post_json(url: str, payload: dict, headers: dict[str, str], timeout: int) -
     return data
 
 
+def _read_http_error(exc: urllib.error.HTTPError) -> dict:
+    """Read only a bounded JSON error body so known quota exhaustion can stop blind retries."""
+    try:
+        raw = exc.read(4096).decode("utf-8", "replace")
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def chat_completion(payload: dict, workflow_path: str, timeout: int = 90) -> dict:
     """Try Groq first; on missing/failed Groq, use a GitHub-run-verified Cloudflare AI fallback.
 
@@ -58,6 +68,52 @@ def chat_completion(payload: dict, workflow_path: str, timeout: int = 90) -> dic
                     continue
                 break
 
+    # Prefer the existing Main Worker Groq primary using its dedicated authenticated route.
+    # This avoids burning the separate Workers AI daily free-neuron allowance for normal text tasks.
+    worker_token = os.getenv("WORKER_AUTH_TOKEN", "").strip()
+    worker_url = os.getenv("WORKER_URL", "https://dark-sunset-a2a1.hamarketers05.workers.dev").rstrip("/")
+    has_image_input = any(
+        isinstance(m, dict) and isinstance(m.get("content"), list)
+        and any(isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"])
+        for m in payload.get("messages", [])
+    )
+    if worker_token and not has_image_input:
+        main_url = worker_url + "/internal/ai/generate"
+        try:
+            main_result = _post_json(
+                main_url, payload, {"Authorization": "Bearer " + worker_token}, timeout
+            )
+            if main_result.get("ok") is True and main_result.get("choices"):
+                main_result["provider"] = "main_worker_groq"
+                return main_result
+            main_code = str(main_result.get("code", ""))
+            if main_code == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED":
+                raise RuntimeError(
+                    "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED: daily free quota is exhausted; "
+                    "stop retries and do not switch to a paid provider."
+                )
+            groq_error = "Main Worker Groq proxy returned no completion."
+        except urllib.error.HTTPError as exc:
+            error_body = _read_http_error(exc)
+            error_code = str(error_body.get("code", ""))
+            if error_code == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED":
+                raise RuntimeError(
+                    "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED: daily free quota is exhausted; "
+                    "stop retries and do not switch to a paid provider."
+                ) from None
+            if exc.code in (401, 403):
+                raise RuntimeError(
+                    f"Main Worker AI proxy rejected WORKER_AUTH_TOKEN (HTTP {exc.code}); "
+                    "authentication must be repaired before trying another provider."
+                ) from None
+            if exc.code not in (408, 425, 429, 500, 502, 503, 504, 404):
+                raise RuntimeError(
+                    f"Main Worker AI proxy rejected the request (HTTP {exc.code})."
+                ) from None
+            groq_error = f"Main Worker Groq proxy HTTP {exc.code}"
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            groq_error = "Main Worker Groq proxy " + type(exc).__name__
+
     token = os.getenv("GITHUB_TOKEN", "").strip()
     run_id = os.getenv("GITHUB_RUN_ID", "").strip()
     repository = os.getenv("GITHUB_REPOSITORY", "").strip()
@@ -89,6 +145,14 @@ def chat_completion(payload: dict, workflow_path: str, timeout: int = 90) -> dic
             result = _post_json(WORKER_API, body, {"Authorization": "Bearer " + token}, timeout)
             break
         except urllib.error.HTTPError as exc:
+            error_body = _read_http_error(exc)
+            error_code = str(error_body.get("code", ""))
+            if error_code == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED":
+                raise RuntimeError(
+                    "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED: Cloudflare Workers AI daily free "
+                    "neuron allocation is exhausted; do not retry this provider until quota resets "
+                    "and do not enable paid billing."
+                ) from None
             fallback_error = f"HTTP {exc.code}"
             if exc.code not in (408, 425, 429, 500, 502, 503, 504) or attempt >= 2:
                 raise RuntimeError(f"Authenticated Cloudflare AI fallback returned {fallback_error}; Groq primary was unavailable.") from None
@@ -104,6 +168,12 @@ def chat_completion(payload: dict, workflow_path: str, timeout: int = 90) -> dic
             time.sleep(2 * (attempt + 1))
     if not isinstance(result, dict):
         raise RuntimeError("Cloudflare AI fallback returned no usable response after bounded retries; Groq primary was unavailable.")
+    if result.get("code") == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED":
+        raise RuntimeError(
+            "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED: Cloudflare Workers AI daily free "
+            "neuron allocation is exhausted; do not retry this provider until quota resets "
+            "and do not enable paid billing."
+        )
     if result.get("ok") is not True or not result.get("choices"):
         err = str(result.get("error", "fallback returned no completion"))[:180]
         raise RuntimeError("Cloudflare AI fallback failed: " + err)
