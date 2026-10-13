@@ -94,8 +94,8 @@ def main():
     long_words = int(package.get("script_word_count", 0) or 0)
     hook_score = int((package.get("hook_audit") or {}).get("score", 0) or 0)
     sources = evidence.get("sources", [])
-    if not 600 <= long_words <= 1000 or len(str(package.get("script", ""))) < 2500 or hook_score < 7 or len(sources) < 4:
-        raise SystemExit("Long-form quality/source gate failed; no content records or renderer runs were created.")
+    if not 850 <= long_words <= 1000 or len(str(package.get("script", ""))) < 4500 or hook_score < 7 or len(sources) < 4:
+        raise SystemExit("Long-form quality/source gate failed: require 850-1000 words, at least 4500 script characters, hook score >=7, and 4+ sources; no content records or renderer runs were created.")
     if short.get("content_format") != "SHORT" or not 100 <= int(short.get("script_word_count", 0) or 0) <= 135 or short.get("qa") != "passed":
         raise SystemExit("Short-form QA failed; no content records or renderer runs were created.")
     next_slot_date = datetime.now(NY).date() + timedelta(days=1)
