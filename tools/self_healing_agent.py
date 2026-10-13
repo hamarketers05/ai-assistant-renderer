@@ -691,6 +691,11 @@ def superseded_by_success(run, all_runs):
             return True
     return False
 
+def is_retired_diagnostic_workflow(run):
+    """Identify the temporary one-time proxy probe removed after its route was independently verified."""
+    return str(run.get("name") or "") == "One-time Main Worker Groq Proxy Probe"
+
+
 def analyze(runs):
     count = 0
     retried_daily = False
@@ -698,6 +703,14 @@ def analyze(runs):
         if count >= 4:
             break
         if run.get("status") != "completed" or run.get("conclusion") != "failure":
+            continue
+        if is_retired_diagnostic_workflow(run):
+            REPORT["actions"].append({
+                "action": "retired_diagnostic_failure_superseded",
+                "run_id": run.get("id"),
+                "reason": "One-time Main Worker probe workflow has been removed; a later authenticated Groq-primary JSON response passed. Its secondary admin research probe was not the production research workflow."
+            })
+            count += 1
             continue
         if superseded_by_success(run, runs):
             continue
