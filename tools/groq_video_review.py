@@ -70,6 +70,9 @@ def sample_frames(video, duration, directory):
     width=int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); height=int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     sample_n=max(12,min(50,int(duration/5)))
     positions=np.linspace(min(duration-1,4.5),max(4.6,duration-1.0),sample_n)
+    # Review eight evenly spaced moments from the actual video. Keep the vision
+    # stage to one request, conserving Groq/Workers AI quota while covering the timeline.
+    review_indices={round(i*(sample_n-1)/7) for i in range(8)}
     grays=[]; blacks=[]; selected=[]
     for i,sec in enumerate(positions):
         cap.set(cv2.CAP_PROP_POS_MSEC,max(0,float(sec))*1000)
@@ -81,14 +84,15 @@ def sample_frames(video, duration, directory):
         grays.append(gray)
         mean,std=float(np.mean(gray)),float(np.std(gray))
         blacks.append(mean<4 and std<2)
-        # Three evenly separated story moments for multimodal review.
-        if i in {max(0,sample_n//5), min(sample_n-1,(sample_n*4)//5)}:
+        if i in review_indices:
             target=directory/f"video_frame_{len(selected)+1}.jpg"
             h,w=frame.shape[:2]
             ratio=min(512/max(w,h),1.0)
             resized=cv2.resize(frame,(max(1,int(w*ratio)),max(1,int(h*ratio))))
-            cv2.imwrite(str(target),resized,[int(cv2.IMWRITE_JPEG_QUALITY),52])
-            selected.append({"path":str(target),"timestamp_seconds":round(float(sec),1)})
+            if not cv2.imwrite(str(target),resized,[int(cv2.IMWRITE_JPEG_QUALITY),48]):
+                cap.release()
+                raise RuntimeError("Could not save an actual sampled review frame")
+            selected.append({"path":str(target),"timestamp_seconds":round(float(sec),1),"sample_index":i})
     cap.release()
     changes=[float(np.mean(cv2.absdiff(grays[i-1],grays[i]))) for i in range(1,len(grays))]
     return {
@@ -116,7 +120,10 @@ def main():
     for line in Path("work/asset_sources.jsonl").read_text(encoding="utf-8").splitlines() if Path("work/asset_sources.jsonl").exists() else []:
         try:
             item=json.loads(line)
-            sources.append({k:item.get(k) for k in ("provider","scene","creator","license_label","license_url","source_url","commercial_use_allowed")})
+            sources.append({k:item.get(k) for k in (
+                "provider","scene","asset_id","asset_title","creator","license_label","license_url",
+                "source_url","commercial_use_allowed","relevance_score","matching_terms","query","asset_path"
+            )})
         except json.JSONDecodeError:
             continue
     scene_rows=[]
@@ -125,6 +132,8 @@ def main():
         if len(row)>=7:
             scene_rows.append({"id":row[0],"start":row[1],"end":row[2],"visual_query":row[5][:180],"overlay":row[6][:100]})
     previous=read_json("learning/latest_video_review.json",{})
+    scene_asset_report=read_json("work/rendered_scene_assets_report.json",{})
+    scene_asset_map={str(x.get("scene")):x for x in scene_asset_report.get("scenes",[]) if isinstance(x,dict) and x.get("scene") is not None}
     report={"generated_at_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"title":title,
             "review_status":"started","decision":"BLOCK","top_improvements":[],"repeat_issues_to_avoid":[],
             "blocking_issues":[],"review_scope":"Rendered MP4 and thumbnail sampled before YouTube upload; this is a quality-control review, not a guarantee of factual truth."}
@@ -161,22 +170,43 @@ def main():
         if len(scene_rows)<4:
             local_issues.append("Fewer than four sentence-directed visual scenes were prepared")
 
+        # Match each sampled frame to the voice-aligned scene active at that timestamp.
+        review_context=[]
+        for frame in frames["sampled_frames"]:
+            sec=float(frame["timestamp_seconds"])
+            active=next((row for row in scene_rows if float(row["start"]) <= sec < float(row["end"])),None)
+            active=dict(active) if active else (min(scene_rows,key=lambda row:abs(float(row["start"])-sec)) if scene_rows else {})
+            asset=scene_asset_map.get(str(active.get("id","")), {})
+            source=next((x for x in sources if str(x.get("scene",""))==str(active.get("id",""))),{})
+            review_context.append({
+                "timestamp_seconds":frame["timestamp_seconds"],
+                "scene_id":active.get("id"),
+                "narration_visual_query":active.get("visual_query",""),
+                "planned_overlay":active.get("overlay",""),
+                "rendered_primary_asset":asset.get("primary_asset"),
+                "asset_type":asset.get("asset_type"),
+                "source_title":source.get("asset_title"),
+                "source_url":source.get("source_url"),
+                "source_relevance_score":source.get("relevance_score"),
+                "source_license":source.get("license_label"),
+            })
         frame_prompt = (
-          "Review these two actual sampled frames from one finished AI explainer video in timeline order. "
-          "The two attached images are at the timestamps listed in the text. Evaluate whether the footage/graphics feel "
-          "topic-specific, cinematic, varied, coherent, and plausibly aligned with the narration context. Detect generic or "
-          "repeated visuals, awkward cropping, empty/black frames, illegible overlays, distracting effects, and visual mismatch. "
-          "Do not infer facts that are not visible. Return JSON keys: visual_match_score (1-10), visual_quality_score (1-10), "
-          "frame_reviews (array with timestamp, what_is_visible, fit_to_story, issue), critical_issues (array), "
-          "improvement_actions (array), decision (PASS, IMPROVE, or BLOCK). Use BLOCK only for a severe mismatch or quality failure."
+          "Review EIGHT actual sampled frames from one finished AI explainer video, covering the timeline from near the opening to near the ending. "
+          "Images are attached in the exact timestamp order listed below. Evaluate each image against its specific scene narration context and the actual rendered primary asset/source details. "
+          "A technically licensed but unrelated stock clip is still a quality failure. Detect generic/repeated visuals, unrelated title cards or logos, mismatched context, cropped/clipped/overlapping text, "
+          "empty/black frames, illegible overlays, distracting effects and poor composition. Do not infer invisible facts. Do not assume two different asset names mean visually different media. "
+          "Return JSON keys: visual_match_score (1-10), visual_quality_score (1-10), scene_specificity_score (1-10), "
+          "frame_reviews (array with timestamp, scene_id, what_is_visible, fit_to_story, issue, severity), critical_issues (array), "
+          "improvement_actions (array), decision (PASS, IMPROVE, or BLOCK). BLOCK when a severe mismatch exists or several sampled frames are clearly unrelated/repetitive. "
+          "Mention every sampled frame in frame_reviews; do not review only the first or last image."
         )
         frame_content=[{"type":"text","text":frame_prompt+"\nTitle: "+title+
-                       "\nNarration opening: "+script[:900]+
-                       "\nScene-plan excerpts: "+json.dumps(scene_rows[:12],ensure_ascii=False)[:2600]+
-                       "\nSample timestamps: "+json.dumps([x["timestamp_seconds"] for x in frames["sampled_frames"]])}]
-        for frame in frames["sampled_frames"][:2]:
+                       "\nNarration opening: "+script[:1000]+
+                       "\nFrame-to-scene/source context: "+json.dumps(review_context,ensure_ascii=False)[:6500]+
+                       "\nAll sampled timestamps (seconds): "+json.dumps([x["timestamp_seconds"] for x in frames["sampled_frames"]])}]
+        for frame in frames["sampled_frames"]:
             frame_content.append({"type":"image_url","image_url":{"url":image_data_url(frame["path"])}})
-        visual_review=groq_call(VISION_MODEL,[{"role":"user","content":frame_content}],max_tokens=750)
+        visual_review=groq_call(VISION_MODEL,[{"role":"user","content":frame_content}],max_tokens=1100)
 
         thumb_content=[
           {"type":"text","text":"Assess this exact finished YouTube thumbnail for mobile readability, topic match, one clear focal point, strong contrast, tasteful premium AI-tech style, and non-misleading hook. Return JSON keys: topic_match_score (1-10), mobile_readability_score (1-10), focal_point_score (1-10), observed_text, issues (array), improvements (array), decision (PASS, IMPROVE, or BLOCK). Do not judge unseen video content."},
@@ -202,8 +232,13 @@ def main():
             critical.extend(visual_review.get("critical_issues",[]) if isinstance(visual_review.get("critical_issues",[]),list) else ["Vision review flagged a severe visual issue"])
         if str(thumb_review.get("decision","")).upper()=="BLOCK":
             critical.extend(thumb_review.get("issues",[]) if isinstance(thumb_review.get("issues",[]),list) else ["Vision review flagged a severe thumbnail issue"])
-        if int(visual_review.get("visual_match_score",10) or 0)<4 or int(thumb_review.get("mobile_readability_score",10) or 0)<4:
-            critical.append("A key visual relevance or thumbnail readability score fell below 4/10")
+        if int(visual_review.get("visual_match_score",10) or 0)<5 or int(visual_review.get("visual_quality_score",10) or 0)<5 or int(thumb_review.get("mobile_readability_score",10) or 0)<4:
+            critical.append("A key visual relevance/quality score fell below its minimum gate")
+        frame_reviews=visual_review.get("frame_reviews",[])
+        if not isinstance(frame_reviews,list) or len(frame_reviews)<len(frames["sampled_frames"]):
+            critical.append("Vision review did not cover all eight timeline-spread frames")
+        if int(visual_review.get("scene_specificity_score",10) or 0)<4:
+            critical.append("Sampled frames are not sufficiently specific to the story")
         if local_issues:
             critical.extend(local_issues)
         if critical:
@@ -212,7 +247,9 @@ def main():
           "review_status":"completed","decision":decision,"overall_score":int(final_review.get("overall_score",0) or 0),
           "video_metrics":metrics,"sampled_visual_metrics":frames,"music_seconds":music_seconds,
           "caption_cues":cue_count,"scene_director_report":scene_report,"thumbnail_dimensions":thumb_size,
-          "visual_review":visual_review,"thumbnail_review":thumb_review,"local_issues":local_issues,
+          "visual_review":visual_review,"visual_review_frame_context":review_context,
+          "visual_review_frame_count":len(frames["sampled_frames"]),
+          "thumbnail_review":thumb_review,"local_issues":local_issues,
           "blocking_issues":list(dict.fromkeys(str(x)[:350] for x in critical))[:12],
           "top_improvements":final_review.get("top_improvements",[])[:5] if isinstance(final_review.get("top_improvements",[]),list) else [],
           "repeat_issues_to_avoid":final_review.get("repeat_issues_to_avoid",[])[:5] if isinstance(final_review.get("repeat_issues_to_avoid",[]),list) else [],
