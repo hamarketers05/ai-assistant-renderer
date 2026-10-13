@@ -1,0 +1,52 @@
+name: Temporary Cloudflare Oct 15 Research Smoke Test
+
+on:
+  push:
+    paths:
+      - ".github/workflows/oct15-cloudflare-research-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-cloudflare-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+      WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+    steps:
+      - name: Request the protected live Cloudflare research self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WORKER_AUTH_TOKEN" || { echo "Required existing WORKER_AUTH_TOKEN is missing; no research request sent."; exit 1; }
+          mkdir -p work
+          CODE=$(curl -sS --retry 1 --retry-delay 2 --max-time 180 -o work/research-self-test.json -w "%{http_code}" \
+            -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Accept: application/json" \
+            --get --data-urlencode "brand=AI_TECH_LAB" \
+            --data-urlencode "q=AI agents and automation safety: recent official product releases and independent reporting for the US audience" \
+            "$WORKER_URL/admin/research-self-test")
+          echo "CLOUDFLARE_RESEARCH_HTTP_STATUS=$CODE"
+          jq '{ok,brand,q,research_id,evidence_count,verified_claim_count,source_coverage,google_trends_api_status,google_trends_rss_status,checks,warnings,recommended_topics,evidence,verified_claims}' work/research-self-test.json
+          test "$CODE" = "200" || { echo "Research self-test returned HTTP $CODE."; exit 1; }
+          jq -e '.checks.research_record_saved == true and .checks.at_least_three_sources == true and .checks.two_independent_publishers == true' work/research-self-test.json >/dev/null
+          if [ "$(jq -r '.source_coverage.official_primary // 0' work/research-self-test.json)" -lt 1 ]; then
+            echo "SOURCE GATE: no official primary source survived validation."; exit 1
+          fi
+          if [ "$(jq -r '.source_coverage.independent_reporting // 0' work/research-self-test.json)" -lt 1 ]; then
+            echo "SOURCE GATE: no independent reporting source survived validation."; exit 1
+          fi
+          if [ "$(jq -r '.verified_claim_count // 0' work/research-self-test.json)" -lt 1 ]; then
+            echo "CLAIM GATE: no cross-checked claim survived validation."; exit 1
+          fi
+          echo "LIVE_CLOUDFLARE_RESEARCH_PASS: official + independent sources and cross-checked claim present."
+      - name: Preserve research diagnostic even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: oct15-cloudflare-research-self-test-${{ github.run_id }}
+          path: work/research-self-test.json
+          if-no-files-found: warn
+          retention-days: 3
