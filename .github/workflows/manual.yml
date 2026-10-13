@@ -352,7 +352,12 @@ jobs:
           test -s work/scene_director_report.json
           cat work/scene_director_report.json
           jq -e '.exact_word_timing == true and .sequence_similarity >= 0.55 and .timestamp_word_count >= 5' work/scene_director_report.json >/dev/null
-          echo "Scene timing uses final-narration word timestamps; long videos can use up to 90 scene-specific visuals."
+          if [ "$CONTENT_FORMAT" = "SHORT" ]; then
+            jq -e '.planned_visual_scenes >= 8 and .planned_visual_scenes <= 30' work/scene_director_report.json >/dev/null
+          else
+            jq -e '.planned_visual_scenes >= 80 and .planned_visual_scenes <= 90' work/scene_director_report.json >/dev/null
+          fi
+          echo "Scene timing verified; long videos require 80–90 voice-aligned visual scenes."
 
       - name: Discover and download Vecteezy footage
         env:
@@ -1639,7 +1644,7 @@ jobs:
             FINAL_VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
           fi
           .venv/bin/python tools/write_editing_tool_manifest.py --content-id "$CONTENT_ID" --format "$CONTENT_FORMAT" --stereo-output "$STEREO_OUTPUT" --final-video "$FINAL_VIDEO" --thumbnail "output/thumbnail_${CONTENT_ID}.jpg" --output work/editing_tool_manifest.json
-          jq -e '.status == "passed" and .scene_count >= 8' work/editing_tool_manifest.json >/dev/null
+          jq -e '.status == "passed" and (if .format == "LONG_VIDEO" then (.scene_count >= 80 and .scene_count <= 90) else (.scene_count >= 8 and .scene_count <= 30) end)' work/editing_tool_manifest.json >/dev/null
           cat work/editing_tool_manifest.json
 
       - name: Save editing manifest artifact
