@@ -12,6 +12,23 @@ def main():
     assert agent.extract_target_date("--target-date 2026-10-15") == "2026-10-15"
     assert agent.extract_target_date("TARGET_DATE: ") == ""
 
+    assert agent.select_repair_target(
+        {"name": "AI Assistant Renderer"},
+        "VISUAL NOVELTY GATE BLOCKED: candidate_assets=0; minimum_new_licensed_clips_required=4; tools/asset_reuse_guard.py"
+    ) == "tools/fetch_free_video.py"
+    assert agent.select_repair_target(
+        {"name": "AI Tech Lab Daily Research and Script"},
+        "Authenticated Cloudflare AI fallback returned HTTP 502; Groq primary was unavailable."
+    ) == "tools/ai_text_client.py"
+    assert agent.select_repair_target(
+        {"name": "AI Tech Lab Automatic Daily Production Handoff"},
+        "Short failed quality gates: title=True, script_words=47, description_chars=2263."
+    ) == "tools/make_daily_short.py"
+    assert agent.select_repair_target(
+        {"name": "AI Assistant Renderer"},
+        "Unknown failure mentioning tools/fetch_free_video.py and tools/asset_reuse_guard.py"
+    ) is None
+
     malformed_counts = """--- a/tools/self_healing_canary.py
 +++ b/tools/self_healing_canary.py
 @@ -9,9 +9,9 @@ def answer():
