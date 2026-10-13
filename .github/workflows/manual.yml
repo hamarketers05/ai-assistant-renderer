@@ -818,7 +818,7 @@ jobs:
       - name: Reject previously used or weakly matched visual assets
         run: |
           set -euo pipefail
-          .venv/bin/python tools/asset_reuse_guard.py --mode validate --content-id "$CONTENT_ID"
+          .venv/bin/python tools/asset_reuse_guard.py --mode validate --content-id "$CONTENT_ID" --content-format "$CONTENT_FORMAT"
           test -s work/asset_reuse_report.json
           jq -e '.status == "validated" and .previous_video_reuse == false and .within_video_duplicates == false and .accepted_new_assets >= 4' work/asset_reuse_report.json >/dev/null
 
