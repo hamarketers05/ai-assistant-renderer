@@ -72,7 +72,7 @@ jobs:
           python -m pip install --disable-pip-version-check --quiet --upgrade pip
           python tools/make_daily_short.py
           test -s work/short_content_package.json
-          cat work/short_content_package.json | jq '{title,script_word_count,content_format,qa}'
+          jq '{title,script_word_count,content_format,qa}' work/short_content_package.json
 
       - name: Verify handoff and reserve safe D1 content records
         env:
