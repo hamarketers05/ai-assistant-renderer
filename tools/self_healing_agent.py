@@ -227,7 +227,7 @@ def normalize_diff_hunk_counts(diff):
         if not lines[i].startswith("@@ "):
             i += 1
             continue
-        match = re.fullmatch(r"@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@(.*)", lines[i])
+        match = re.fullmatch(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)", lines[i])
         if not match:
             raise ValueError("Malformed unified-diff hunk header.")
         old_start, new_start, suffix = int(match.group(1)), int(match.group(2)), match.group(3)
@@ -244,7 +244,7 @@ def normalize_diff_hunk_counts(diff):
                 old_count += 1
             elif line.startswith("+"):
                 new_count += 1
-            elif line.startswith("\\\\ No newline at end of file"):
+            elif line.startswith("\\ No newline at end of file"):
                 pass
             else:
                 raise ValueError("Unified diff contains a line without a valid context/add/remove prefix.")
