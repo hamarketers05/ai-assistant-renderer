@@ -55,7 +55,7 @@ jobs:
           if [ -n "$TAVILY_API_KEY" ]; then
             echo "Direct Tavily key is configured."
           else
-            echo "GitHub Tavily secret is absent; the existing Cloudflare main Worker research proxy will use its TAVILY_API_KEY binding."
+            echo "GitHub Tavily secret is absent; free public RSS/Atom, Google News RSS, and arXiv fallbacks will be used without paid search."
           fi
           if [ -z "$GROQ_API_KEY" ]; then echo "Groq key absent; authenticated Cloudflare Workers AI fallback is enabled."; fi
           python -m pip install --disable-pip-version-check numpy pillow
@@ -80,7 +80,7 @@ jobs:
           echo "YOUTUBE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           rm -f work_token.json
 
-      - name: Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq primary / Workers AI fallback
+      - name: Select US YouTube topic, research through Tavily or free RSS, and write and audit script
         run: |
           set -euo pipefail
           mkdir -p work output
