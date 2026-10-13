@@ -273,14 +273,36 @@ async function generateAiCompletion(request, env) {
     }
   }
   if (!env.AI) return Response.json({ ok: false, error: "Groq failed and Workers AI binding is unavailable" }, { status: 503, headers: cors() });
-  const model = vision ? "@cf/qwen/qwen3.8-27b" : "@cf/zai-org/glm-4.7-flash";
+  // Use the previously verified Llama 3.3 text binding for predictable plain-text output.
+  // For vision, use the documented prompt+image input shape instead of OpenAI image_url parts.
+  const model = vision ? "@cf/qwen/qwen3.8-27b" : "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
   const started = Date.now();
   let result;
   try {
-    result = await env.AI.run(model, {
-      messages: incoming, max_tokens: maxTokens, temperature,
-      ...(responseFormat ? { response_format: responseFormat } : {})
-    });
+    if (vision) {
+      const textParts = [];
+      let imageInput = "";
+      for (const msg of incoming) {
+        if (typeof msg.content === "string") textParts.push(msg.content);
+        else if (Array.isArray(msg.content)) {
+          for (const part of msg.content) {
+            if (part && part.type === "text" && typeof part.text === "string") textParts.push(part.text);
+            else if (part && part.type === "image_url" && part.image_url && typeof part.image_url.url === "string") imageInput = part.image_url.url;
+          }
+        }
+      }
+      if (!imageInput) return Response.json({ ok:false, error:"Vision request has no validated image" }, { status:400, headers:cors() });
+      result = await env.AI.run(model, {
+        prompt: textParts.join("\\n").slice(0, 45000),
+        image: imageInput,
+        max_tokens: maxTokens, temperature
+      });
+    } else {
+      result = await env.AI.run(model, {
+        messages: incoming, max_tokens: Math.max(128, maxTokens), temperature,
+        ...(responseFormat ? { response_format: responseFormat } : {})
+      });
+    }
   } catch (e) {
     console.error("AI_PROXY_WORKERS_AI_FAILURE", String(e && e.message || e).slice(0, 180));
     return Response.json({ ok: false, error: "Cloudflare Workers AI fallback could not complete the request" }, { status: 502, headers: cors() });
