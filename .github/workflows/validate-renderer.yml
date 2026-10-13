@@ -148,6 +148,7 @@ jobs:
               ["python", "tools/fetch_free_media.py", "--self-test"],
               ["python", "tools/compose_scene_overlays.py", "--self-test"],
               ["python", "tools/visual_budget.py", "--self-test"],
+              ["python", "tools/test_self_healing_agent.py"],
           ]:
               subprocess.run(test, check=True)
           print("Free-media licensing, graph overlays and visual-budget fail-closed self-tests passed.")
