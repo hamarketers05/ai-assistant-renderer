@@ -7,7 +7,7 @@ export default {
     }
     if (url.pathname === "/self-heal/report" && request.method === "POST") {
       try { return await receiveSelfHealReport(request, env); }
-      catch (_) { return Response.json({ ok: false, error: "Report persistence failed." }, { status: 500 }); }
+      catch (e) { console.error("SELF_HEAL_REPORT_SAVE_ERROR", String(e && e.message || e).slice(0, 240)); return Response.json({ ok: false, error: "Report persistence failed.", detail: String(e && e.message || e).slice(0, 240) }, { status: 500 }); }
     }
     if (url.pathname === "/self-heal/patch" && request.method === "POST") {
       try { return await generateSelfHealPatch(request, env); }
