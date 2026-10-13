@@ -98,10 +98,18 @@ def main():
         raise SystemExit("Long-form quality/source gate failed; no content records or renderer runs were created.")
     if short.get("content_format") != "SHORT" or not 100 <= int(short.get("script_word_count", 0) or 0) <= 135 or short.get("qa") != "passed":
         raise SystemExit("Short-form QA failed; no content records or renderer runs were created.")
-    starts = (datetime.now(NY).date() + timedelta(days=1)).isoformat()
+    next_slot_date = datetime.now(NY).date() + timedelta(days=1)
     rotation_date = str((package.get("category_rotation") or {}).get("date_us_eastern", "")).strip()
-    if rotation_date and rotation_date != starts:
-        raise SystemExit("Research category date does not match the next US Eastern publish slot; dispatch blocked to prevent a wrong-day category.")
+    if rotation_date:
+        try:
+            requested_slot_date = date.fromisoformat(rotation_date)
+        except ValueError:
+            raise SystemExit("Research target date is invalid; dispatch blocked to prevent a wrong-day category.") from None
+        if requested_slot_date < next_slot_date:
+            raise SystemExit("Research target date must be at least the next US Eastern calendar day; dispatch blocked.")
+        starts = requested_slot_date.isoformat()
+    else:
+        starts = next_slot_date.isoformat()
     common_sources = sources[:12]
     editorial_category = str(package.get("editorial_category", "")).strip()
     if not editorial_category:
