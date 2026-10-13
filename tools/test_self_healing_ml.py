@@ -8,7 +8,7 @@ import self_healing_ml as ml
 
 def main():
     result = ml.run_self_test()
-    assert result["training_count"] >= 150
+    assert result["training_count"] >= 240
     assert result["holdout_count"] >= 80
     assert result["holdout_accuracy"] >= 0.80
     assert result["macro_accuracy"] >= 0.75
