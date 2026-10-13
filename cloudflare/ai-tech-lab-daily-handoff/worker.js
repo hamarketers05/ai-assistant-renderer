@@ -182,7 +182,7 @@ async function receiveSelfHealReport(request, env) {
 }
 
 async function generateAiCompletion(request, env) {
-  const auth = String(request.headers.get("Authorization") || "").match(/^Bearer\\s+(.+)$/i);
+  const auth = String(request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i);
   const token = auth ? auth[1].trim() : "";
   if (!token) return Response.json({ ok: false, error: "GitHub Actions token required" }, { status: 401, headers: cors() });
   const length = Number(request.headers.get("Content-Length") || "0");
@@ -200,7 +200,7 @@ async function generateAiCompletion(request, env) {
     ".github/workflows/ai-self-healing-agent.yml",
     ".github/workflows/verify-ai-fallback.yml"
   ]);
-  if (!/^\\d{5,}$/.test(runId) || !allowed.has(requestedPath)) {
+  if (!/^\d{5,}$/.test(runId) || !allowed.has(requestedPath)) {
     return Response.json({ ok: false, error: "Workflow run or caller path is not allowed" }, { status: 400, headers: cors() });
   }
   const verify = await fetch("https://api.github.com/repos/hamarketers05/ai-assistant-renderer/actions/runs/" + encodeURIComponent(runId), {
@@ -229,7 +229,7 @@ async function generateAiCompletion(request, env) {
           total += part.text.length;
         } else if (part && part.type === "image_url" && part.image_url && typeof part.image_url.url === "string") {
           const data = part.image_url.url;
-          if (!/^data:image\\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=_-]+$/.test(data) || data.length > 2_100_000) {
+          if (!/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=_-]+$/.test(data) || data.length > 2_100_000) {
             return Response.json({ ok: false, error: "Only small base64-encoded review images are accepted" }, { status: 413, headers: cors() });
           }
           total += data.length;
