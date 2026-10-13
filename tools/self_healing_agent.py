@@ -408,7 +408,7 @@ def analyze(runs):
             try:
                 log_items.append((job, fetch_logs(int(job["id"]))))
             except Exception as exc:
-                REPORT["unresolved"].append(f"Could not retrieve failure log for run {run['id']} job {job.get('name')}: {type(exc).__name__}")
+                REPORT["unresolved"].append(f"Could not retrieve failure log for run {run['id']} job {job.get('name')}: {type(exc).__name__}: {str(exc)[:260]}")
         joined = "\n".join(log for _, log in log_items)
         if run.get("name") in SAFE_RETRY and is_transient(joined):
             try:
