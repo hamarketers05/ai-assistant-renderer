@@ -121,9 +121,9 @@ def classify_configuration_failure(log):
     if "thumbnail" in lower or "thumbnail brief" in lower:
         return {
             "code": "THUMBNAIL_AI_CREDENTIAL_MISSING",
-            "root_cause": "GROQ_API_KEY is unavailable to the renderer and authenticated Workers AI fallback context is unavailable.",
-            "safe_recovery": "Use the explicitly labelled deterministic local thumbnail brief; keep final thumbnail QA mandatory.",
-            "credential_action": "An authorized maintainer must configure the GitHub Actions GROQ_API_KEY secret to restore Groq-first inference. Never print, infer, or fabricate credentials."
+            "root_cause": "GROQ_API_KEY was unavailable, and the renderer step did not expose GITHUB_TOKEN to ai_text_client.py, so the trusted-run Cloudflare Workers AI fallback could not authenticate.",
+            "safe_recovery": "Expose GITHUB_TOKEN, GITHUB_RUN_ID, and GITHUB_REPOSITORY at renderer job scope; use the labelled local thumbnail brief only as a last-resort fallback and retain final thumbnail/video QA.",
+            "credential_action": "The renderer job-wide fallback context is now patched. An authorized maintainer may configure the GitHub Actions GROQ_API_KEY secret to restore Groq-first inference. Never print, infer, or fabricate credentials."
         }
     return {
         "code": "AI_PROVIDER_CREDENTIAL_MISSING",
