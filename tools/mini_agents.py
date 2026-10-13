@@ -211,6 +211,19 @@ def resolve_category(candidate: str, rotation: dict, items: list[dict]) -> dict:
             "override_status": "rejected_insufficient_live_trend_evidence", "evidence_scores": scores}
 
 
+def title_similarity_ratio(left: str, right: str) -> float:
+    """Token Jaccard similarity after removing generic title words; used to flag near-duplicates."""
+    stop = {"ai", "the", "a", "an", "and", "or", "to", "of", "for", "in", "on", "is", "are",
+            "how", "why", "what", "when", "will", "can", "could", "new", "this", "that", "with"}
+    def tokens(value: str) -> set[str]:
+        return {token for token in re.findall(r"[a-z0-9]+", str(value or "").casefold())
+                if len(token) > 2 and token not in stop}
+    a, b = tokens(left), tokens(right)
+    if not a or not b:
+        return 0.0
+    return round(len(a & b) / len(a | b), 3)
+
+
 def evaluate_human_voice(script: str) -> dict:
     """Deterministic style lint: a useful warning signal, not a claim that prose sounds human."""
     text = re.sub(r"\s+", " ", str(script or "")).strip()
@@ -302,6 +315,10 @@ def self_test() -> dict:
     robotic = evaluate_human_voice(("In today's fast-paced world, AI is changing everything. Let's dive in. " * 12))
     if natural["score"] <= robotic["score"] or robotic["generic_phrase_flags"] == []:
         raise SystemExit("Natural-voice heuristic boundary test failed.")
+    if title_similarity_ratio("The New AI Agents That Automate Coding", "New AI Agents Automate Coding") < 0.5:
+        raise SystemExit("Near-duplicate title similarity self-test failed.")
+    if title_similarity_ratio("Robots in Hospitals", "Privacy Risks from AI Data Centers") > 0.2:
+        raise SystemExit("Distinct title similarity self-test failed.")
     if len(AGENT_PROFILES) < 10:
         raise SystemExit("Specialist agent registry is unexpectedly incomplete.")
     return {
