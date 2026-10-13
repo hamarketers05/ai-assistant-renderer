@@ -86,8 +86,25 @@ def call_model(endpoint: str, token: str, content_id: str, image_index: int, pro
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    # Free inference endpoints can return brief 429/5xx bursts. Retry once only,
+    # respecting a bounded Retry-After header; then keep the local scene-art fallback.
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            retryable = exc.code in (429, 500, 502, 503, 504)
+            if not retryable or attempt >= 1:
+                raise
+            retry_after = exc.headers.get("Retry-After", "").strip()
+            try:
+                delay = float(retry_after) if retry_after else 3.0
+            except ValueError:
+                delay = 3.0
+            delay = min(20.0, max(1.0, delay))
+            print(f"Free image endpoint HTTP {exc.code}; one bounded retry in {delay:.1f}s.")
+            time.sleep(delay)
     if payload.get("ok") is not True:
         raise RuntimeError("Image endpoint returned an unsuccessful response.")
     encoded = str(payload.get("image") or "")
