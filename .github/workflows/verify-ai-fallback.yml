@@ -38,7 +38,7 @@ jobs:
               body.update({"workflow_run_id": RUN, "workflow_path": WORKFLOW, "repository": REPO})
               req = urllib.request.Request(
                   URL, data=json.dumps(body).encode(),
-                  headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"},
+                  headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json", "User-Agent": "AI-Tech-Lab-Automation/1.0"},
                   method="POST"
               )
               try:
