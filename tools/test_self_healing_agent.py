@@ -142,6 +142,18 @@ artifact: ai-tech-lab-research-
     assert rotation_issue and rotation_issue["code"] == "CLOUDFLARE_EDITORIAL_ROTATION_REGRESSION"
     assert "Do not deploy a Worker patch automatically" in rotation_issue["safe_recovery"]
 
+    d1_quota = agent.classify_known_infrastructure_failure(
+        {"name": "AI Tech Lab Daily Research and Script"},
+        "Cloudflare D1 free-tier row read limit exhausted; daily read limit exceeded.",
+    )
+    assert d1_quota and d1_quota["code"] == "D1_FREE_TIER_DAILY_LIMIT_EXHAUSTED"
+    assert "Never enable paid billing" in d1_quota["safe_recovery"]
+    trend_gate = agent.classify_known_infrastructure_failure(
+        {"name": "Verify Cloudflare Trend Script (No Publishing)"},
+        "HTTP 422 youtube_category_trend_gate BLOCKED_INSUFFICIENT_CATEGORY_RELATED_YOUTUBE_VIDEOS distinct_video_count=2",
+    )
+    assert trend_gate and trend_gate["code"] == "YOUTUBE_CATEGORY_TREND_EVIDENCE_INSUFFICIENT"
+    assert "Keep the trend gate closed" in trend_gate["safe_recovery"]
     short_script = agent.classify_renderer_input_quality_failure(
         {"name": "AI Assistant Renderer"},
         'CONTENT_FORMAT=LONG_VIDEO\n"planned_visual_scenes": 49'
