@@ -87,3 +87,24 @@ The Main Worker has an authenticated `/research` route which calls `nfResearchTo
 - **Not yet verified:** an actual research request through the protected Worker endpoint, current live free RSS feed results from the Worker runtime, official-plus-independent claim verification, end-to-end render, real-media QA, and YouTube scheduled metadata. These must pass before reporting a completed video.
 - **Source-of-truth risk:** the deployed Main Worker source is much larger than the tracked `cloudflare/main-worker/worker.js`; the live fix was made through the Cloudflare content endpoint and still needs a clean, reproducible source-sync strategy. Do not overwrite the live Worker with the smaller tracked file.
 - The existing D1 source chunks `tmp-main-worker-sync-20261013-*` remain recovery material and must not be deleted until a validated replacement backup is established.
+
+
+## Latest execution checkpoint — 2026-10-13 13:47 UTC
+
+### Verified completed
+- Live Cloudflare Main Worker source-only patches remain present after subsequent source read: GPT-OSS JSON compatibility, AI Tech Lab Groq-first script writing with free Workers AI fallback, Tavily HTTP 432 cooldown, public-RSS evidence fallback and Google Trends AI-title filtering. The content-only upload preserved Worker settings/binding names.
+- The live protected `/research` endpoint successfully returned real free-feed research, with provider event logs for OpenAI, Google DeepMind, Google AI blog, TechCrunch AI, The Verge AI and Ars Technica, plus arXiv. A live research call produced 21 dated sources with 5 official-primary sources, 7 independent-reporting sources and 6 unique publishers.
+- Crucial limitation: the Worker returned **zero cross-checked claims** in both the AI-agent safety query (research id 56) and the Meta AI models query (research id 58). The topic ranker returned the same unrelated Asana early-signal candidate (confidence 0.15, one official URL, zero independent corroboration). The automated test therefore correctly failed closed; this story must not be used as verified breaking news. Research retrieval is working; topic relevance/candidate selection and source-specific claim matching still need correction. Do not relax claim gates to make the test green.
+- Self-healing agent classifier and regression test contain `TAVILY_FREE_TIER_QUOTA_EXHAUSTED` / `TAVILY_QUOTA_COOLDOWN`. Renderer static validation run `38406751429` and CI Workflow Guard run `38406751352` both succeeded. MiDaS SBS validation `38406318206` succeeded.
+- Main Renderer run `38406679472` for content id 23 successfully installed tools, passed its Kokoro configuration checks, generated and validated narration, and uploaded preview artifact **`ai-tech-lab-voice-preview-23`**, artifact ID `11818419118` (run: https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38406679472). It then held at `VOICE_AUDIO_APPROVAL_PENDING` and skipped manifest/render/upload. This is the intended safety gate, not a failed render.
+- Current D1 reads still show long-form content id 23 and Short id 24 with `audio_status=PENDING`, no YouTube video IDs, and no scheduled publish time. The requested October 15 publish is **not yet scheduled**.
+
+### Still open / next actions
+1. A human must listen to and approve the exact Kokoro narration in artifact `11818419118`. The run input title was “From Paper-clips to AI-Agents: How SMBs Are Turning Every Office Into a Mini-Automation Factory” (856-word research-package script). Do not approve by inference from automated duration/sample-rate checks.
+2. Fix Main Worker research relevance/ranking so candidate sources materially match the requested subject; ensure every proposed claim has exact URLs that independently support it. Retry the protected live research test only after the code change is syntax-checked and deployed.
+3. Preserve the Cloudflare-owned research architecture: migrate or replace the legacy `.github/workflows/daily-content-research.yml` and Python-based research execution after the protected Worker research output passes claim validation. GitHub Actions should focus on rendering/FFmpeg/QA and scheduling.
+4. After exact voice approval and passing research + production QA, rerun production, validate the actual MP4, soundtrack, captions, scene uniqueness/placements, overlays/charts, thumbnail, and finally verify YouTube API status plus `publishAt=2026-10-15T16:00:00Z`. Until readback confirms it, do not claim scheduling.
+5. Keep D1 recovery chunks `tmp-main-worker-sync-20261013-*`; do not delete until a reproducible canonical source backup/sync and its verification exist.
+
+### No false-completion rule
+A successful voice-preview job means only that Kokoro generated a preview and the run stopped at the required approval gate. It does not mean final video rendered, QA passed, or YouTube upload/scheduling completed.
