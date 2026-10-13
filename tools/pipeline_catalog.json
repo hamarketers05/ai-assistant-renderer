@@ -18,7 +18,30 @@
       "daily-handoff-worker",
       "main-worker-editorial-category-rotation"
     ],
-    "availability_caveat": "GitHub Actions cron is periodic best-effort, not a continuously running daemon or a 24/7 uptime guarantee. Use workflow_dispatch for an immediate check. A missed schedule or unavailable GitHub Actions service can delay detection."
+    "availability_caveat": "GitHub Actions cron is periodic best-effort, not a continuously running daemon or a 24/7 uptime guarantee. Use workflow_dispatch for an immediate check. A missed schedule or unavailable GitHub Actions service can delay detection.",
+    "health_probe_endpoints": [
+      {
+        "id": "main-cloudflare-worker",
+        "url": "https://dark-sunset-a2a1.hamarketers05.workers.dev/health",
+        "method": "GET",
+        "access": "public_health_only",
+        "meaning": "HTTP/service health endpoint reachability; not evidence that content generation works."
+      },
+      {
+        "id": "production-worker",
+        "url": "https://ai-production-worker.hamarketers05.workers.dev/health",
+        "method": "GET",
+        "access": "public_health_only",
+        "meaning": "HTTP/service health endpoint reachability; not evidence that the production renderer completed."
+      },
+      {
+        "id": "daily-handoff-worker",
+        "url": "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/health",
+        "method": "GET",
+        "access": "public_health_only",
+        "meaning": "HTTP/service health endpoint reachability; not evidence that a D1 write or duplicate guard passed."
+      }
+    ]
   },
   "decision_rules": [
     "If active run is within its timeout and required gate is progressing, report active/in_progress; do not start a duplicate run.",
