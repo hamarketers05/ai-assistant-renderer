@@ -342,7 +342,7 @@ jobs:
           test -s work/scene_director_report.json
           cat work/scene_director_report.json
           jq -e '.exact_word_timing == true and .sequence_similarity >= 0.55 and .timestamp_word_count >= 5' work/scene_director_report.json >/dev/null
-          echo "Scene timing uses actual Whisper word timestamps from the final edited narration (up to 72 scenes)."
+          echo "Scene timing uses final-narration word timestamps; long videos can use up to 90 scene-specific visuals."
 
       - name: Discover and download Vecteezy footage
         env:
