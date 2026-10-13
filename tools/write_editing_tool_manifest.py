@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+
+from mini_agents import agent_execution_report
 
 
 def read_json(path: Path) -> dict:
@@ -272,8 +275,48 @@ def main() -> None:
         warnings.append("No separate transparent HUD overlay was applied in this run; primary visuals retain their normal content without a separate transparent HUD layer.")
     if licensed_clips < 4:
         raise SystemExit(f"Editing manifest blocked: only {licensed_clips} source-manifest entries; existing commercial-use gate requires at least four.")
+
+    tool_by_name = {str(item.get("tool")): item for item in tools}
+    def actually_used(names):
+        return [name for name in names
+                if name in tool_by_name and tool_by_name[name].get("status") in {"used", "passed", "generated", "validated"}]
+    editorial_category = os.getenv("EDITORIAL_CATEGORY", "").strip()
+    production_runs = [
+        {"agent_id": "voice_agent",
+         "status": "completed" if voice.get("status") == "passed" and kokoro.get("quality_gate") == "passed" else "blocked",
+         "actual_tools_used": actually_used(["Kokoro-82M", "Pydub", "Librosa", "Faster-Whisper", "Rubber Band pitch shaping", "FFmpeg de-esser/compressor/loudness"]),
+         "evidence_files": ["work/voice_edit_report.json", "work/kokoro_audio_quality.json", "work/voice_word_timestamps.json"],
+         "details": {"voice_qa": voice.get("status"), "kokoro_gate": kokoro.get("quality_gate"), "timestamped_words": voice.get("timestamped_words")}},
+        {"agent_id": "visual_agent",
+         "status": "completed" if scene_assets.get("status") == "passed" and visual_coverage.get("status") == "passed" else "blocked",
+         "actual_tools_used": actually_used(["Voice-aligned scene director", "Visual novelty/reuse guard", "Ken Burns / camera drift", "Neon HUD / scene overlay", "Evidence-supported charts", "Free commercial-use image/video acquisition", "Commercial-use stock clips", "Cloudflare Workers AI FLUX.1 [schnell]", "Python/Pillow"]),
+         "evidence_files": ["work/scene_director_report.json", "work/rendered_scene_assets_report.json", "work/visual_coverage_report.json", "work/asset_sources.jsonl", "work/asset_reuse_report.json"],
+         "details": {"rendered_scenes": scene_count, "unique_asset_placements": visual_coverage.get("visual_counts", {}).get("unique_primary_visual_assets"), "category": editorial_category}},
+        {"agent_id": "editing_agent",
+         "status": "completed" if music.get("status") == "generated" and transitions.get("rendered_duration_seconds") is not None and visual_qa.get("status") == "passed" else "blocked",
+         "actual_tools_used": actually_used(["FFmpeg", "NumPy + SciPy", "Matplotlib", "OpenCV", "Crossfade / push / digital mosaic transitions", "Original procedural transition SFX", "Original topic-aware music", "Cinematic color grade", "Film grain"]),
+         "evidence_files": ["work/transitions_report.json", "work/transition_sfx_report.json", "work/music_report.json", "work/opencv_visual_qa.json"],
+         "details": {"transition_count": transition_count, "music_status": music.get("status"), "graded_scenes": graded_scene_count}},
+        {"agent_id": "thumbnail_seo_agent",
+         "status": "completed" if thumb is not None and imagemagick_report.get("status") == "used" and imagemagick_report.get("output_changed") is True else "blocked",
+         "actual_tools_used": actually_used(["Python/Pillow", "ImageMagick", "Premium thumbnail"]),
+         "evidence_files": ["work/thumbnail_brief.json", "work/thumbnail_imagemagick_report.json"],
+         "details": {"thumbnail_dimensions": imagemagick_report.get("dimensions"), "thumbnail_hash_verified": imagemagick_report.get("output_sha256") == thumb_hash}},
+        {"agent_id": "qa_agent",
+         "status": "completed" if video_review.get("review_status") == "completed" and video_review.get("decision") in {"PASS", "IMPROVE"} and visual_qa.get("status") == "passed" and visual_coverage.get("status") == "passed" else "blocked",
+         "actual_tools_used": actually_used(["Groq video/vision final QA", "OpenCV", "Full-HD visual-budget gate", "FFmpeg"]),
+         "evidence_files": ["work/video_review_report.json", "work/opencv_visual_qa.json", "work/visual_coverage_report.json", "work/editing_tool_manifest.json"],
+         "details": {"review_decision": video_review.get("decision"), "review_score": video_review.get("overall_score"), "visual_gate": visual_coverage.get("status")}}
+    ]
+    render_agent_report = agent_execution_report("render", production_runs, {
+        "content_id": args.content_id, "format": args.format, "editorial_category": editorial_category,
+        "rendered_scenes": scene_count, "policy_version": "1.0.0"})
+    Path("work/mini_agent_render_execution_report.json").write_text(
+        json.dumps(render_agent_report, indent=2, ensure_ascii=False), encoding="utf-8")
     result = {
         "status": "passed",
+        "editorial_category": editorial_category,
+        "mini_agent_execution_report": render_agent_report,
         "content_id": args.content_id,
         "format": args.format,
         "final_video": str(final_video),
