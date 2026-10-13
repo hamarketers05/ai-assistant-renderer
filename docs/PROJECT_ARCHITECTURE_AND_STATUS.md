@@ -149,6 +149,94 @@ Production helper: ai-production-worker
 Backup renderer: Rendobar (backup only)
 ```
 
+### 3.1 Full architecture drawing (Mermaid)
+
+The following diagrams show the intended production path, infrastructure relationships, and safe recovery loop. They describe the designed architecture; a line in the diagram is not proof that every integration is currently passing live tests.
+
+#### A. Full production pipeline
+
+```mermaid
+flowchart TD
+    TRIGGER["Cloudflare Cron / GitHub Actions"] --> ORCH["Main Worker / daily orchestrator"]
+    ORCH <--> DB[("Cloudflare D1: job and pipeline state")]
+    ORCH <--> Q[["Cloudflare Queue: async jobs"]]
+    ORCH --> YT["YouTube Data API v3: US trend signals"]
+    YT --> FILTER["AI-topic relevance + duplicate filter"]
+    FILTER -->|Enough relevant signals| RESEARCH["Research and evidence collection"]
+    FILTER -->|Sparse chart results| FALLBACK["Existing Main Worker search/research fallback"]
+    FALLBACK --> RESEARCH
+    RESEARCH --> TV["Tavily, official sources, RSS/Atom"]
+    TV --> VERIFY["Source coverage + claim cross-check"]
+    VERIFY -->|Evidence passes| TOPIC["Topic selection + category rotation"]
+    VERIFY -->|Insufficient evidence| HOLD["Stop safely + diagnostic report"]
+    TOPIC --> SCRIPT["Groq script generation"]
+    SCRIPT -. fallback on provider failure .-> WAI["Cloudflare Workers AI"]
+    WAI --> SCRIPT
+    SCRIPT --> SCRIPTQA["Script / JSON / editorial QA"]
+    SCRIPTQA --> KOKORO["Kokoro American-English TTS"]
+    KOKORO --> AUDIOQA["Automated audio QA: exists, duration, silence, clipping"]
+    AUDIOQA -->|Pass| SCENES["Scene Director + visual budget"]
+    AUDIOQA -->|Fail| HOLD
+    SCENES --> ASSETS["Licensed media + generated scene art"]
+    ASSETS --> ATTR["License / attribution / reuse checks"]
+    ATTR --> EDIT["Charts + captions + HUD + transitions + SFX + music"]
+    EDIT --> RENDER["GitHub Actions + FFmpeg (primary renderer)"]
+    RENDER -. primary renderer unavailable .-> BACKUP["Rendobar backup only"]
+    RENDER --> VIDEOQA["Actual MP4 + thumbnail + metadata QA"]
+    BACKUP --> VIDEOQA
+    VIDEOQA -->|Pass| PRIVATE["YouTube private upload"]
+    VIDEOQA -->|Fail| HOLD
+    PRIVATE --> SCHEDULE["Set scheduled publishAt in America/New_York"]
+    SCHEDULE --> VERIFYYT["Read back video ID, privacy and schedule"]
+    VERIFYYT -->|Verified| REPORT["Update D1, dashboard, storage and report"]
+    VERIFYYT -->|Mismatch| HOLD
+    REPORT --> LEARN["Analytics / editorial feedback for later runs"]
+    HOLD --> RECOVERY["Self-healing report + bounded safe retry"]
+    RECOVERY --> ORCH
+```
+
+#### B. Workers, APIs and storage relationships
+
+```mermaid
+flowchart LR
+    DASH["Dashboard Worker: ha-digital-superadmin"] -->|"MAIN binding / authenticated calls"| MAIN["Main Worker: dark-sunset-a2a1"]
+    PROD["Production Worker: ai-production-worker"] -->|"authenticated production / image support"| MAIN
+    MAIN <--> D1[("Cloudflare D1")]
+    MAIN <--> QUEUE[["Cloudflare Queue"]]
+    MAIN --> GROQ["Groq API: primary text AI"]
+    MAIN -. fallback .-> CFAI["Cloudflare Workers AI"]
+    MAIN <--> TAVILY["Tavily Search"]
+    MAIN <--> YT["YouTube Data API v3 + OAuth 2.0"]
+    MAIN <--> GH["GitHub Actions / GitHub API"]
+    MAIN <--> SUPA[("Supabase Storage: audio and artifacts")]
+    GH --> PY["Python production tools"]
+    PY --> K["Kokoro TTS"]
+    PY --> FF["FFmpeg renderer"]
+    FF --> MP4["Final MP4 + captions + thumbnail"]
+    MP4 --> GH
+    GH --> YT
+```
+
+#### C. Recovery and release safety loop
+
+```mermaid
+flowchart TD
+    FAIL["A workflow stage fails"] --> LOG["Sanitized log + stage-specific report"]
+    LOG --> TRIAGE["Self-Healing Agent identifies known failure"]
+    TRIAGE --> SAFE{"Is an automatic fix safe and bounded?"}
+    SAFE -->|Yes| PATCH["Apply permitted targeted fix / retry"]
+    PATCH --> CANARY["Canary + tests + CI Workflow Guard"]
+    CANARY -->|Pass| RETRY["Retry failed stage using same content ID"]
+    CANARY -->|Fail| HUMAN["Stop and report required action"]
+    SAFE -->|No| HUMAN
+    RETRY --> DEDUPE["Idempotency / upload-state / duplicate guard"]
+    DEDUPE --> QA["Release QA"]
+    QA -->|Pass| CONTINUE["Continue pipeline"]
+    QA -->|Fail| HUMAN
+```
+
+---
+
 ## 4. Existing Workers and infrastructure
 
 ### 4.1 Main Worker — `dark-sunset-a2a1`
