@@ -74,6 +74,14 @@ def main():
     rate_issue = agent.classify_known_infrastructure_failure({"name": "AI Tech Lab Daily Research and Script"}, "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover.")
     assert rate_issue and rate_issue["code"] == "GROQ_RATE_LIMITED"
 
+    tavily_issue = agent.classify_known_infrastructure_failure(
+        {"name": "AI Tech Lab Daily Research and Script"},
+        "TAVILY_QUOTA_COOLDOWN 86400s: HTTP 432 usage limit exceeded."
+    )
+    assert tavily_issue and tavily_issue["code"] == "TAVILY_FREE_TIER_QUOTA_EXHAUSTED"
+    assert "public RSS fallback" in tavily_issue["safe_recovery"]
+    assert "Never upgrade" in tavily_issue["safe_recovery"]
+
     short_script = agent.classify_renderer_input_quality_failure(
         {"name": "AI Assistant Renderer"},
         'CONTENT_FORMAT=LONG_VIDEO\n"planned_visual_scenes": 49'

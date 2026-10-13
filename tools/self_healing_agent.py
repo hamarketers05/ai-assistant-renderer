@@ -180,6 +180,15 @@ def classify_known_infrastructure_failure(run, log):
             "root_cause": "The authenticated Main Worker reached Groq's free-tier rate/token limit. This is a shared upstream capacity limit, not a code or credential defect.",
             "safe_recovery": "The caller now respects Groq request spacing and the Main Worker supplies a Retry-After hint. Retry this research stage at most once after the bounded wait; do not cascade into the exhausted Workers AI allocation and never enable paid billing."
         }
+    if "tavily_quota_cooldown" in lower or (
+        ("tavily http 432" in lower or "http 432" in lower)
+        and ("tavily" in lower or "usage limit exceeded" in lower or "quota exceeded" in lower)
+    ):
+        return {
+            "code": "TAVILY_FREE_TIER_QUOTA_EXHAUSTED",
+            "root_cause": "Tavily returned HTTP 432 / usage-limit exhaustion. This is a free-plan quota restriction, not a broken key or code defect.",
+            "safe_recovery": "Respect the 24-hour Tavily cooldown, use the approved public RSS fallback from official AI labs and independent publishers, verify source dates and URLs, and block claims that lack primary plus independent support. Never upgrade, enable billing, or blindly retry Tavily."
+        }
     if "workers_ai_free_allocation_exhausted" in lower or (
         "4006" in lower and "daily free allocation" in lower and "neurons" in lower
     ):

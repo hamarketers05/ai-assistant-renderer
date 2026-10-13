@@ -69,3 +69,21 @@ The Main Worker has an authenticated `/research` route which calls `nfResearchTo
 ## Change log
 
 - 2026-10-13: Added this canonical architecture/status record to preserve project decisions and prevent repeated architecture drift. Current research-workflow/Cloudflare endpoint mismatch and incorrect AI-proxy diagnostic documented.
+
+
+## Research recovery deployment checkpoint — 2026-10-13 13:23 UTC
+
+### Implemented directly on the live Main Worker
+- Uploaded a targeted source-only update to Worker `dark-sunset-a2a1`; Cloudflare accepted the content update with HTTP 200 and returned the same script name.
+- Preserved Worker configuration by using the content-only endpoint. A subsequent settings read still listed the existing AI, D1, KV, queue, service and secret binding names; no secret values were read or changed.
+- AI Tech Lab script writing now attempts Groq first and parses the JSON response locally; the free Cloudflare Workers AI model is the writer fallback. This change is scoped to `nfGenerateScript`, not generic assistant intent routes.
+- For the GPT-OSS 20B/120B models, the Groq helper no longer sends `response_format` in JSON mode because this account's observed request returned HTTP 400. Callers still require valid JSON and validate output fields/word count. Other model JSON modes remain unchanged.
+- Tavily HTTP 432 / usage-limit errors now set a 24-hour KV cooldown, and subsequent calls skip Tavily during that cooldown. No billing or plan upgrade is attempted.
+- Added a free public RSS evidence helper using OpenAI, Google DeepMind, TechCrunch AI, MIT Technology Review and The Verge feeds. The research flow uses it when Tavily lacks an official-primary or independent-reporting source. The helper filters by AI relevance, requires HTTPS and expected publisher host, only accepts dated items from the last seven days, deduplicates URLs and caches results for 30 minutes in the existing KV binding.
+- Google Trends RSS now filters unrelated non-AI titles for AI Tech Lab. It remains an audience-interest signal, not factual evidence.
+
+### Verification boundary
+- **Verified:** Cloudflare content update accepted (HTTP 200); subsequent source read showed the Groq JSON compatibility, Groq-first script writer, Tavily cooldown, RSS fallback call and Trends filter code; current settings retained the existing binding names.
+- **Not yet verified:** an actual research request through the protected Worker endpoint, current live free RSS feed results from the Worker runtime, official-plus-independent claim verification, end-to-end render, real-media QA, and YouTube scheduled metadata. These must pass before reporting a completed video.
+- **Source-of-truth risk:** the deployed Main Worker source is much larger than the tracked `cloudflare/main-worker/worker.js`; the live fix was made through the Cloudflare content endpoint and still needs a clean, reproducible source-sync strategy. Do not overwrite the live Worker with the smaller tracked file.
+- The existing D1 source chunks `tmp-main-worker-sync-20261013-*` remain recovery material and must not be deleted until a validated replacement backup is established.
