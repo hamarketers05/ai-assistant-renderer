@@ -157,23 +157,82 @@ def duration_seconds(value):
     h, m, s = match.groups()
     return int(h or 0) * 3600 + int(m or 0) * 60 + float(s or 0)
 
+AI_TOPIC_PATTERN = re.compile(
+    r"\\b(?:ai|a\\.i\\.|artificial intelligence|machine learning|deep learning|"
+    r"generative ai|large language model|large language models|llm|llms|chatgpt|"
+    r"openai|anthropic|claude|gemini|grok|cursor ai|copilot|ai agent|ai agents|"
+    r"agentic|neural network|neural networks|deepfake|robotics|ai model|ai models|"
+    r"ai-powered|ai driven|ai-driven|generative model|generative models)\\b",
+    re.IGNORECASE,
+)
+
+
+def is_ai_relevant_trend(item):
+    """Reject general tech chart items that do not carry a direct AI signal."""
+    if not isinstance(item, dict):
+        return False
+    text = " ".join(str(item.get(key, "") or "") for key in (
+        "title", "description_excerpt", "description", "content", "channel"
+    ))
+    return bool(AI_TOPIC_PATTERN.search(re.sub(r"\\s+", " ", text)))
+
+
+def collect_ai_trend_signals(chart_items, fallback_fn=None, minimum=5):
+    """Keep only explicit AI-related US trend signals; use authenticated Worker search if needed."""
+    selected = []
+    seen = set()
+
+    def add(item):
+        if not is_ai_relevant_trend(item):
+            return
+        key = str(item.get("video_id") or item.get("url") or item.get("id") or "").strip()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        selected.append(item)
+
+    for item in chart_items if isinstance(chart_items, list) else []:
+        add(item)
+
+    fallback_used = False
+    if len(selected) < minimum and callable(fallback_fn):
+        fallback_used = True
+        try:
+            fallback_rows = fallback_fn()
+        except Exception as exc:
+            raise RuntimeError(
+                "US YouTube mostPopular returned only " + str(len(selected))
+                + " AI-relevant videos and the existing free authenticated Worker search fallback failed: "
+                + str(exc)[:220]
+            ) from None
+        for item in fallback_rows if isinstance(fallback_rows, list) else []:
+            add(item)
+
+    if len(selected) < minimum:
+        raise RuntimeError(
+            "Only " + str(len(selected)) + " explicit AI-related YouTube videos were validated; "
+            + str(minimum) + " are required before topic selection. Generic technology videos are not a substitute."
+        )
+    return selected, fallback_used
+
+
 def worker_youtube_trending_fallback():
-    """Use the existing authenticated Main Worker YouTube Data API search integration if chart=list fails."""
+    """Use the existing authenticated Main Worker research/search path when the US chart is too generic."""
     token = os.getenv("WORKER_AUTH_TOKEN", "").strip()
     worker_url = os.getenv("WORKER_URL", "https://dark-sunset-a2a1.hamarketers05.workers.dev").rstrip("/")
     if not token:
-        raise RuntimeError("YouTube chart failed and the authenticated Main Worker fallback is unavailable.")
+        raise RuntimeError("AI-relevant YouTube chart is insufficient and the authenticated Main Worker fallback is unavailable.")
     params = urllib.parse.urlencode({
-        "brand": "AI_TECH_LAB",
-        "q": "latest AI news, AI tools, technology breakthroughs and future technology videos in the United States"
+        "brand_id": "AI_TECH_LAB",
+        "q": "AI agents automation AI tools enterprise launches United States"
     })
     result = request_json(
-        worker_url + "/admin/research-self-test?" + params,
+        worker_url + "/research?" + params,
         headers={"Authorization": "Bearer " + token},
-        timeout=100
+        timeout=150
     )
     if not isinstance(result, dict) or result.get("ok") is not True:
-        raise RuntimeError("Main Worker YouTube search fallback did not pass its research self-test.")
+        raise RuntimeError("Main Worker returned no valid source-backed research response for the AI video-signal fallback.")
 
     rows = []
     seen = set()
@@ -189,65 +248,45 @@ def worker_youtube_trending_fallback():
             elif parsed.path == "/watch":
                 candidate = urllib.parse.parse_qs(parsed.query).get("v", [""])[0]
             elif parsed.path.startswith(("/shorts/", "/live/", "/embed/")):
-                candidate = parsed.path.split("/")[2] if len(parsed.path.split("/")) > 2 else ""
+                parts = parsed.path.split("/")
+                candidate = parts[2] if len(parts) > 2 else ""
             else:
                 candidate = ""
             return candidate if re.fullmatch(r"[A-Za-z0-9_-]{6,}", str(candidate)) else ""
         except (TypeError, ValueError):
             return ""
 
-    def add_row(item, default_category="Science & Technology"):
+    for item in result.get("results", []) if isinstance(result.get("results", []), list) else []:
         if not isinstance(item, dict):
-            return
-        url = str(item.get("url", item.get("source_url", "")) or "").strip()
+            continue
+        if str(item.get("source_type", "")).lower() not in {"youtube_api", "youtube_popular"}:
+            continue
+        url = str(item.get("url", "") or "").strip()
         video_id = video_id_from_url(url)
-        title = re.sub(r"\s+", " ", str(item.get("title", "") or "")).strip()
-        if not video_id or not title or video_id in seen:
-            return
+        title = re.sub(r"\\s+", " ", str(item.get("title", "") or "")).strip()
+        if not video_id or not title or video_id in seen or not is_ai_relevant_trend(item):
+            continue
         seen.add(video_id)
-        try:
-            views = int(item.get("view_count", item.get("views", 0)) or 0)
-        except (TypeError, ValueError):
-            views = 0
-        try:
-            likes = int(item.get("like_count", item.get("likes", 0)) or 0)
-        except (TypeError, ValueError):
-            likes = 0
-        try:
-            velocity = int(item.get("views_per_hour", 0) or 0)
-        except (TypeError, ValueError):
-            velocity = 0
+        description = re.sub(r"\\s+", " ", str(item.get("content", "") or "")).strip()
         rows.append({
             "video_id": video_id,
-            "category": default_category,
+            "category": "Science & Technology",
             "title": title[:220],
-            "channel": str(item.get("channel", item.get("publisher", "")) or "")[:100],
-            "published_at": str(item.get("published_at", item.get("published_date", "")) or ""),
-            "description_excerpt": re.sub(r"\s+", " ", str(item.get("content", item.get("description", "")) or ""))[:260],
-            "duration_seconds": round(duration_seconds(str(item.get("duration", ""))), 1) if str(item.get("duration", "")).startswith("PT") else 0,
-            "view_count": views,
-            "likes": likes,
-            "views_per_hour": velocity,
-            "url": url if url.startswith("https://") else "https://www.youtube.com/watch?v=" + video_id
+            "channel": str(item.get("publisher", "") or "")[:100],
+            "published_at": str(item.get("published_at", "") or ""),
+            "description_excerpt": description[:260],
+            "duration_seconds": 0,
+            "view_count": int(item.get("view_count", 0) or 0),
+            "likes": 0,
+            "views_per_hour": int(item.get("views_per_hour", 0) or 0),
+            "url": url
         })
-
-    for item in result.get("evidence", []) if isinstance(result.get("evidence", []), list) else []:
-        add_row(item)
-    candidates = result.get("recommended_topics", [])
-    if isinstance(candidates, list):
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
-                continue
-            signals = candidate.get("trend_evidence", [])
-            if isinstance(signals, list):
-                for item in signals:
-                    add_row(item)
     if len(rows) < 5:
         raise RuntimeError(
-            "YouTube Data API mostPopular failed and the authenticated Main Worker returned only "
-            + str(len(rows)) + " usable YouTube video signals; refusing to fabricate trend evidence."
+            "The authenticated Main Worker returned only " + str(len(rows))
+            + " AI-relevant YouTube search signals; refusing to fabricate trend evidence."
         )
-    print("Trend source: authenticated Main Worker YouTube Data API search fallback; mostPopular chart unavailable.")
+    print("Trend fallback: authenticated Main Worker /research -> YouTube Data API search samples; non-AI chart rows excluded.")
     return rows[:30]
 
 
@@ -530,13 +569,24 @@ def main():
         "top_improvements": review.get("top_improvements", [])[:5] if isinstance(review.get("top_improvements", []), list) else [],
         "repeat_issues_to_avoid": review.get("repeat_issues_to_avoid", [])[:5] if isinstance(review.get("repeat_issues_to_avoid", []), list) else []}
     trends = youtube_trending(yt_key, yt_token)
-    trend_sample = [x for x in trends if x["category"] == "Science & Technology"][:12] + [x for x in trends if x["category"] == "Education"][:10]
+    # Only explicit AI-topic videos may steer AI Tech Lab; generic iPhone/TV/gaming chart
+    # winners are useful to YouTube overall but are not evidence for this channel's niche.
+    trend_sample, ai_fallback_used = collect_ai_trend_signals(
+        trends, fallback_fn=worker_youtube_trending_fallback, minimum=5
+    )
+    trend_sample = trend_sample[:22]
     (outdir / "youtube_trend_signals.json").write_text(json.dumps({
-        "source": "YouTube Data API v3 videos.list chart=mostPopular", "region": "US",
+        "source": "YouTube Data API v3 US mostPopular chart with relevance-gated authenticated Worker search fallback",
+        "region": "US",
         "categories": ["Science & Technology", "Education"],
         "editorial_rotation": rotation,
-        "quota_note": "Two videos.list chart calls; documented quota cost is 1 unit per call. No extra YouTube API calls were added.",
-        "fetched_at_utc": now.isoformat(), "items": trends}, indent=2), encoding="utf-8")
+        "ai_relevant_items": len(trend_sample),
+        "targeted_worker_fallback_used": ai_fallback_used,
+        "quota_note": "Only two low-quota videos.list mostPopular chart requests are primary. Targeted authenticated Worker search runs only when fewer than five explicit AI-relevant videos are present; non-AI chart items are never fed to topic selection.",
+        "fetched_at_utc": now.isoformat(),
+        "items": trends,
+        "ai_relevant_items_for_topic_selection": trend_sample
+    }, indent=2), encoding="utf-8")
 
     # The improvement scout is weekly, uses one Tavily query on Sunday, and accepts official docs only.
     improvement_report = {
