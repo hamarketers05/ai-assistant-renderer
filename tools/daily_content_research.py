@@ -594,8 +594,38 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
     title = re.sub(r"\s+", " ", str(draft.get("title", "")).strip())[:100]
     script = re.sub(r"\r\n?", "\n", str(draft.get("script", "")).strip())
     words = len(re.findall(r"\b[\w'-]+\b", script))
+    # A short first draft is recoverable: request one evidence-locked expansion before
+    # failing closed. Workers AI sometimes under-runs the requested 700–900 words.
+    if title and (words < 700 or words > 950):
+        print(f"Initial script draft is {words} words; requesting one bounded length repair.")
+        try:
+            repaired = groq_json(
+                """You are a careful long-form script editor for AI Tech Lab, a US-audience technology channel.
+                Repair the supplied narration to 750–850 spoken words. This is a length-and-clarity repair,
+                not new research. Preserve the thesis and existing supported facts. Use ONLY the supplied
+                source evidence for factual specifics. Do not invent numbers, dates, quotes, tool capabilities,
+                product tests, or lived experience. Add useful explanation only where it follows from the
+                supplied evidence: one concrete viewer scenario, a practical decision framework, trade-offs,
+                limitations, and a specific takeaway. Clearly label opinion or forecast. Keep natural spoken
+                US English, strong hook, varied sentence lengths, no filler, no production instructions.
+                Return JSON with only title and script.
+                """ + NATURAL_VOICE_GUIDANCE,
+                json.dumps({"title": title, "script": script, "topic": topic_name,
+                            "editorial_angle": angle, "source_evidence": evidence_context},
+                           ensure_ascii=False),
+                max_tokens=3300, temperature=0.15)
+            repaired_title = re.sub(r"\s+", " ", str(repaired.get("title", "")).strip())[:100]
+            repaired_script = re.sub(r"\r\n?", "\n", str(repaired.get("script", "")).strip())
+            repaired_words = len(re.findall(r"\b[\w'-]+\b", repaired_script))
+            if repaired_title and 700 <= repaired_words <= 1000 and len(repaired_script) >= 2500:
+                title, script, words = repaired_title, repaired_script, repaired_words
+                print(f"Length repair accepted: {words} spoken words.")
+            else:
+                print(f"Length repair not accepted ({repaired_words} words); original length gate remains active.")
+        except Exception as repair_error:
+            print("Length-repair attempt failed (" + type(repair_error).__name__ + "); original length gate remains active.")
     if not title or words < 600 or words > 1000:
-        raise SystemExit(f"Groq script failed word-count/title gate ({words} words; title present={bool(title)}).")
+        raise SystemExit(f"Script failed word-count/title gate ({words} words; title present={bool(title)}).")
     title_similarity = title_similarity_ratio(title, learning.get("last_title", ""))
     if learning.get("last_title") and title_similarity >= 0.62:
         raise SystemExit("Generated title is too similar to the previous delivered title (Jaccard=" + str(title_similarity) + "); no duplicate package was released.")
@@ -616,7 +646,7 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         max_tokens=3300, temperature=0.15)
     revised = re.sub(r"\r\n?", "\n", str(audit.get("revised_script", "")).strip())
     revised_words = len(re.findall(r"\b[\w'-]+\b", revised))
-    if 600 <= revised_words <= 1000:
+    if 650 <= revised_words <= 1000:
         script = revised
     hook_score = int(audit.get("score", 0) or 0)
     try:
