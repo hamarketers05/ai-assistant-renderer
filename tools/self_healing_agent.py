@@ -16,6 +16,7 @@ import io, json, os, re, subprocess, sys, time, urllib.error, urllib.request, zi
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from self_healing_ml import SAFE_ADVISORIES, train_and_save
 
 API = "https://api.github.com"
 REPO = os.getenv("GITHUB_REPOSITORY", "hamarketers05/ai-assistant-renderer")
@@ -26,7 +27,9 @@ WORK = Path("work")
 WORK.mkdir(exist_ok=True)
 NOW = datetime.now(timezone.utc)
 REPORT = {"agent": "AI Tech Lab Autonomous Self-Healing Agent", "started_at": NOW.isoformat(),
-          "actions": [], "health": [], "unresolved": []}
+          "actions": [], "health": [], "unresolved": [], "ml_diagnostics": []}
+ML_CLASSIFIER = None
+ML_MODEL_DETAILS = {}
 TRANSIENT = (
     "http 429", "status 429", "rate limit", "too many requests", "http 500",
     "http 502", "http 503", "http 504", "internal server error",
@@ -498,6 +501,63 @@ def incident(title, body):
         REPORT["actions"].append({"action": "opened_incident", "url": created.get("html_url")})
     except Exception as exc:
         REPORT["unresolved"].append("Could not create incident issue: " + str(exc)[:200])
+
+def initialize_ml_model():
+    """Train/evaluate the reviewed incident classifier; failure never disables deterministic safety rules."""
+    global ML_CLASSIFIER, ML_MODEL_DETAILS
+    try:
+        model, metrics = train_and_save()
+        ML_CLASSIFIER = model
+        ML_MODEL_DETAILS = {
+            "status": "trained_and_evaluated",
+            "model_version": "incident-nb-v1",
+            "algorithm": "Multinomial Naive Bayes (word and adjacent-word features)",
+            "training_examples": model.training_count,
+            "classes": model.labels,
+            "holdout_examples": metrics["evaluation_count"],
+            "holdout_accuracy": metrics["accuracy"],
+            "holdout_target": metrics["threshold_accuracy_target"],
+            "holdout_passed": metrics["passed"],
+            "prediction_confidence_calibrated": False,
+            "usage": "advisory-only; deterministic incident rules and allowlists remain authoritative",
+            "serialized_model": "work/self_healing_ml_model.json",
+            "evaluation_report": "work/self_healing_ml_evaluation.json",
+        }
+        REPORT["ml_model"] = ML_MODEL_DETAILS
+        if not metrics["passed"]:
+            REPORT["ml_model"]["status"] = "trained_but_holdout_below_target"
+            REPORT["unresolved"].append(
+                "Self-healing ML holdout evaluation is below its 80% floor; model recommendations remain advisory-only."
+            )
+    except Exception as exc:
+        ML_CLASSIFIER = None
+        ML_MODEL_DETAILS = {"status": "unavailable", "error_type": type(exc).__name__}
+        REPORT["ml_model"] = ML_MODEL_DETAILS
+        REPORT["unresolved"].append(
+            "Self-healing ML training/evaluation failed; deterministic rules remain active. Error type: "
+            + type(exc).__name__
+        )
+
+
+def record_ml_diagnosis(run, log):
+    """Record model output for review; predictions never authorize recovery or release."""
+    if ML_CLASSIFIER is None:
+        return None
+    prediction = ML_CLASSIFIER.predict(str(run.get("name") or "") + "\n" + str(log or ""))
+    item = {
+        "run_id": run.get("id"),
+        "workflow": run.get("name"),
+        "predicted_class": prediction.label,
+        "relative_posterior": prediction.confidence,
+        "confidence_is_calibrated": False,
+        "margin": prediction.margin,
+        "second_choice": prediction.second_label,
+        "advisory": SAFE_ADVISORIES.get(prediction.label) if prediction.accepted else None,
+        "decision_policy": "advisory_only_no_model_authorized_retry_patch_upload_or_release",
+    }
+    REPORT["ml_diagnostics"].append(item)
+    return item
+
 
 def get_patched_already(run_id):
     return bool(cmd(["git", "log", "--all", "--format=%s", "--grep", f"SELF-HEAL PATCH run={run_id}"]).strip())
@@ -974,7 +1034,10 @@ def analyze(runs):
                 else:
                     REPORT["unresolved"].append(f"Could not retrieve failure log for run {run['id']} job {job.get('name')}: {type(exc).__name__}: {str(exc)[:260]}")
         joined = "\n".join(log for _, log in log_items)
+        ml_diagnosis = record_ml_diagnosis(run, joined)
         if is_expected_research_quality_gate_block(run, joined):
+            if ml_diagnosis is not None:
+                ml_diagnosis["rule_based_code"] = "EXPECTED_RESEARCH_EVIDENCE_GATE_BLOCK"
             REPORT["actions"].append({
                 "action": "research_evidence_gate_blocked_safely",
                 "run_id": run.get("id"),
@@ -984,6 +1047,8 @@ def analyze(runs):
             continue
         config_issue = classify_configuration_failure(joined)
         if config_issue:
+            if ml_diagnosis is not None:
+                ml_diagnosis["rule_based_code"] = config_issue["code"]
             REPORT["actions"].append({
                 "action": "classified_configuration_failure",
                 "run_id": run.get("id"),
@@ -997,6 +1062,8 @@ def analyze(runs):
             continue
         input_issue = classify_renderer_input_quality_failure(run, joined)
         if input_issue:
+            if ml_diagnosis is not None:
+                ml_diagnosis["rule_based_code"] = input_issue["code"]
             REPORT["actions"].append({
                 "action": "classified_renderer_input_quality_failure",
                 "run_id": run.get("id"),
@@ -1012,6 +1079,8 @@ def analyze(runs):
             continue
         infrastructure_issue = classify_known_infrastructure_failure(run, joined)
         if infrastructure_issue:
+            if ml_diagnosis is not None:
+                ml_diagnosis["rule_based_code"] = infrastructure_issue["code"]
             REPORT["actions"].append({
                 "action": "classified_known_infrastructure_failure",
                 "run_id": run.get("id"),
@@ -1026,6 +1095,8 @@ def analyze(runs):
             count += 1
             continue
         if run.get("name") in SAFE_RETRY and is_transient(joined):
+            if ml_diagnosis is not None:
+                ml_diagnosis["rule_based_code"] = "TRANSIENT_INFRASTRUCTURE_BOUNDED_RETRY"
             try:
                 retry_failed(run, failed)
                 if run.get("name") == "AI Tech Lab Daily Research and Script":
@@ -1104,6 +1175,7 @@ def resume_repaired_canary(all_runs):
 def main():
     if not TOKEN:
         raise SystemExit("GITHUB_TOKEN is required.")
+    initialize_ml_model()
     try:
         data = runs()
     except Exception as exc:
