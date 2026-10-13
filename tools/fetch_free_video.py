@@ -16,6 +16,10 @@ MAX_API_REQUESTS = 120
 MIN_API_INTERVAL_SECONDS = 1.25
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
 ANCHORS = set("ai chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
+# One-word matches are accepted only when they name a distinctive hardware concept.
+# Generic anchors such as "data", "power", "center", or "network" are insufficient alone.
+SPECIFIC_SINGLE_ANCHORS = set("chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter megawatt megawatts networking bandwidth circuit circuits hardware motherboard transistor transistors".split())
+MIN_VIDEO_RELEVANCE = 0.30
 API_REQUESTS = 0
 LAST_API_REQUEST = 0.0
 RATE_LIMITED = False
@@ -126,6 +130,8 @@ def relevance_score(scene_text, title, description):
     shared_anchors = scene_anchors & anchor_terms(str(title or "") + " " + str(description or ""))
     if not shared_anchors:
         return 0.0, sorted(scene_words & available), []
+    if len(shared_anchors) < 2 and not (shared_anchors & SPECIFIC_SINGLE_ANCHORS):
+        return 0.0, sorted(scene_words & available), sorted(shared_anchors)
     word_overlap = len(scene_words & available) / max(1, len(scene_words))
     anchor_overlap = len(shared_anchors) / max(1, len(scene_anchors))
     score = round(min(1.0, 0.65 * anchor_overlap + 0.35 * word_overlap), 3)
@@ -184,8 +190,31 @@ def fetch_bytes(url):
         if len(data) > MAX_BYTES: raise RuntimeError("File exceeds 80 MiB")
         return data
 
+def self_test():
+    irrelevant = relevance_score("Maia data sharing and hardware context", "Packaging data for sharing.webm", "A public health information-sharing training clip")
+    relevant_chip = relevance_score("Maia inference chip", "Exposing a Chip on Board (COB).webm", "Close-up video of a silicon chip")
+    relevant_power = relevance_score("AI data center power and cooling", "Data center power cooling systems", "Server racks and cooling infrastructure")
+    if irrelevant[0] != 0.0 or irrelevant[2]:
+        raise SystemExit("Generic-media rejection self-test failed: generic 'data' overlap was accepted.")
+    if relevant_chip[0] < MIN_VIDEO_RELEVANCE or not (set(relevant_chip[2]) & SPECIFIC_SINGLE_ANCHORS):
+        raise SystemExit("Relevant chip-footage self-test failed.")
+    if relevant_power[0] < MIN_VIDEO_RELEVANCE or len(relevant_power[2]) < 2:
+        raise SystemExit("Relevant data-center/power-footage self-test failed.")
+    print(json.dumps({
+        "status": "self_test_passed",
+        "minimum_relevance_score": MIN_VIDEO_RELEVANCE,
+        "checks": ["generic data-sharing footage rejected", "specific chip footage accepted", "data-center/power footage accepted"]
+    }))
+
 def main():
     global RATE_LIMITED, REQUEST_BUDGET_REACHED
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return
     scenes = Path("work/scenes.tsv")
     if not scenes.is_file():
         raise SystemExit("Missing work/scenes.tsv.")
@@ -276,7 +305,9 @@ def main():
                         continue
                     desc = meta_field(meta, "ImageDescription")
                     score, matching_terms, matching_anchors = relevance_score(scene_text, title, desc)
-                    if score < 0.18 or not matching_anchors:
+                    if score < MIN_VIDEO_RELEVANCE or not matching_anchors:
+                        continue
+                    if len(set(matching_anchors)) < 2 and not (set(matching_anchors) & SPECIFIC_SINGLE_ANCHORS):
                         continue
                     specific = scene_anchors & {
                         "chip", "chips", "chiplet", "semiconductor", "processor", "gpu", "nvidia",
