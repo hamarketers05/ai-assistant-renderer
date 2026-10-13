@@ -78,12 +78,14 @@ def extract_json(text):
     return obj
 
 def groq_json(system, user, max_tokens=2500, temperature=0.25):
+    """Return JSON from the preferred AI provider, allowing one explicit repair for malformed output."""
     global _LAST_GROQ_START
     key = os.getenv("GROQ_API_KEY", "").strip()
+    system_prompt = system + "\nReturn exactly one valid JSON object, with no Markdown fences."
     body = {"model": TEXT_MODEL, "temperature": temperature, "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
             "messages": [
-                {"role": "system", "content": system + "\\nReturn exactly one valid JSON object, with no Markdown fences."},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user}]}
     if key:
         wait_seconds = 61.0 - (time.monotonic() - _LAST_GROQ_START) if _LAST_GROQ_START else 0.0
@@ -91,14 +93,60 @@ def groq_json(system, user, max_tokens=2500, temperature=0.25):
             print(f"Respecting free-tier Groq TPM budget; spacing model calls by {int(wait_seconds)} seconds.")
             time.sleep(wait_seconds)
         _LAST_GROQ_START = time.monotonic()
-    result = chat_completion(body, ".github/workflows/daily-content-research.yml", timeout=90)
-    provider = str(result.get("provider", "groq"))
-    _AI_CALL_LOG.append({"provider": provider, "workflow_path": ".github/workflows/daily-content-research.yml"})
-    choices = result.get("choices") or []
-    if not choices:
-        raise RuntimeError(provider + " returned no completion choices.")
-    print("AI provider for research step: " + provider)
-    return extract_json(choices[0].get("message", {}).get("content", ""))
+
+    def call_and_record(request_body, phase):
+        result = chat_completion(request_body, ".github/workflows/daily-content-research.yml", timeout=90)
+        provider = str(result.get("provider", "groq"))
+        _AI_CALL_LOG.append({
+            "provider": provider,
+            "workflow_path": ".github/workflows/daily-content-research.yml",
+            "phase": phase,
+        })
+        choices = result.get("choices") or []
+        if not choices:
+            raise RuntimeError(provider + " returned no completion choices.")
+        print("AI provider for research step (" + phase + "): " + provider)
+        return str(choices[0].get("message", {}).get("content", ""))
+
+    raw = call_and_record(body, "primary")
+    try:
+        return extract_json(raw)
+    except (json.JSONDecodeError, RuntimeError) as first_error:
+        # Models can occasionally emit malformed JSON even when asked for JSON mode.
+        # Make one bounded repair request; all semantic, source and category gates still run afterwards.
+        malformed = raw[:12000]
+        repair_body = {
+            "model": TEXT_MODEL,
+            "temperature": 0,
+            "max_tokens": min(max_tokens, 1800),
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a strict JSON repair utility. Return exactly one valid JSON object. "
+                        "Do not invent values or facts, do not omit required fields, do not add commentary, "
+                        "and preserve the candidate's meaning. Escape strings correctly."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "The following model output failed strict JSON parsing with "
+                        + type(first_error).__name__
+                        + ". Repair the JSON syntax only. Return the complete corrected object.\n\n"
+                        + malformed
+                    ),
+                },
+            ],
+        }
+        repaired = call_and_record(repair_body, "single_json_repair")
+        try:
+            return extract_json(repaired)
+        except (json.JSONDecodeError, RuntimeError):
+            raise RuntimeError(
+                "AI returned malformed JSON twice (primary plus one repair); refusing to release an invalid research package."
+            ) from None
 
 def duration_seconds(value):
     match = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?", value or "")
