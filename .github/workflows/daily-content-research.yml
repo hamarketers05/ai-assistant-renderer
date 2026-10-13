@@ -10,7 +10,7 @@ on:
         required: false
         type: string
       target_date:
-        description: "Optional date label (YYYY-MM-DD)"
+        description: "Optional US Eastern publish date for reproducible category selection (YYYY-MM-DD)"
         required: false
         type: string
 
