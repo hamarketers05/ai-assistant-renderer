@@ -75,8 +75,8 @@ function nfEditorialTrendGate(items,categoryName){
 // Trigger the no-publishing GitHub-runner verification after the workflow was added.
 // Runtime status remains pending until the GitHub Actions log is inspected.
 
-// Cross-cutting provider hardening deployed in Main Worker v417:
+// Cross-cutting provider hardening deployed in Main Worker v418:
 // nfGroqText parses Retry-After and x-ratelimit-reset-{tokens,requests}, including compound
-// reset durations such as 2m59.56s; HTTP 429 retries remain capped at one and are allowed
-// only when the advertised delay fits the bounded timeout. Invalid/too-long hints fail fast.
-// Incident and verification boundary: docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md (v416 rollback).
+// durations such as 2m59.56s; HTTP 429 retry remains capped at one and timeout-bounded.
+// nfGenerateScript now invokes one evidence-locked rewrite for both <850 AND >1000 words;
+// no out-of-range script may pass QA. See docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md (v417 rollback).
