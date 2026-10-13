@@ -206,13 +206,13 @@ def classify_known_infrastructure_failure(run, log):
         return {
             "code": "D1_FREE_TIER_DAILY_LIMIT_EXHAUSTED",
             "root_cause": "Cloudflare D1 daily free-tier limits are exhausted; the account cannot execute queries until the quota reset.",
-            "safe_recovery": "Do not loop D1 queries or edit data/schema to bypass the quota. Keep rendering/publishing blocked until reads/writes recover; retry one read-only health check after the UTC reset. Never enable paid billing without owner approval."
+            "safe_recovery": "Do not loop D1 queries or change data/schema to bypass quota. Research and script generation may proceed only in explicitly marked D1_UNAVAILABLE_OR_WRITE_SKIPPED mode using bounded public-source research and evergreen fallback if live signals are sparse; do not claim state was persisted or that recent-title deduplication was available. Keep D1 content-row creation, rendering dispatch and publishing blocked until a single read-only check confirms reads/writes recover after the UTC reset. Never enable paid billing without owner approval."
         }
     if ("youtube_category_trend_gate" in lower or "blocked_insufficient_category_related_youtube_videos" in lower) and ("422" in lower or "distinct_video_count" in lower):
         return {
             "code": "YOUTUBE_CATEGORY_TREND_EVIDENCE_INSUFFICIENT",
             "root_cause": "The selected editorial category did not have three distinct category-relevant YouTube trend videos in the retrieved sample.",
-            "safe_recovery": "Keep the trend gate closed. Retry at most once with a broader category-query phrase or the next valid category-supported trend; do not count duplicate video IDs, invent trend signals, or use Tavily/paid search to force a pass. If no alternative has three videos, record the blocker."
+            "safe_recovery": "Run at most two bounded category-targeted YouTube Data API v3 searches over the recent 7-day window, deduplicate by real video ID, and rank by observed view-count velocity only as a discovery signal. If three category-matching videos still do not exist, use the scheduled category's predefined evergreen explainer and label it SCHEDULED_ROTATION_FALLBACK; never call it a live trend or invent IDs/metrics. Keep factual/current-claim and independent script QA gates intact. Tavily and paid search are forbidden for this pipeline."
         }
     if ("/editorial/trend-script" in lower or "trend-script route" in lower) and any(x in lower for x in ("http 404", "not found", "route unavailable")):
         return {
