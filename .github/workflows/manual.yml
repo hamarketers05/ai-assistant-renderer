@@ -76,6 +76,12 @@ jobs:
       INPUT_TAGS: ${{ inputs.tags }}
       INPUT_PUBLISH_AT: ${{ inputs.publish_at }}
       EDITORIAL_CATEGORY: ${{ inputs.editorial_category }}
+      # ai_text_client.py verifies this exact trusted workflow run before using
+      # the existing Cloudflare Workers AI fallback. Expose context job-wide so
+      # every AI-backed stage—not just the final reviewer—can use the free fallback.
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_RUN_ID: ${{ github.run_id }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
 
     steps:
       - name: Checkout repository
