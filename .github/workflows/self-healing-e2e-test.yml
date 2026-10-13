@@ -22,3 +22,5 @@ jobs:
         run: |
           set -euo pipefail
           python tools/self_healing_canary.py --self-test
+          python -m py_compile tools/self_healing_agent.py
+          python tools/test_self_healing_agent.py
