@@ -100,7 +100,7 @@ def relevance(scene_text: str, title: str, description: str) -> float:
     if not wanted or not got:
         return 0.0
     overlap = len(wanted & got)
-    return round(overlap / min(len(wanted), 6), 3)
+    return round(min(1.0, overlap / min(len(wanted), 6)), 3)
 
 
 def safe_scene(value: str) -> str:
