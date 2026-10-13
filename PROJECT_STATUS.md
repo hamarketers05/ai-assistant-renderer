@@ -3,10 +3,42 @@
 **Updated:** 2026-10-13 (PKT)  
 **Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
 **Branch:** main  
-**Reviewed HEAD:** `e629fbe04b06cd1c8d1ac65798a568331f4ae992`  
-**Current release status:** BLOCKED - daily pipeline is not end-to-end verified.
+**Reviewed code commit:** `34bfa95dd10611e6f7f5a3cfa122517183d8218a`  
+**Current release status:** BLOCKED — daily publishing is not end-to-end verified. Round-one changes are committed; automated validators are still running.
 
-## Latest verified checkpoint
+## Round One checkpoint — 2026-10-13 (authoritative current state)
+
+**Reviewed code commit:** `34bfa95dd10611e6f7f5a3cfa122517183d8218a`
+
+### Verified in GitHub Actions
+- `CI Workflow Guard` run [38440445230](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38440445230) **passed**. YAML parsing, embedded renderer Python syntax, actionlint, and the included smoke tests completed successfully.
+- `Verify Daily Handoff Endpoint (No Upload)` run [38440445792](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38440445792) **passed**. The deployed handoff Worker/D1 binding check passed, and the protected content endpoint correctly rejected an unauthenticated request. This did not write a content row or upload a video.
+- `AI Tech Lab Autonomous Self-Healing Agent` run [38440445657](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38440445657) **completed successfully as a controller run**. Its parser/regression tests passed, and the agent confirmed the editorial-rotation self-test. Its report correctly remains `attention_required`: the existing issue [#10](https://github.com/hamarketers05/ai-assistant-renderer/issues/10) tracks insufficient category-related trend evidence.
+- `Verify Cloudflare Trend Script (No Publishing)` run [38438168315](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38438168315) **passed its test contract**, including live category rotation/self-test. The trend-script endpoint returned the expected fail-closed response because it could not find 3 distinct category-related YouTube videos. This is NOT a successful script-generation test: Groq script QA and a release-ready package were not reached.
+- Cloudflare D1 daily free-tier row-read quota was explicitly exhausted at 2026-10-13 17:40 UTC. The self-healing report could not be persisted to D1 (HTTP 500), but the sanitized report remains in the GitHub Actions artifact. No upgrade or billing change was made.
+
+### Round-one code changes committed; final validator pending
+- `.github/workflows/manual.yml`: standard 16:9 2D is now the default; 3D output is optional. The upload selector and artifact paths distinguish 2D from the optional stereoscopic outputs. Reused audio retains script-hash checking; automatic Kokoro still requires measurable quality validation.
+- `.github/workflows/validate-renderer.yml`: the static contract now matches the actual Cloudflare no-Tavily research workflow, automatic Kokoro audio QA, and 2D-by-default output selection.
+- `tools/write_editing_tool_manifest.py`: supports a standard 2D master while keeping stricter conversion-report/LUT checks when SBS is explicitly selected.
+- `tools/daily_auto_handoff.py`: automatic handoff now asks for 2D rather than forcing SBS.
+- `tools/self_healing_agent.py` and `tools/test_self_healing_agent.py`: added deterministic incident classification and regression coverage for obsolete human voice-approval validator checks and 3D-default contract drift. This is rule-based recovery logic plus tests, not ML model retraining.
+
+### Still blocked / not verified
+- `Renderer Static Validation` run [38440445134](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38440445134) was **in progress at this checkpoint**. Do not call the 2D/automatic-voice changes fully validated until this run completes and any failures are fixed.
+- Trend-to-script is reachable, and the category fail-closed behavior is verified; topic discovery is not passing the 3-unique-video gate yet. No release-ready long script or paired Short was produced by this verification run.
+- D1 data reads/writes and self-heal dashboard persistence are quota-blocked until the free-tier daily reset. Do not loop requests or enable paid billing.
+- No new D1 long/Short content pair, Kokoro production audio, rendered production MP4, full playback/AV synchronization QA, Supabase video upload/checksum read-back, YouTube upload, publication schedule read-back, or Analytics result has been verified in this round.
+- Automatic publish targets remain requirements: Long 12:00 PM and Short 5:00 PM `America/New_York`; they are not yet end-to-end verified.
+
+### Exact next action
+1. Inspect `Renderer Static Validation` run 38440445134. Fix any remaining static-contract failure and rerun the validator.
+2. After the D1 quota resets at midnight UTC, run one bounded no-publishing trend-script verification. Only if it returns a QA-passing script package should the handoff be permitted to create the next paired content records.
+3. Continue through one isolated end-to-end candidate, verify the actual 2D MP4/audio/captions/thumbnail, then upload privately and read back video ID/privacy/scheduledAt before enabling routine publication.
+
+## Initial audit baseline (historical; superseded by the Round One checkpoint below)
+
+
 
 - Cloudflare API access works. Live Worker inventory includes `dark-sunset-a2a1`, `ai-production-worker`, `ai-assistant-supervisor`, `ai-tech-lab-daily-handoff`, and `dark-sunset-a2a1-backup`.
 - Main Worker bindings/settings show D1, Workers AI, queue/service bindings, secret names, persisted invocation logs and traces. Secret values were not accessed.
@@ -78,3 +110,4 @@ See [the complete deep review](docs/PIPELINE_DEEP_REVIEW_2026-10-13.md) for the 
 - Quota blockers: D1 daily free-tier row-read limit was previously exhausted; Tavily returned HTTP 432. Tavily is disabled for AI Tech Lab now. If D1 quota remains exhausted, the Worker route may still fail on unguarded profile/recent-title queries; verifier logs must decide. Never loop retries or enable billing.
 - Architecture warning: live Worker bundle is approximately 806 KB and much larger than tracked cloudflare/main-worker/worker.js. Never deploy the smaller tracked file over production.
 - NEXT ACTION: inspect the run triggered by commit a8a8b9af3157d72731b079afa66ea93e2f29cbd3. If D1 quota is the blocker, wait for reset and run one protected no-publish test. Only then permit production handoff.
+
