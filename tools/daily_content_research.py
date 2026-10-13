@@ -80,24 +80,24 @@ def extract_json(text):
 def groq_json(system, user, max_tokens=2500, temperature=0.25):
     """Return JSON from the preferred AI provider, allowing one explicit repair for malformed output."""
     global _LAST_GROQ_START
-    key = os.getenv("GROQ_API_KEY", "").strip()
     system_prompt = system + "\nReturn exactly one valid JSON object, with no Markdown fences."
     body = {"model": TEXT_MODEL, "temperature": temperature, "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user}]}
-    # Calls routed through the authenticated Main Worker still consume the same Groq quota
-    # even when the repository GROQ_API_KEY is intentionally absent. Throttle all provider calls,
-    # including the single JSON-repair request, so we do not burst into HTTP 429.
-    wait_seconds = 61.0 - (time.monotonic() - _LAST_GROQ_START) if _LAST_GROQ_START else 0.0
-    if wait_seconds > 0:
-        print(f"Respecting Groq free-tier request spacing; next AI call in about {int(wait_seconds)} seconds.")
-        time.sleep(wait_seconds)
-    _LAST_GROQ_START = time.monotonic()
 
     def call_and_record(request_body, phase):
+        global _LAST_GROQ_START
+        # Throttle every actual provider request, not just each groq_json() call. The JSON
+        # repair is a second call too, and can otherwise hit the same free Groq RPM limit.
+        wait_seconds = 61.0 - (time.monotonic() - _LAST_GROQ_START) if _LAST_GROQ_START else 0.0
+        if wait_seconds > 0:
+            print(f"Respecting Groq free-tier request spacing; next AI call in about {int(wait_seconds)} seconds.")
+            time.sleep(wait_seconds)
+        _LAST_GROQ_START = time.monotonic()
         result = chat_completion(request_body, ".github/workflows/daily-content-research.yml", timeout=90)
+        _LAST_GROQ_START = time.monotonic()
         provider = str(result.get("provider", "groq"))
         _AI_CALL_LOG.append({
             "provider": provider,
