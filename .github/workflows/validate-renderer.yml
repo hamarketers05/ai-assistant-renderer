@@ -113,6 +113,7 @@ jobs:
               "Build sentence-by-sentence visual direction",
               "Discover and download Vecteezy footage",
               "Find additional free, topic-matched Wikimedia Commons footage",
+              "Discover licensed Full-HD commercially usable images and eligible NASA clips",
               "Bootstrap visual history from recent verified production deliveries",
               "Reject previously used or weakly matched visual assets",
               "Add stock creator and license attribution",
@@ -144,10 +145,20 @@ jobs:
           import subprocess
           for test in [
               ["python", "tools/fetch_free_media.py", "--self-test"],
+              ["python", "tools/compose_scene_overlays.py", "--self-test"],
               ["python", "tools/visual_budget.py", "--self-test"],
           ]:
               subprocess.run(test, check=True)
-          print("Free-media licensing and visual-budget fail-closed self-tests passed.")
+          print("Free-media licensing, graph overlays and visual-budget fail-closed self-tests passed.")
+
+          budget_code = Path("tools/visual_budget.py").read_text(encoding="utf-8")
+          for marker in ('"rendered_scene_count_between_70_and_90"', '"at_least_70_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"native_full_hd_output"'):
+              if marker not in budget_code:
+                  raise SystemExit(f"Strict long-video visual budget missing: {marker}")
+          media_code = Path("tools/fetch_free_media.py").read_text(encoding="utf-8")
+          for marker in ("Wikimedia Commons", "Openverse", "NASA Image and Video Library", "Smithsonian Open Access CC0", "MIN_W, MIN_H = 1920, 1080"):
+              if marker not in media_code:
+                  raise SystemExit(f"Full-HD commercial-compatible source integration missing: {marker}")
 
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
