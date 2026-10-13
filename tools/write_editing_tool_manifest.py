@@ -179,8 +179,10 @@ def main() -> None:
             raise SystemExit("Editing manifest blocked: Short needs at least four actually applied HUD overlays.")
     elif visual_coverage.get("status") != "passed":
         raise SystemExit("Editing manifest blocked: Long-video visual coverage gate did not pass.")
-    if scenes.get("exact_word_timing") is not True or scene_count < 8:
-        raise SystemExit("Editing manifest blocked: scene timing/visual generation evidence is missing.")
+    scene_count_valid = (8 <= scene_count <= 30) if is_short else (80 <= scene_count <= 90)
+    if scenes.get("exact_word_timing") is not True or not scene_count_valid:
+        required_range = "8–30 scenes for a Short" if is_short else "80–90 scenes for a long video"
+        raise SystemExit(f"Editing manifest blocked: exact voice timing and {required_range} are required (actual={scene_count}).")
     if transitions.get("transition") is None or transitions.get("rendered_duration_seconds") is None:
         raise SystemExit("Editing manifest blocked: transition renderer report is incomplete.")
     if sfx.get("status") != "generated" or int(sfx.get("transition_count", -1)) != transition_count:
