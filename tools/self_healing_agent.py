@@ -512,13 +512,27 @@ def retry_failed(run, failed_jobs):
         "run_id": run["id"], "failed_jobs": [j.get("name") for j in failed_jobs],
         "reason": "Logs contain transient infrastructure failure markers."})
 
+# A temporary diagnostic workflow was replaced after proving that it incorrectly
+# expected the Worker-only HA_COMMAND_TOKEN to exist in GitHub Actions. The
+# replacement verifies the same main-Worker health and unauthorized-access
+# contract without copying the secret into Actions. Treat a later successful
+# replacement as superseding the obsolete diagnostic failure.
+SUPERSEDING_WORKFLOW_ALIASES = {
+    "Verify Main Worker Chat Route (No Publishing)": {
+        "Verify Main Worker Health and API Protection (No Publishing)",
+    },
+}
+
 def superseded_by_success(run, all_runs):
     failed_at = dt(run.get("created_at"))
     if not failed_at:
         return False
     branch = run.get("head_branch")
+    original_name = run.get("name")
+    accepted_names = {original_name}
+    accepted_names.update(SUPERSEDING_WORKFLOW_ALIASES.get(original_name, set()))
     for newer in all_runs:
-        if newer.get("name") != run.get("name") or newer.get("head_branch") != branch:
+        if newer.get("name") not in accepted_names or newer.get("head_branch") != branch:
             continue
         if newer.get("conclusion") != "success":
             continue
