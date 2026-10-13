@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from mini_agents import (EDITORIAL_CATEGORIES, NATURAL_VOICE_GUIDANCE, agent_execution_report,
                          category_rotation, evaluate_human_voice, parse_editorial_date,
-                         resolve_category, weekly_tool_scout_plan)
+                         resolve_category, title_similarity_ratio, weekly_tool_scout_plan)
 
 WORK = Path("work")
 _LAST_GROQ_START = 0.0
@@ -292,6 +292,10 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
     words = len(re.findall(r"\b[\w'-]+\b", script))
     if not title or words < 600 or words > 1000:
         raise SystemExit(f"Groq script failed word-count/title gate ({words} words; title present={bool(title)}).")
+    title_similarity = title_similarity_ratio(title, learning.get("last_title", ""))
+    if learning.get("last_title") and title_similarity >= 0.62:
+        raise SystemExit("Generated title is too similar to the previous delivered title (Jaccard=" + str(title_similarity) + "); no duplicate package was released.")
+
     hooks = draft.get("hook_candidates", [])
     if not isinstance(hooks, list) or len(hooks) < 2:
         hooks = [script.split(".")[0].strip()]
@@ -353,7 +357,8 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
     package = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(), "target_audience": "United States",
         "editorial_category": topic["category"], "category_rotation": rotation,
-        "category_decision": category_decision, "human_voice_qa": human_voice_qa,
+        "category_decision": category_decision, "title_similarity_to_previous": title_similarity,
+        "human_voice_qa": human_voice_qa,
         "agent_policy_version": "1.0.0", "tool_improvement_research": improvement_report,
         "brand": "AI Tech Lab", "primary_ai": "Groq", "research_provider": "Tavily Search API",
         "trend_provider": "YouTube Data API v3", "trend_basis": topic, "title": title,
