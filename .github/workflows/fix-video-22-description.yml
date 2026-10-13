@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows: ["AI Assistant Renderer"]
     types: [completed]
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -15,7 +16,7 @@ permissions:
 
 jobs:
   correct-source-metadata:
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-only]')) }}
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-only]')) || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -55,7 +56,7 @@ jobs:
               "$REPORT" >/dev/null
           else
             VIDEO_ID=$(jq -er '.video_id' "$PACKAGE")
-            echo "Metadata-only correction triggered from the explicit [metadata-only] package commit."
+            echo "Guarded metadata-only correction triggered without any video render or upload."
           fi
           [[ "$VIDEO_ID" =~ ^[A-Za-z0-9_-]{11}$ ]] || { echo "Target YouTube video ID is invalid."; exit 1; }
 
