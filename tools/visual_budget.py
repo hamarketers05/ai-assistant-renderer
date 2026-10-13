@@ -74,7 +74,7 @@ def verified_stock_asset_ids(scene_rows: list[dict[str, Any]],
         creator = str(source.get("creator") or "").strip()
         source_url = str(source.get("source_url") or "")
         asset_id = str(source.get("asset_id") or "").strip()
-        license_label = re.sub(r"\\s+", " ", str(source.get("license_label") or "").strip().lower())
+        license_label = " ".join(str(source.get("license_label") or "").strip().lower().split())
         license_url = str(source.get("license_url") or "")
         if not creator or not source_url.startswith("https://") or not asset_id:
             continue
