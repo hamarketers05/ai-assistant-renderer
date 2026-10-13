@@ -215,6 +215,8 @@ jobs:
           UPLOAD_BYTES=$(stat -c%s work/kokoro_upload.mp3)
           [ "$UPLOAD_BYTES" -lt $((20*1024*1024)) ] || { echo "Compressed Kokoro hand-off unexpectedly exceeds 20 MiB."; exit 1; }
           OBJECT_PATH="ai-tech-lab/$CONTENT_ID/kokoro.mp3"
+          echo "$SCRIPT_SHA256" > work/kokoro_script.sha256
+          echo "$OBJECT_PATH" > work/kokoro_audio_object_path.txt
           echo "$OBJECT_PATH" > work/kokoro_audio_object_path.txt
           UPLOAD_CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 180 -X POST \
             -o work/kokoro_upload.json -w "%{http_code}" \
@@ -226,6 +228,9 @@ jobs:
             jq '{statusCode,error,message}' work/kokoro_upload.json || cat work/kokoro_upload.json
             exit 1
           fi
+          HASH_PATH="${OBJECT_PATH%.mp3}.script.sha256"
+          HASH_UPLOAD_CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 60 -X POST -o work/kokoro_hash_upload.json -w "%{http_code}" "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$HASH_PATH" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -H "Content-Type: text/plain" -H "x-upsert: true" --data-binary @work/kokoro_script.sha256)
+          if [ "$HASH_UPLOAD_CODE" != "200" ] && [ "$HASH_UPLOAD_CODE" != "201" ]; then echo "Supabase script-hash sidecar upload failed: HTTP $HASH_UPLOAD_CODE."; exit 1; fi
           SIGN_CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 60 -X POST \
             -o work/kokoro_signed_url.json -w "%{http_code}" \
             "$SUPABASE_URL/storage/v1/object/sign/ai-assistant-audio/$OBJECT_PATH" \
@@ -260,6 +265,7 @@ jobs:
             work/kokoro_tts_report.json
             work/kokoro_audio_quality.json
             work/kokoro_audio_object_path.txt
+            work/kokoro_script.sha256
             work/script.txt
           if-no-files-found: error
           retention-days: 7
