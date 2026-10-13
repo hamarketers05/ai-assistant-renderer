@@ -1402,9 +1402,11 @@ jobs:
           print(json.dumps({"audio_video_streams":"pass","thumbnail":"1280x720 valid","captions":"present","music":"present"}))
           PY
 
-      - name: Groq router reviews rendered video, visual match, audio assets and thumbnail
+      - name: Groq primary / Workers AI fallback reviews rendered video, visual match, audio assets and thumbnail
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           GROQ_TEXT_MODEL: openai/gpt-oss-20b
           GROQ_VISION_MODEL: qwen/qwen3.8-27b
         run: |
