@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
-"""Generate a sourced thumbnail brief with Groq primary and verified Workers AI fallback."""
-import json, os, re
+"""Generate a sourced, topic-specific thumbnail brief with Groq primary and Workers AI fallback."""
+from __future__ import annotations
+
+import json
+import os
+import re
 from pathlib import Path
+
 from ai_text_client import chat_completion
 
 
-def main():
+ALLOWED_FOCI = {
+    "security shield", "AI chip", "robot hand", "neural network",
+    "data center", "digital globe",
+}
+GENERIC_HOOKS = {
+    "ai explained", "future of ai", "the future", "game changer",
+    "ai changes everything", "the next big thing",
+}
+
+
+def main() -> None:
     title = Path("work/title.txt").read_text(encoding="utf-8").strip()
     script = Path("work/script.txt").read_text(encoding="utf-8").strip()
     category = os.getenv("EDITORIAL_CATEGORY", "").strip()
@@ -16,6 +31,9 @@ def main():
             category = category or str(package.get("editorial_category", "")).strip()
         except (OSError, json.JSONDecodeError):
             pass
+    if not title or not script:
+        raise SystemExit("Topic-specific thumbnail brief blocked: title or script is missing.")
+
     out = Path("work/thumbnail_brief.json")
     payload = {
         "model": os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-20b"),
@@ -23,51 +41,90 @@ def main():
         "max_tokens": 180,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": (
-                "Create a concise, category-specific YouTube thumbnail creative brief for AI Tech Lab. Return ONLY valid JSON with keys "
-                "hook (2-5 words, no clickbait), visual_focus (one of: security shield, AI chip, robot hand, "
-                "neural network, data center, digital globe), and visual_reason (one sentence). Never invent facts. "
-                "Use the actual story angle and category rather than a generic AI chip every time. The hook must name or clearly imply the video-specific tension. "
-                "Use a strong focal subject, restrained cinematic contrast, clean negative space for two-to-five words, and no fake UI, fake metrics, or misleading imagery. "
-                "Rotate composition with the topic: security/privacy stories favor shield/threat contrast; robotics stories favor a real robot form; agent/automation stories favor a node network or machine interface; infrastructure stories favor a data center; future/science stories favor a digital globe or neural system."
-            )},
-            {"role": "user", "content": "Editorial category: " + category + "\\nTitle: " + title + "\\nScript opening: " + script[:1400] +
-                "\\nCreate one distinctive topic-specific AI Tech Lab thumbnail concept, readable on a phone; avoid generic imagery that could fit any other video."}
-        ]
+            {
+                "role": "system",
+                "content": (
+                    "Create a concise, category-specific YouTube thumbnail creative brief for AI Tech Lab. "
+                    "Return only one JSON object with keys hook, visual_focus, visual_reason. "
+                    "hook must contain two to five short, readable words tied to this exact story tension, never generic AI hype. "
+                    "visual_focus must be exactly one of: security shield, AI chip, robot hand, neural network, data center, digital globe. "
+                    "Never invent numbers, product features, or imagery that implies a result not established by the narration. "
+                    "Choose the focal object and composition from the category and actual title: security/privacy uses shield-threat contrast; "
+                    "robotics uses a robot form; agents/automation uses a network or machine interface; hardware/compute uses chip or data center; "
+                    "science/future uses a digital globe or neural system. Keep one focal object, premium cinematic contrast, negative space for text, "
+                    "and no fake UI, fake charts, fake metrics or misleading competitor comparisons."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Editorial category: " + category + "\n"
+                    "Exact video title: " + title + "\n"
+                    "Narration opening and story context:\n" + script[:1800] + "\n"
+                    "Return one distinctive thumbnail hook and visual focus that could not be reused unchanged for an unrelated AI video."
+                ),
+            },
+        ],
     }
     try:
-        response = chat_completion(payload, ".github/workflows/daily-content-research.yml", timeout=60)
+        response = chat_completion(
+            payload, ".github/workflows/daily-content-research.yml", timeout=60
+        )
         choices = response.get("choices") or []
         if not choices:
             raise RuntimeError("AI provider returned no choices.")
-        content = str(choices[0].get("message", {}).get("content", ""))
-        match = re.search(r"\\{.*\\}", content, re.S)
-        brief = json.loads(match.group(0) if match else content)
-        hook = re.sub(r"[^A-Za-z0-9 '&!?-]", "", str(brief.get("hook", ""))).strip()[:38]
-        allowed = {"security shield", "AI chip", "robot hand", "neural network", "data center", "digital globe"}
-        focus_raw = str(brief.get("visual_focus", "AI chip")).strip()
-        focus = focus_raw if focus_raw.casefold() in {x.casefold() for x in allowed} else "AI chip"
-        if not hook:
-            raise ValueError("AI provider returned an empty thumbnail hook.")
+        raw = str(choices[0].get("message", {}).get("content", "")).strip()
+        try:
+            brief = json.loads(raw)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", raw, re.S)
+            if not match:
+                raise RuntimeError("AI provider returned invalid thumbnail JSON.")
+            brief = json.loads(match.group(0))
+        hook = re.sub(r"[^A-Za-z0-9 '&!?-]", "", str(brief.get("hook", ""))).strip()
+        hook_words = re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*", hook)
+        hook = " ".join(hook_words[:5])
+        if len(hook_words) < 2:
+            raise ValueError("Thumbnail hook must contain at least two readable words.")
+        if hook.casefold() in GENERIC_HOOKS:
+            raise ValueError("Thumbnail hook is too generic; regenerate with the story-specific angle.")
+        focus_raw = str(brief.get("visual_focus", "")).strip()
+        focus = next((x for x in ALLOWED_FOCI if x.casefold() == focus_raw.casefold()), "")
+        if not focus:
+            raise ValueError("Thumbnail visual focus is missing or outside the approved set.")
+        reason = re.sub(r"\s+", " ", str(brief.get("visual_reason", "")).strip())[:300]
+        if len(reason) < 15:
+            raise ValueError("Thumbnail reasoning is too short to verify story relevance.")
         provider = str(response.get("provider", "groq"))
         result = {
             "provider": "Groq text inference" if provider == "groq" else "Cloudflare Workers AI fallback",
             "hook": hook,
+            "editorial_category": category,
             "visual_focus": focus,
-            "visual_reason": str(brief.get("visual_reason", ""))[:220]
+            "visual_reason": reason,
+            "story_title": title,
+            "validation": {
+                "hook_word_count": len(hook.split()),
+                "topic_specific_title_present": True,
+                "generic_hook_rejected": False,
+            },
         }
-        out.write_text(json.dumps(result, indent=2), encoding="utf-8")
-        print(json.dumps(result))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(json.dumps(result, ensure_ascii=False))
     except Exception as exc:
         result = {
             "provider": "blocked",
             "hook": "",
-            "visual_focus": "AI chip",
-            "note": "Thumbnail brief generation failed safely: " + str(exc)[:180]
+            "editorial_category": category,
+            "visual_focus": "",
+            "story_title": title,
+            "note": "Thumbnail brief generation/validation failed safely: " + str(exc)[:180],
         }
-        out.write_text(json.dumps(result, indent=2), encoding="utf-8")
-        print(json.dumps(result))
-        raise SystemExit("No validated thumbnail brief was available; the publishing pipeline must remain blocked.")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(json.dumps(result, ensure_ascii=False))
+        raise SystemExit("No validated topic-specific thumbnail brief was available; publishing must remain blocked.")
 
 
 if __name__ == "__main__":
