@@ -6,7 +6,7 @@ Cloudflare Workers Observability telemetry for service `dark-sunset-a2a1` showed
 
 ## Live fix
 
-Worker `dark-sunset-a2a1` version 417 (`baf942ec-441f-4d30-b82e-d21f528c1a8c`) is deployed at 100% traffic in deployment `761410f9-35de-49a8-b6e3-c1eb72a5912c`. Version 416 (`85b53870-73ce-4a09-8875-5f75df98dcc6`) is the immediate rollback target; version 415 (`d7237531-2f61-4859-a40f-4c83a8ce39e8`) remains available further back.
+Worker `dark-sunset-a2a1` version 418 (`f6209ec7-5365-4f0d-96f6-a87a224ecb52`) is deployed at 100% traffic in deployment `870db1d0-8e6f-49b8-86ae-2a52ca885aa3`. Version 417 (`baf942ec-441f-4d30-b82e-d21f528c1a8c`) is the immediate rollback target; v416 and v415 remain available further back.
 
 The Groq request loop now handles HTTP 429 separately: it reads `Retry-After`, then `x-ratelimit-reset-tokens` / `x-ratelimit-reset-requests`; parses numeric seconds, simple `ms/s/m` hints, and compound reset values such as `2m59.56s` / `7.66s`; checks the remaining bounded request timeout; waits the advertised reset plus a small buffer; and permits at most one 429 retry. If the header is missing, malformed, or won't fit the timeout, it stops retrying rather than retrying too early. Existing bounded retry behavior for selected transient 5xx/408/425 statuses remains unchanged. Logs contain only the fact a hint was present and the computed delay/budget—not headers' secret values or provider response bodies.
 
@@ -16,4 +16,4 @@ The parser policy was checked for: `3` → 3000 ms, `2.5s` → 2500 ms, `400ms` 
 
 ## Verification boundary
 
-This is not an end-to-end content-production pass. The no-publishing script validator must still verify the live category contract and attempt script generation/QA. The v416 no-publish script validator run [38448132659](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38448132659) failed HTTP 502 due to free Workers AI quota exhaustion. Version 417 adds parsing for Groq's documented compound rate-limit reset duration, but its new no-publish validator result is still pending. No production render, upload, or scheduled publication was performed for this fix. Do not enable paid billing or bypass editorial/audio/video QA.
+This is not an end-to-end content-production pass. The no-publishing script validator must still verify the live category contract and attempt script generation/QA. The v416 no-publish script validator run [38448132659](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38448132659) failed HTTP 502 due to free Workers AI quota exhaustion. Version 417 correctly progressed far enough to attempt script creation but its candidate failed the strict word-count gate at 1048 words. Version 418 fixes the one-sided word-count repair condition; its no-publish validator run is still pending. No production render, upload, or scheduled publication was performed for this fix. Do not enable paid billing or bypass editorial/audio/video QA.
