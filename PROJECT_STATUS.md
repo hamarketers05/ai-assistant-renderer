@@ -3,7 +3,7 @@
 **Updated:** 2026-10-13 (PKT)  
 **Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
 **Branch:** main  
-**Reviewed code commit:** 153e6dbd70d85f225a214b7f63cd932611ad0688  
+**Reviewed code commit:** 0fef078fa84f0afd0d497d557ed0e80b88408db5  
 **Current release status:** **BLOCKED — end-to-end content generation and publishing are not yet verified.** No paid billing enabled, no QA gates bypassed, and this session did not publish/upload content.
 
 ## Round 1 — latest verified checkpoint
@@ -23,11 +23,7 @@
 
 ### Self-healing agent — rules and regression test, not ML retraining
 - Added a deterministic classification rule for the live telemetry signature fetch /openai/v1/chat/completions + HTTP 429. It distinguishes the observed upstream rate-limit condition from a missing credential and recommends honoring the reset header, allowing at most one bounded retry, retaining the job pending on repeated rate limit, and not burning an exhausted Workers AI fallback or bypassing QA.
-- Regression test was added for the actual observed signature. CI runs after this change:
-  - [CI Workflow Guard 38447404092](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404092): **passed**.
-  - [Renderer Static Validation 38447404118](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404118): **passed**.
-  - [Self-Healing E2E Repair Test 38447404141](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404141): isolated deterministic repair canary **passed**.
-  - [Self-Healing Agent 38447404114](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404114): controller workflow **passed**.
+- Regression coverage now includes the observed Groq HTTP 429 signature and the real 1048-word script-gate failure. [CI Workflow Guard 38449297611](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38449297611), [Renderer Static Validation 38449297492](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38449297492), and [Self-Healing E2E Repair Test 38449297596](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38449297596) all **passed** on the regression-change commit. This validates the rule and isolated repair canary; it does not prove production script recovery.
 - The additional classifier now identifies the observed 1048-word script-length gate and recommends the v418/v419 repair path without waiving quality gates. [Self-Healing E2E Repair Test 38449297596](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38449297596) passed with the new regression assertion. This is rule-based incident handling plus tests, **not ML model training** and not proof that the full production system autonomously repaired a live script-to-upload incident.
 
 ### Round 1 completion gate
