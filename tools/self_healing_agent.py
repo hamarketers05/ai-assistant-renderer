@@ -13,8 +13,9 @@ YouTube upload/scheduling and publishing code. No blind retry of the renderer up
 """
 from __future__ import annotations
 import io, json, os, re, subprocess, sys, time, urllib.error, urllib.request, zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 API = "https://api.github.com"
 REPO = os.getenv("GITHUB_REPOSITORY", "hamarketers05/ai-assistant-renderer")
@@ -64,6 +65,15 @@ HEALTH_URLS = [
     ("production-worker", "https://ai-production-worker.hamarketers05.workers.dev/health"),
     ("daily-handoff-worker", "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/health"),
 ]
+EDITORIAL_CATEGORIES = (
+    "AI News & Breakthroughs",
+    "AI Tools & Practical Workflows",
+    "AI Agents & Automation",
+    "Robotics & Physical AI",
+    "AI, Jobs & Business",
+    "AI Safety, Privacy & Cybersecurity",
+    "Future Tech, Science & Predictions",
+)
 
 def api(method, path, payload=None, raw=False, timeout=40):
     if not TOKEN:
@@ -172,6 +182,14 @@ def classify_known_infrastructure_failure(run, log):
     """Recognize recurring infrastructure failures whose correct response is auth/config, not code edits."""
     name = str(run.get("name") or "")
     lower = str(log or "").lower()
+    if ("editorial category rotation" in lower or "editorial-category-rotation" in lower) and any(
+        marker in lower for marker in ("failed", "failure", "error", "invalid", "regression", "ok=false")
+    ):
+        return {
+            "code": "CLOUDFLARE_EDITORIAL_ROTATION_REGRESSION",
+            "root_cause": "The Main Worker category-rotation contract or its deterministic regression checks failed; this may be a Worker-code regression or a date/category metadata mismatch.",
+            "safe_recovery": "Retry the read-only rotation probes once, verify US Eastern date/index/next-category and the seven-day self-test, then open a deduplicated incident. Keep source/fact gates closed until checks recover. Do not deploy a Worker patch automatically, bypass research evidence checks, or switch to paid providers."
+        }
     if "groq_rate_limited" in lower or (
         "trusted_ai_proxy" in lower and "http 429" in lower and "groq" in lower
     ):
@@ -311,6 +329,90 @@ def probe_workers():
         REPORT["health"].append(item)
         if not item["ok"]:
             REPORT["unresolved"].append(f"{name} health probe failed; Cloudflare supervisor/failover remains responsible for service failover.")
+    probe_editorial_rotation()
+
+
+def validate_editorial_rotation_payload(payload, expected_date=None):
+    """Validate the deployed category schedule against the repo's seven-day policy."""
+    if not isinstance(payload, dict) or payload.get("timezone") != "America/New_York":
+        return False
+    if payload.get("rotation_anchor") != "2026-10-13" or payload.get("cycle_length_days") != 7:
+        return False
+    try:
+        day = date.fromisoformat(str(payload.get("date_us_eastern", "")))
+    except ValueError:
+        return False
+    if expected_date and day.isoformat() != expected_date:
+        return False
+    index = payload.get("category_index")
+    if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(EDITORIAL_CATEGORIES):
+        return False
+    return (payload.get("category") == EDITORIAL_CATEGORIES[index]
+            and payload.get("next_category") == EDITORIAL_CATEGORIES[(index + 1) % len(EDITORIAL_CATEGORIES)]
+            and bool(str(payload.get("category_brief", "")).strip()))
+
+
+def validate_editorial_rotation_self_test(payload):
+    """Require each deterministic rotation/anti-duplication test to pass."""
+    required = (
+        "seven_unique_days_and_wraparound",
+        "duplicate_video_ids_do_not_count",
+        "three_video_trend_override",
+        "invalid_date_rejected",
+    )
+    checks = payload.get("checks") if isinstance(payload, dict) else None
+    return (isinstance(payload, dict) and payload.get("ok") is True
+            and payload.get("category_count") == 7 and isinstance(checks, dict)
+            and all(checks.get(key) is True for key in required))
+
+
+def probe_editorial_rotation():
+    """Probe the live Cloudflare rotation contract; retry read-only checks once, then fail closed."""
+    base = "https://dark-sunset-a2a1.hamarketers05.workers.dev"
+    urls = {
+        "self_test": base + "/editorial/category-rotation-self-test",
+        "current_rotation": base + "/editorial/category-rotation",
+    }
+    item = {"component": "main-worker-editorial-category-rotation", "ok": False, "attempts": 0}
+    expected_date = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    last_error = ""
+    for attempt in range(2):
+        item["attempts"] = attempt + 1
+        try:
+            results = {}
+            for key, url in urls.items():
+                req = urllib.request.Request(url, headers={"User-Agent": "AI-Tech-Lab-Self-Healing-Agent/1.0"})
+                with urllib.request.urlopen(req, timeout=12) as response:
+                    data = response.read(8000).decode("utf-8", "replace")
+                    if not 200 <= response.status < 300:
+                        raise RuntimeError(f"{key} HTTP {response.status}")
+                results[key] = json.loads(data)
+            if not validate_editorial_rotation_self_test(results["self_test"]):
+                raise RuntimeError("Cloudflare editorial category-rotation self-test failed")
+            if not validate_editorial_rotation_payload(results["current_rotation"], expected_date):
+                raise RuntimeError("Cloudflare US Eastern category/date/index contract failed")
+            item.update({"ok": True, "http_status": 200,
+                         "test_checks": results["self_test"].get("checks", {}),
+                         "date_us_eastern": results["current_rotation"].get("date_us_eastern"),
+                         "category": results["current_rotation"].get("category"),
+                         "next_category": results["current_rotation"].get("next_category")})
+            break
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {str(exc)[:220]}"
+            item["error"] = last_error
+            if attempt == 0:
+                time.sleep(2)
+    REPORT["health"].append(item)
+    if item["ok"]:
+        REPORT["actions"].append({"action": "editorial_rotation_self_test_passed",
+                                  "date_us_eastern": item.get("date_us_eastern"),
+                                  "category": item.get("category")})
+    else:
+        detail = ("Cloudflare category rotation did not pass its read-only self-test after one bounded retry. "
+                  "Research must remain fail-closed until this is repaired. The agent will not patch/deploy bundled Worker code, "
+                  "bypass claim verification, or switch to a paid provider automatically. Last error: " + last_error)
+        REPORT["unresolved"].append(detail)
+        incident("Cloudflare editorial category rotation regression", detail)
 
 def dispatch(workflow_file, inputs=None):
     payload = {"ref": "main"}
