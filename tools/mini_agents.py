@@ -12,7 +12,7 @@ import json
 import re
 import statistics
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -256,7 +256,7 @@ def agent_execution_report(stage: str, runs: list[dict], metadata: dict | None =
     return {
         "schema_version": POLICY_VERSION,
         "stage": stage,
-        "generated_at_utc": datetime.now().astimezone().isoformat(),
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "metadata": metadata or {},
         "agents": [
             {**profile, **by_id.get(profile["id"], {
