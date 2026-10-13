@@ -1,0 +1,1411 @@
+{
+  "schema_version": "1.0.0",
+  "pipeline_id": "ai-tech-lab-automated-content-and-self-healing",
+  "last_reviewed": "2026-10-14",
+  "intended_pipeline": "USA audience; English; one ~6-minute long video and one related Short per day, pending full end-to-end proof.",
+  "evidence_boundary": "This catalog maps checked-in workflow configuration and tool responsibilities. A listed step, tool or passing static test does not prove that the real provider request, voice, final MP4, remote storage or YouTube schedule succeeded.",
+  "runtime_monitoring": {
+    "controller_workflow": ".github/workflows/ai-self-healing-agent.yml",
+    "watchdog_workflow": ".github/workflows/self-healing-watchdog.yml",
+    "expected_schedule_minutes": 15,
+    "scheduled_probe_freshness_limit_minutes": 45,
+    "failure_event_trigger": "workflow_run completed failure for the allowlisted monitored workflows",
+    "daily_research_max_age_hours_before_existing_recovery_logic": 25,
+    "run_history_window_limit": 100,
+    "health_probes": [
+      "main-cloudflare-worker",
+      "production-worker",
+      "daily-handoff-worker",
+      "main-worker-editorial-category-rotation"
+    ],
+    "availability_caveat": "GitHub Actions cron is periodic best-effort, not a continuously running daemon or a 24/7 uptime guarantee. Use workflow_dispatch for an immediate check. A missed schedule or unavailable GitHub Actions service can delay detection."
+  },
+  "decision_rules": [
+    "If active run is within its timeout and required gate is progressing, report active/in_progress; do not start a duplicate run.",
+    "If completed success and required artifacts/QA readback exist, continue to the next configured stage only through its existing workflow trigger.",
+    "If completed failure, retrieve the authentic failed-job log, classify with deterministic rules plus ML diagnostics, and follow only a documented bounded recovery that matches the evidence.",
+    "If provider quota/rate limit, missing credential, state ambiguity, unsupported claim, missing media or unknown incident: preserve state, block the dependent/release stage and record unresolved evidence.",
+    "If a repair changes code, require focused tests and relevant CI/static validation; if any gate fails, do not merge/release and preserve the failure report.",
+    "ML cannot authorize arbitrary code edits, workflow/Worker deployments, secrets/billing changes, publishing, duplicate upload attempts, or quality-gate overrides.",
+    "After a successful validated stage, continue only through the existing idempotent workflow chain; never infer that a failed workflow succeeded from the model prediction."
+  ],
+  "stages": [
+    {
+      "id": "S00",
+      "name": "Monitoring and incident diagnosis",
+      "purpose": "Read GitHub Actions state, inspect bounded failure logs, probe configured Workers and preserve a sanitized incident report.",
+      "workflows": [
+        ".github/workflows/ai-self-healing-agent.yml",
+        ".github/workflows/self-healing-watchdog.yml"
+      ],
+      "tools": [
+        "tools/self_healing_agent.py",
+        "tools/self_healing_ml.py",
+        "tools/self_healing_rescue.py",
+        "tools/publish_self_heal_report.py"
+      ],
+      "quality_gates": [
+        "Model diagnostics are advisory-only",
+        "bounded retries",
+        "no secret logging",
+        "unknown issues remain unresolved"
+      ],
+      "state": "implemented_static_mapping_runtime_health_probes_need_live_evidence",
+      "tool_paths": [
+        "tools/self_healing_agent.py",
+        "tools/self_healing_ml.py",
+        "tools/self_healing_rescue.py",
+        "tools/publish_self_heal_report.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/ai-self-healing-agent.yml",
+        ".github/workflows/self-healing-watchdog.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S01",
+      "name": "Research and source evidence",
+      "purpose": "Collect approved research context and topic candidates; retain URLs/evidence; avoid claiming a topic is trending without sufficient corroboration.",
+      "workflows": [
+        ".github/workflows/daily-content-research.yml",
+        ".github/workflows/verify-cloudflare-research.yml",
+        ".github/workflows/verify-live-youtube-topic-selection.yml"
+      ],
+      "tools": [
+        "tools/daily_content_research.py",
+        "tools/mini_agents.py",
+        "tools/mini_agent_delivery_report.py",
+        "tools/seo_source_safety.py",
+        "tools/ai_text_client.py"
+      ],
+      "quality_gates": [
+        "credible sources retained",
+        "source URLs sanitized",
+        "evidence/corroboration contract",
+        "Tavily stays disabled when its quota is exhausted"
+      ],
+      "state": "configured_not_e2e_verified",
+      "tool_paths": [
+        "tools/daily_content_research.py",
+        "tools/mini_agents.py",
+        "tools/mini_agent_delivery_report.py",
+        "tools/seo_source_safety.py",
+        "tools/ai_text_client.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/daily-content-research.yml",
+        ".github/workflows/verify-cloudflare-research.yml",
+        ".github/workflows/verify-live-youtube-topic-selection.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S02",
+      "name": "Trend selection and editorial rotation",
+      "purpose": "Select the scheduled category or a sufficiently evidenced live trend; distinguish evergreen fallback from a verified current trend.",
+      "workflows": [
+        ".github/workflows/daily-content-research.yml",
+        ".github/workflows/verify-live-youtube-topic-selection.yml",
+        ".github/workflows/verify-cloudflare-trend-script.yml"
+      ],
+      "tools": [
+        "tools/mini_agents.py",
+        "tools/daily_content_research.py"
+      ],
+      "quality_gates": [
+        "at least three unique relevant video IDs for live-trend mode",
+        "seven-day category rotation",
+        "no false live-trend claim"
+      ],
+      "state": "configured_worker_route_recently_blocked_by_groq_429",
+      "tool_paths": [
+        "tools/mini_agents.py",
+        "tools/daily_content_research.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/daily-content-research.yml",
+        ".github/workflows/verify-live-youtube-topic-selection.yml",
+        ".github/workflows/verify-cloudflare-trend-script.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S03",
+      "name": "Original script and factual audit",
+      "purpose": "Generate source-supported narration and title/description/tags; check spoken word count and independent voice/factual audit.",
+      "workflows": [
+        ".github/workflows/daily-content-research.yml",
+        ".github/workflows/verify-cloudflare-trend-script.yml"
+      ],
+      "tools": [
+        "tools/ai_text_client.py",
+        "tools/mini_agents.py",
+        "tools/daily_content_research.py"
+      ],
+      "quality_gates": [
+        "LONG_VIDEO spoken words 850-1000",
+        "hook score and human voice score meet configured threshold",
+        "unsupported current claims absent",
+        "malformed audit fails closed"
+      ],
+      "state": "configured_live_generation_not_verified_after_provider_429",
+      "tool_paths": [
+        "tools/ai_text_client.py",
+        "tools/mini_agents.py",
+        "tools/daily_content_research.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/daily-content-research.yml",
+        ".github/workflows/verify-cloudflare-trend-script.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S04",
+      "name": "Content package and durable handoff",
+      "purpose": "Convert a validated research artifact into a handoff request, preserve job state and prevent processing/uploading a duplicate package.",
+      "workflows": [
+        ".github/workflows/daily-auto-production.yml",
+        ".github/workflows/verify-daily-auto-handoff.yml"
+      ],
+      "tools": [
+        "tools/daily_auto_handoff.py"
+      ],
+      "quality_gates": [
+        "source artifact verified",
+        "idempotency/content hash",
+        "D1 state readback when applicable",
+        "no handoff from failed research"
+      ],
+      "state": "configured_persistence_and_dedup_e2e_unverified",
+      "tool_paths": [
+        "tools/daily_auto_handoff.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/daily-auto-production.yml",
+        ".github/workflows/verify-daily-auto-handoff.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S05",
+      "name": "Automatic narration and captions",
+      "purpose": "Generate narration with the configured Kokoro pipeline, edit timing, create captions and reject silent/missing/invalid audio before scene timing.",
+      "workflows": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/voice-preview-20.yml"
+      ],
+      "tools": [
+        "tools/generate_kokoro_voice.py",
+        "tools/voice_editor.py"
+      ],
+      "quality_gates": [
+        "audio file exists and decodes",
+        "non-silent measurable audio",
+        "valid duration/sample rate",
+        "caption and final voice timing align"
+      ],
+      "state": "tools_present_production_kokoro_e2e_not_verified",
+      "tool_paths": [
+        "tools/generate_kokoro_voice.py",
+        "tools/voice_editor.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/voice-preview-20.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S06",
+      "name": "Licensed media and source-linked graphics",
+      "purpose": "Discover and validate licensed, relevant footage/stills; create branded graphics, evidence-backed charts and overlays; persist attribution and reject reused/prohibited assets.",
+      "workflows": [
+        ".github/workflows/manual.yml"
+      ],
+      "tools": [
+        "tools/fetch_free_video.py",
+        "tools/fetch_free_media.py",
+        "tools/asset_reuse_guard.py",
+        "tools/generate_flux_images.py",
+        "tools/generate_scene_art.py",
+        "tools/make_brand_assets.py",
+        "tools/make_evidence_charts.py",
+        "tools/compose_scene_overlays.py",
+        "tools/make_3d_hero_overlay.py"
+      ],
+      "quality_gates": [
+        "exact asset license and attribution verified",
+        "topic relevance passed",
+        "duplicate asset guard passed",
+        "source-linked charts only",
+        "full-HD asset/output gates"
+      ],
+      "state": "tools_and_static_gates_present_real_delivery_evidence_required",
+      "tool_paths": [
+        "tools/fetch_free_video.py",
+        "tools/fetch_free_media.py",
+        "tools/asset_reuse_guard.py",
+        "tools/generate_flux_images.py",
+        "tools/generate_scene_art.py",
+        "tools/make_brand_assets.py",
+        "tools/make_evidence_charts.py",
+        "tools/compose_scene_overlays.py",
+        "tools/make_3d_hero_overlay.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S07",
+      "name": "Voice-aligned scene plan and visual budget",
+      "purpose": "Map narration timestamps to scenes and ensure the actual sequence meets visual variety, cadence, captions and overlay-budget requirements.",
+      "workflows": [
+        ".github/workflows/manual.yml"
+      ],
+      "tools": [
+        "tools/scene_director.py",
+        "tools/visual_budget.py"
+      ],
+      "quality_gates": [
+        "final voice timestamps drive scene timing",
+        "visual element budget validated on actual render",
+        "no synthetic budget report treated as final media evidence"
+      ],
+      "state": "configured_static_smoke_tests_not_full_mp4_e2e",
+      "tool_paths": [
+        "tools/scene_director.py",
+        "tools/visual_budget.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S08",
+      "name": "FFmpeg rendering and finishing",
+      "purpose": "Render and compose scenes, transition effects, music and optional 3D output; validate the produced media rather than trusting a green command alone.",
+      "workflows": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/midas-sbs-validation.yml"
+      ],
+      "tools": [
+        "tools/render_transitions.py",
+        "tools/make_transition_sfx.py",
+        "tools/generate_music.py",
+        "tools/convert_video_3d.py",
+        "tools/convert_video_midas_sbs.py"
+      ],
+      "quality_gates": [
+        "render job bounded",
+        "final MP4 exists and decodes",
+        "resolution/frame rate/duration verified",
+        "narration and music do not clip",
+        "partial MP4 never treated as complete"
+      ],
+      "state": "renderer_static_smoke_tests_passed_production_full_video_review_unverified",
+      "tool_paths": [
+        "tools/render_transitions.py",
+        "tools/make_transition_sfx.py",
+        "tools/generate_music.py",
+        "tools/convert_video_3d.py",
+        "tools/convert_video_midas_sbs.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/midas-sbs-validation.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S09",
+      "name": "Rendered-content QA and metadata",
+      "purpose": "Review the finished video's narration, caption synchronization, visual relevance, thumbnail and SEO metadata; block critical failures.",
+      "workflows": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/verify-main-worker-chat.yml"
+      ],
+      "tools": [
+        "tools/groq_video_review.py",
+        "tools/groq_thumbnail_brief.py",
+        "tools/make_premium_thumbnail.py",
+        "tools/seo_metadata.py",
+        "tools/seo_source_safety.py",
+        "tools/write_editing_tool_manifest.py"
+      ],
+      "quality_gates": [
+        "full rendered MP4 reviewed",
+        "captions match voice",
+        "thumbnail passes dimensions/readability",
+        "licensed source manifest complete",
+        "critical QA blocks upload"
+      ],
+      "state": "qa_gates_configured_real_production_mp4_review_unverified",
+      "tool_paths": [
+        "tools/groq_video_review.py",
+        "tools/groq_thumbnail_brief.py",
+        "tools/make_premium_thumbnail.py",
+        "tools/seo_metadata.py",
+        "tools/seo_source_safety.py",
+        "tools/write_editing_tool_manifest.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/verify-main-worker-chat.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S10",
+      "name": "Related Short production",
+      "purpose": "Create a separate vertical Short from the verified content package, and independently check duration, dimensions, caption coverage, narration and originality.",
+      "workflows": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/daily-auto-production.yml"
+      ],
+      "tools": [
+        "tools/make_daily_short.py",
+        "tools/test_make_daily_short.py",
+        "tools/scene_director.py",
+        "tools/visual_budget.py"
+      ],
+      "quality_gates": [
+        "vertical native output",
+        "20-60 second duration",
+        "script/title/description checks",
+        "audio/caption/media integrity",
+        "independent no-duplicate check"
+      ],
+      "state": "short_pipeline_code_present_end_to_end_pairing_unverified",
+      "tool_paths": [
+        "tools/make_daily_short.py",
+        "tools/test_make_daily_short.py",
+        "tools/scene_director.py",
+        "tools/visual_budget.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/daily-auto-production.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S11",
+      "name": "Upload and scheduled publication",
+      "purpose": "Check for existing uploads, upload through YouTube Data API, apply thumbnail and schedule, then read back remote video ID, privacyStatus and publishAt.",
+      "workflows": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/verify-youtube-schedule.yml",
+        ".github/workflows/launch-video-21.yml",
+        ".github/workflows/launch-video-22.yml",
+        ".github/workflows/approve-and-render-content-20.yml",
+        ".github/workflows/fix-video-22-description.yml"
+      ],
+      "tools": [
+        "tools/seo_metadata.py",
+        "tools/write_editing_tool_manifest.py"
+      ],
+      "quality_gates": [
+        "no upload before all critical QA passes",
+        "duplicate upload guard",
+        "private until schedule readback confirmed",
+        "America/New_York schedule conversion",
+        "remote video ID/privacyStatus/publishAt readback"
+      ],
+      "state": "configured_high_risk_not_to_be_autonomously_triggered_by_classifier",
+      "tool_paths": [
+        "tools/seo_metadata.py",
+        "tools/write_editing_tool_manifest.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/verify-youtube-schedule.yml",
+        ".github/workflows/launch-video-21.yml",
+        ".github/workflows/launch-video-22.yml",
+        ".github/workflows/approve-and-render-content-20.yml",
+        ".github/workflows/fix-video-22-description.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S12",
+      "name": "Storage, delivery manifest and learning loop",
+      "purpose": "Persist sanitized reports, verified media/provenance metadata and post-delivery observations for later review.",
+      "workflows": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/daily-auto-production.yml",
+        ".github/workflows/ai-self-healing-agent.yml",
+        ".github/workflows/self-healing-watchdog.yml"
+      ],
+      "tools": [
+        "tools/publish_self_heal_report.py",
+        "tools/write_editing_tool_manifest.py",
+        "tools/mini_agent_delivery_report.py"
+      ],
+      "quality_gates": [
+        "local artifact is retained until safe cleanup",
+        "storage readback/checksum verified before success claim",
+        "report payload sanitized",
+        "learning feedback is evidence-backed"
+      ],
+      "state": "report_publishing_configured_media_storage_and_checksum_e2e_unverified",
+      "tool_paths": [
+        "tools/publish_self_heal_report.py",
+        "tools/write_editing_tool_manifest.py",
+        "tools/mini_agent_delivery_report.py"
+      ],
+      "workflow_paths": [
+        ".github/workflows/manual.yml",
+        ".github/workflows/daily-auto-production.yml",
+        ".github/workflows/ai-self-healing-agent.yml",
+        ".github/workflows/self-healing-watchdog.yml"
+      ],
+      "step_status_is_not_runtime_proof": true
+    },
+    {
+      "id": "S13",
+      "name": "YouTube performance analytics",
+      "purpose": "Read uploaded video performance and feed measured outcomes into content planning only after authentic Analytics API data is available.",
+      "workflows": [],
+      "tools": [],
+      "quality_gates": [
+        "YouTube Analytics API credentials/quota verified",
+        "read-only metrics and timestamps retained",
+        "no fabricated view/retention/CTR metrics"
+      ],
+      "state": "not_verified_in_current_registered_workflow_tool_map",
+      "tool_paths": [],
+      "workflow_paths": [],
+      "step_status_is_not_runtime_proof": true
+    }
+  ],
+  "workflows": [
+    {
+      "path": ".github/workflows/ai-self-healing-agent.yml",
+      "purpose": "Self-healing controller: diagnose recent failures, classify incidents, run allowlisted repairs/retries, probe health and publish sanitized reports.",
+      "role": "monitoring",
+      "stage_ids": [
+        "S00"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/approve-and-render-content-20.yml",
+      "purpose": "Legacy/manual content approval and render path; treat as publication-capable until proven otherwise.",
+      "role": "legacy_high_risk",
+      "stage_ids": [
+        "S09",
+        "S11"
+      ],
+      "publication_capable": true
+    },
+    {
+      "path": ".github/workflows/ci-workflow-guard.yml",
+      "purpose": "Static CI checks for workflow YAML, embedded Python, self-healing tests and pipeline contracts.",
+      "role": "validation",
+      "stage_ids": [
+        "S00",
+        "S09"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/daily-auto-production.yml",
+      "purpose": "Trigger handoff after successful research; validate real package and run handoff/dry-run gates.",
+      "role": "handoff",
+      "stage_ids": [
+        "S04",
+        "S10",
+        "S12"
+      ],
+      "publication_capable": true
+    },
+    {
+      "path": ".github/workflows/daily-content-research.yml",
+      "purpose": "Scheduled/manual research and source-backed script package generation. No YouTube upload in this workflow.",
+      "role": "research",
+      "stage_ids": [
+        "S01",
+        "S02",
+        "S03"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/fix-video-22-description.yml",
+      "purpose": "Legacy/manual YouTube metadata remediation; do not auto-dispatch without explicit workflow-level safeguards.",
+      "role": "legacy_high_risk",
+      "stage_ids": [
+        "S11"
+      ],
+      "publication_capable": true
+    },
+    {
+      "path": ".github/workflows/launch-video-21.yml",
+      "purpose": "Legacy/manual launch/upload flow; publication-capable and protected from classifier-triggered retries.",
+      "role": "legacy_high_risk",
+      "stage_ids": [
+        "S11"
+      ],
+      "publication_capable": true
+    },
+    {
+      "path": ".github/workflows/launch-video-22.yml",
+      "purpose": "Legacy/manual launch/upload flow; publication-capable and protected from classifier-triggered retries.",
+      "role": "legacy_high_risk",
+      "stage_ids": [
+        "S11"
+      ],
+      "publication_capable": true
+    },
+    {
+      "path": ".github/workflows/manual.yml",
+      "purpose": "Primary FFmpeg renderer workflow; automatic voice generation, media/scene/render QA, output artifacts and YouTube publication path.",
+      "role": "renderer_publication_capable",
+      "stage_ids": [
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10",
+        "S11",
+        "S12"
+      ],
+      "publication_capable": true
+    },
+    {
+      "path": ".github/workflows/midas-sbs-validation.yml",
+      "purpose": "Optional stereoscopic conversion validation; not required for standard 2D release.",
+      "role": "validation",
+      "stage_ids": [
+        "S08"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/self-healing-e2e-test.yml",
+      "purpose": "Isolated deterministic repair canary; synthetic defect only, never production content or credentials.",
+      "role": "e2e_canary",
+      "stage_ids": [
+        "S00"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/self-healing-watchdog.yml",
+      "purpose": "Independent recovery-controller monitor on a 15-minute schedule and agent-failure event.",
+      "role": "watchdog",
+      "stage_ids": [
+        "S00"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/validate-renderer.yml",
+      "purpose": "Renderer/media/brand/voice/SEO static and offline smoke validation.",
+      "role": "validation",
+      "stage_ids": [
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/verify-ai-fallback.yml",
+      "purpose": "Authenticated no-upload AI provider fallback verification.",
+      "role": "validation",
+      "stage_ids": [
+        "S00",
+        "S03"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/verify-cloudflare-research.yml",
+      "purpose": "No-publishing research/evidence-source contract validation.",
+      "role": "validation",
+      "stage_ids": [
+        "S01",
+        "S02"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/verify-cloudflare-trend-script.yml",
+      "purpose": "No-publishing trend/script validation through the deployed Worker; independent QA gate.",
+      "role": "validation",
+      "stage_ids": [
+        "S02",
+        "S03"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/verify-daily-auto-handoff.yml",
+      "purpose": "No-upload validation of the handoff endpoint and contract.",
+      "role": "validation",
+      "stage_ids": [
+        "S04"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/verify-live-youtube-topic-selection.yml",
+      "purpose": "No-publishing live category/trend selector contract validation.",
+      "role": "validation",
+      "stage_ids": [
+        "S01",
+        "S02"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/verify-main-worker-chat.yml",
+      "purpose": "Worker/authenticated inference health and API protection validation.",
+      "role": "validation",
+      "stage_ids": [
+        "S00",
+        "S03"
+      ],
+      "publication_capable": false
+    },
+    {
+      "path": ".github/workflows/verify-youtube-schedule.yml",
+      "purpose": "YouTube scheduled publication state/readback checks; must not create a new upload unless its workflow explicitly says so.",
+      "role": "validation_high_risk",
+      "stage_ids": [
+        "S11"
+      ],
+      "publication_capable": true
+    },
+    {
+      "path": ".github/workflows/voice-preview-20.yml",
+      "purpose": "Voice-generation preview/test; does not prove production narration is validated in the renderer.",
+      "role": "voice_preview",
+      "stage_ids": [
+        "S05"
+      ],
+      "publication_capable": false
+    }
+  ],
+  "tools": [
+    {
+      "path": "tools/ai_text_client.py",
+      "role": "Groq-primary/authenticated Cloudflare Workers AI fallback wrapper",
+      "stage_ids": [
+        "S01",
+        "S03"
+      ],
+      "tool_type": "provider_client",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/asset_reuse_guard.py",
+      "role": "Checks asset reuse, visual novelty and provenance against prior verified deliveries",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "quality_guard",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/compose_scene_overlays.py",
+      "role": "Composites transparent HUD/graph/evidence overlays onto matching scenes",
+      "stage_ids": [
+        "S06",
+        "S07"
+      ],
+      "tool_type": "renderer_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/convert_video_3d.py",
+      "role": "Optional 3D video conversion/verification path",
+      "stage_ids": [
+        "S08"
+      ],
+      "tool_type": "optional_renderer",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/convert_video_midas_sbs.py",
+      "role": "Optional MiDaS side-by-side stereoscopic conversion",
+      "stage_ids": [
+        "S08"
+      ],
+      "tool_type": "optional_renderer",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/daily_auto_handoff.py",
+      "role": "Validates the research artifact and hands content metadata/state to the next production stage",
+      "stage_ids": [
+        "S04"
+      ],
+      "tool_type": "handoff_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/daily_content_research.py",
+      "role": "Research candidate discovery, source checks and content package support",
+      "stage_ids": [
+        "S01",
+        "S02",
+        "S03"
+      ],
+      "tool_type": "research_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/fetch_free_media.py",
+      "role": "Discovers/downloads media with license and resolution filtering",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "asset_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/fetch_free_video.py",
+      "role": "Finds topic-matched footage, retains provenance and blocks weak/reused assets",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "asset_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/generate_flux_images.py",
+      "role": "Optional AI still-image generation/composition; provider limits remain external",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "asset_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/generate_kokoro_voice.py",
+      "role": "Automatic Kokoro narration generator",
+      "stage_ids": [
+        "S05"
+      ],
+      "tool_type": "voice_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/generate_music.py",
+      "role": "Original background score generation",
+      "stage_ids": [
+        "S08"
+      ],
+      "tool_type": "audio_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/generate_scene_art.py",
+      "role": "Creates supporting still scene art/original graphics",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "asset_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/groq_thumbnail_brief.py",
+      "role": "Builds topic-specific thumbnail directions with provider/fallback policy",
+      "stage_ids": [
+        "S09"
+      ],
+      "tool_type": "metadata_qa_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/groq_video_review.py",
+      "role": "Reviews final video/visual and audio QA where configured",
+      "stage_ids": [
+        "S09"
+      ],
+      "tool_type": "qa_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/make_3d_hero_overlay.py",
+      "role": "Optional transparent 3D hero/security overlay",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "asset_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/make_brand_assets.py",
+      "role": "Creates branded landscape/portrait elements",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "asset_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/make_daily_short.py",
+      "role": "Builds the related vertical Short package/output",
+      "stage_ids": [
+        "S10"
+      ],
+      "tool_type": "renderer_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/make_evidence_charts.py",
+      "role": "Makes only evidence-backed charts linked to retained source claims",
+      "stage_ids": [
+        "S06"
+      ],
+      "tool_type": "asset_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/make_premium_thumbnail.py",
+      "role": "Composes original branded video thumbnail",
+      "stage_ids": [
+        "S09"
+      ],
+      "tool_type": "metadata_qa_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/make_transition_sfx.py",
+      "role": "Generates transition sound accents for scenes",
+      "stage_ids": [
+        "S08"
+      ],
+      "tool_type": "audio_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/mini_agent_delivery_report.py",
+      "role": "Writes sanitized specialist-agent stage/delivery reports",
+      "stage_ids": [
+        "S01",
+        "S12"
+      ],
+      "tool_type": "report_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/mini_agents.py",
+      "role": "Shared specialist-stage policies, category rotation and stage contracts; not separately billed models",
+      "stage_ids": [
+        "S00",
+        "S01",
+        "S02",
+        "S03",
+        "S09"
+      ],
+      "tool_type": "policy_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/publish_self_heal_report.py",
+      "role": "Publishes sanitized self-healing report/state to the configured Cloudflare D1 dashboard",
+      "stage_ids": [
+        "S00",
+        "S12"
+      ],
+      "tool_type": "remote_state_writer",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/render_transitions.py",
+      "role": "FFmpeg scene transition assembly",
+      "stage_ids": [
+        "S08"
+      ],
+      "tool_type": "renderer_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/scene_director.py",
+      "role": "Maps final narration word/voice timestamps to per-scene visual direction",
+      "stage_ids": [
+        "S07"
+      ],
+      "tool_type": "renderer_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/self_healing_agent.py",
+      "role": "Primary controller for workflow monitoring, failure diagnosis and bounded recovery",
+      "stage_ids": [
+        "S00"
+      ],
+      "tool_type": "protected_controller",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/self_healing_canary.py",
+      "role": "Purpose-built deterministic repair canary; synthetic test only",
+      "stage_ids": [
+        "S00"
+      ],
+      "tool_type": "test_fixture",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/self_healing_ml.py",
+      "role": "Supervised incident classifier, per-class holdout evaluation and conservative advisory taxonomy",
+      "stage_ids": [
+        "S00"
+      ],
+      "tool_type": "diagnostic_model",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/self_healing_rescue.py",
+      "role": "Independent watchdog/recovery controller for self-healing-controller failures",
+      "stage_ids": [
+        "S00"
+      ],
+      "tool_type": "protected_controller",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/seo_metadata.py",
+      "role": "Builds/validates SEO title, description, tags, chapters and source metadata",
+      "stage_ids": [
+        "S09",
+        "S11"
+      ],
+      "tool_type": "metadata_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/seo_source_safety.py",
+      "role": "Sanitizes source references and blocks tokens/signed secret-bearing URLs",
+      "stage_ids": [
+        "S01",
+        "S03",
+        "S09"
+      ],
+      "tool_type": "quality_guard",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/test_ai_text_client.py",
+      "role": "Regression tests for primary/fallback AI provider handling",
+      "stage_ids": [
+        "S00"
+      ],
+      "tool_type": "test_suite",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/test_daily_content_research.py",
+      "role": "Regression tests for research/source package contracts",
+      "stage_ids": [
+        "S00",
+        "S01",
+        "S02",
+        "S03"
+      ],
+      "tool_type": "test_suite",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/test_make_daily_short.py",
+      "role": "Regression tests for Short packaging, length and integrity contracts",
+      "stage_ids": [
+        "S00",
+        "S10"
+      ],
+      "tool_type": "test_suite",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/test_self_healing_agent.py",
+      "role": "Regression tests for repair safety and incident classification",
+      "stage_ids": [
+        "S00"
+      ],
+      "tool_type": "test_suite",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/test_self_healing_ml.py",
+      "role": "Regression tests for supervised incident model and holdout metrics",
+      "stage_ids": [
+        "S00"
+      ],
+      "tool_type": "test_suite",
+      "change_policy": "protected_or_specialized_no_arbitrary_auto_patch"
+    },
+    {
+      "path": "tools/visual_budget.py",
+      "role": "Counts/validates scene placements, unique primary visuals, captions and overlays",
+      "stage_ids": [
+        "S07",
+        "S09",
+        "S10"
+      ],
+      "tool_type": "quality_guard",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/voice_editor.py",
+      "role": "Edits generated narration and aligns final voice timestamps/captions",
+      "stage_ids": [
+        "S05",
+        "S07"
+      ],
+      "tool_type": "audio_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    },
+    {
+      "path": "tools/write_editing_tool_manifest.py",
+      "role": "Writes per-video editing/provenance manifest of pipeline components and tool actions",
+      "stage_ids": [
+        "S09",
+        "S12"
+      ],
+      "tool_type": "report_tool",
+      "change_policy": "only_change_after_exact_root_cause_and_existing_allowlist_gate"
+    }
+  ],
+  "incident_routes": [
+    {
+      "label": "AUDIO_QA_FAILURE",
+      "stage_ids": [
+        "S05",
+        "S07",
+        "S08"
+      ],
+      "permitted_recovery": "Keep release blocked; validate the narration file, decode, measurable audio signal, duration, sample rate and caption alignment; regenerate only through an existing bounded workflow.",
+      "recovery_mode": "no_upload",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "ASSET_LICENSE_FAILURE",
+      "stage_ids": [
+        "S06"
+      ],
+      "permitted_recovery": "Quarantine the asset and replace it only with a source whose exact allowed license and attribution are verified.",
+      "recovery_mode": "no_license_gate_bypass",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "CAPTION_SYNC_FAILURE",
+      "stage_ids": [
+        "S05",
+        "S07"
+      ],
+      "permitted_recovery": "Regenerate captions from final voice timestamps; check cue order and audio duration before scene rendering/release.",
+      "recovery_mode": "no_caption_gate_bypass",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "CODE_SYNTAX_OR_IMPORT_FAILURE",
+      "stage_ids": [
+        "S00"
+      ],
+      "permitted_recovery": "Identify one allowlisted helper from the real traceback; minimal patch only if current controller selects a unique permitted file; compile and focused test; otherwise unresolved issue.",
+      "recovery_mode": "single_allowlisted_file_patch_then_tests",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "CONTENT_DEDUP_STATE_FAILURE",
+      "stage_ids": [
+        "S04",
+        "S11"
+      ],
+      "permitted_recovery": "Stop handoff/upload until content hash, stored state and remote publication lookup are read back and consistent.",
+      "recovery_mode": "no_duplicate_processing",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "CREDENTIAL_CONFIG_MISSING",
+      "stage_ids": [
+        "S00"
+      ],
+      "permitted_recovery": "Stop affected provider work; identify missing secret name only, never print/fabricate secret; authorized repository owner configures it.",
+      "recovery_mode": "no_secret_edit",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "D1_QUOTA_EXHAUSTED",
+      "stage_ids": [
+        "S04",
+        "S12"
+      ],
+      "permitted_recovery": "Stop repeated D1 probes/writes until reset; do not claim durable state/dedup succeeded without readback.",
+      "recovery_mode": "quota_cooldown",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "DEPENDENCY_INSTALL_FAILURE",
+      "stage_ids": [
+        "S00"
+      ],
+      "permitted_recovery": "Compare pinned dependency/runtime and exact install log; bounded network retry if transient; do not blindly upgrade dependencies.",
+      "recovery_mode": "no_unreviewed_dependency_upgrade",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "DISK_SPACE_EXHAUSTED",
+      "stage_ids": [
+        "S06",
+        "S08"
+      ],
+      "permitted_recovery": "Inspect known temporary workspace only; clean only clearly disposable artifacts after preserving sources/checkpoints; then run integrity checks.",
+      "recovery_mode": "safe_temp_cleanup_only",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "DUPLICATE_UPLOAD_RISK",
+      "stage_ids": [
+        "S11"
+      ],
+      "permitted_recovery": "Block new insert while upload state is uncertain; verify the matching content hash/idempotency key and existing remote video ID.",
+      "recovery_mode": "hard_block_duplicate",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "GROQ_RATE_LIMITED",
+      "stage_ids": [
+        "S01",
+        "S03"
+      ],
+      "permitted_recovery": "Honor actual provider reset evidence; at most one bounded retry when reset/wait fits timeout; avoid exhausting Workers AI fallback and never enable paid billing.",
+      "recovery_mode": "quota_aware_bounded_retry_or_wait",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "JSON_SCHEMA_PARSE_FAILURE",
+      "stage_ids": [
+        "S01",
+        "S03"
+      ],
+      "permitted_recovery": "Capture a sanitized parse error; allow at most one bounded schema-constrained repair; reject malformed output if validation still fails.",
+      "recovery_mode": "one_bounded_structured_retry",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "MODEL_OUTPUT_INVALID",
+      "stage_ids": [
+        "S01",
+        "S03"
+      ],
+      "permitted_recovery": "Reject empty/truncated/placeholder output; one bounded evidence-preserving generation retry only when provider capacity is available; otherwise stop.",
+      "recovery_mode": "one_bounded_retry_then_fail_closed",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "QUEUE_JOB_FAILURE",
+      "stage_ids": [
+        "S04",
+        "S12"
+      ],
+      "permitted_recovery": "Check attempt counter, idempotency and dead-letter evidence; bounded retry only for transient errors; quarantine uncertain messages.",
+      "recovery_mode": "bounded_retry_or_dead_letter",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "RENDER_TIMEOUT",
+      "stage_ids": [
+        "S07",
+        "S08"
+      ],
+      "permitted_recovery": "Preserve render checkpoints and logs, inspect slow stage and use only configured timeout/retry policy; never accept partial output.",
+      "recovery_mode": "bounded_render_recovery",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "SCHEDULE_READBACK_FAILURE",
+      "stage_ids": [
+        "S11"
+      ],
+      "permitted_recovery": "Keep uploaded video private; verify video ID, privacyStatus and publishAt; do not report scheduling as complete without exact readback.",
+      "recovery_mode": "private_until_readback",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "SCRIPT_AUDIT_BLOCK",
+      "stage_ids": [
+        "S03"
+      ],
+      "permitted_recovery": "Inspect audit artifact and claims; repair the draft against sources if safe; explicit rejection, weak score or unknown unsupported claims remains blocking.",
+      "recovery_mode": "no_audit_bypass",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "SCRIPT_LENGTH_GATE",
+      "stage_ids": [
+        "S03"
+      ],
+      "permitted_recovery": "Use no more than one evidence-locked rewrite under existing contract, recount spoken words, and block if still outside 850-1000.",
+      "recovery_mode": "one_bounded_rewrite",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "SOURCE_CLAIM_MISMATCH",
+      "stage_ids": [
+        "S01",
+        "S03"
+      ],
+      "permitted_recovery": "Remove or rewrite the precise unsupported claim using retained credible evidence; keep source/citation QA blocking until rechecked.",
+      "recovery_mode": "no_unsourced_claim",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "SUPABASE_STORAGE_FAILURE",
+      "stage_ids": [
+        "S04",
+        "S12"
+      ],
+      "permitted_recovery": "Retain the local verified artifact; bounded retry only for transient faults; verify remote key, size and checksum before marking storage successful.",
+      "recovery_mode": "bounded_retry_then_readback",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "TAVILY_QUOTA_EXHAUSTED",
+      "stage_ids": [
+        "S01"
+      ],
+      "permitted_recovery": "Observe configured Tavily cooldown and stay on approved alternative sources; do not retry Tavily while quota is exhausted.",
+      "recovery_mode": "quota_cooldown_no_paid_service",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "TEST_REGRESSION_FAILURE",
+      "stage_ids": [
+        "S00"
+      ],
+      "permitted_recovery": "Keep the failing test; locate the first regression and patch only an allowed file with a demonstrated root cause; rerun focused and CI tests before merge.",
+      "recovery_mode": "patch_then_required_tests",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "TRANSIENT_NETWORK_FAILURE",
+      "stage_ids": [
+        "S00",
+        "S01"
+      ],
+      "permitted_recovery": "Use configured finite retry/backoff for recognized transient network failures only; keep state idempotent and stop after limit.",
+      "recovery_mode": "bounded_retry_backoff",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "TREND_EVIDENCE_INSUFFICIENT",
+      "stage_ids": [
+        "S01",
+        "S02"
+      ],
+      "permitted_recovery": "Do not claim a live trend without the configured evidence minimum; use the scheduled evergreen fallback only when its explicit validator contract passes.",
+      "recovery_mode": "evidence_gate_or_labelled_fallback",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "VIDEO_INTEGRITY_FAILURE",
+      "stage_ids": [
+        "S08",
+        "S09"
+      ],
+      "permitted_recovery": "Keep upload blocked; run ffprobe/decode/duration/resolution/frame-rate checks on the actual MP4; rerender only when source/checkpoint is safe.",
+      "recovery_mode": "no_partial_upload",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "WORKERS_AI_QUOTA_EXHAUSTED",
+      "stage_ids": [
+        "S01",
+        "S03"
+      ],
+      "permitted_recovery": "Stop Worker inference until free quota reset; do not loop the fallback or enable paid billing; preserve the script job as blocked.",
+      "recovery_mode": "quota_cooldown_no_paid_service",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "WORKER_DEPLOYMENT_FAILURE",
+      "stage_ids": [
+        "S00"
+      ],
+      "permitted_recovery": "Keep traffic unchanged; read back active Worker version/bindings and retain known-good rollback candidate. Production Worker code/deploy is protected from ML-authorized fixes.",
+      "recovery_mode": "no_autonomous_worker_deploy",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "WORKFLOW_CONFIG_INVALID",
+      "stage_ids": [
+        "S00"
+      ],
+      "permitted_recovery": "Validate workflow YAML/actionlint and inspect exact step/triggers/permissions; workflows are protected and changes require normal PR CI.",
+      "recovery_mode": "no_direct_workflow_push",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "YOUTUBE_QUOTA_EXHAUSTED",
+      "stage_ids": [
+        "S11"
+      ],
+      "permitted_recovery": "Stop API retries until quota resets; do not enable billing or claim upload/schedule success.",
+      "recovery_mode": "quota_cooldown_no_paid_service",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    },
+    {
+      "label": "YOUTUBE_UPLOAD_FAILURE",
+      "stage_ids": [
+        "S11"
+      ],
+      "permitted_recovery": "Check resumable-session/remote video readback before retry; never create a second video when remote upload state is unknown.",
+      "recovery_mode": "verify_remote_state_before_retry",
+      "must_fail_closed": true,
+      "ml_authority": "diagnostic_only"
+    }
+  ],
+  "protected_operations": [
+    "credentials and provider secrets",
+    "Cloudflare Worker source/bindings/deployments and production traffic shifts",
+    "database schema migrations or destructive D1 data operations",
+    "billing or switching to paid services",
+    "YouTube upload, privacy/publication/schedule actions, or thumbnail/metadata mutation after a release block",
+    "any reduction or bypass of factual, narration, media-license, visual-budget, audio, caption or rendered-video QA gates"
+  ],
+  "tool_role_policy": "Tool descriptions state intended responsibility inferred from registered code/workflows; actual runtime invocation and successful outputs must be proven by logs/artifacts."
+}
