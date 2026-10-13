@@ -351,7 +351,7 @@ def extract_target_date(log):
     # Read only explicit dispatch/runtime target fields; do not infer from timestamps or unrelated dates.
     patterns = (
         r"(?m)^\s*TARGET_DATE\s*:\s*['\"]?(\d{4}-\d{2}-\d{2})\b",
-        r"(?i)\b--target-date\s+['\"]?(\d{4}-\d{2}-\d{2})\b",
+        r"(?i)(?:^|\s)--target-date\s+['\"]?(\d{4}-\d{2}-\d{2})\b",
         r"(?i)\btarget_date\s*[:=]\s*['\"]?(\d{4}-\d{2}-\d{2})\b",
     )
     for pattern in patterns:
