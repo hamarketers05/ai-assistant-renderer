@@ -1,6 +1,9 @@
 name: AI Tech Lab Daily Research and Script
 
 on:
+  push:
+    paths:
+      - ".github/run-once/daily-research-oct15.txt"
   schedule:
     - cron: "0 14 * * *"
   workflow_dispatch:
@@ -25,6 +28,7 @@ concurrency:
 jobs:
   research-and-script:
     name: US YouTube trends to sourced script
+    if: ${{ github.event_name != 'push' || github.event.head_commit.message == 'RUN-AI-TECH-LAB-OCT15-ONCE' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -35,7 +39,7 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       SEED_TOPIC: ${{ inputs.seed_topic }}
-      TARGET_DATE: ${{ inputs.target_date }}
+      TARGET_DATE: ${{ inputs.target_date || (github.event_name == 'push' && github.event.head_commit.message == 'RUN-AI-TECH-LAB-OCT15-ONCE' && '2026-10-15') || '' }}
       GROQ_TEXT_MODEL: openai/gpt-oss-20b
     steps:
       - name: Checkout repository
