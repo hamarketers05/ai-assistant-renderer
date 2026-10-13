@@ -1,0 +1,55 @@
+name: Verify Cloudflare Free-Source Research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-cloudflare-research.yml"
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Focused English AI topic for live Cloudflare research verification"
+        required: false
+        type: string
+        default: "AI agent security incidents unauthorized internet access and safety evaluations"
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+      WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+      RESEARCH_QUERY: ${{ inputs.query || 'AI agent security incidents unauthorized internet access and safety evaluations' }}
+    steps:
+      - name: Run protected Cloudflare research
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WORKER_AUTH_TOKEN"
+          mkdir -p work
+          CODE=$(curl -sS --retry 1 --retry-delay 2 --max-time 180 -o work/cloudflare-research.json -w "%{http_code}" \
+            -H "Authorization: Bearer $WORKER_AUTH_TOKEN" -H "Accept: application/json" \
+            --get --data-urlencode "brand_id=AI_TECH_LAB" --data-urlencode "q=$RESEARCH_QUERY" \
+            "$WORKER_URL/research")
+          echo "Cloudflare research HTTP status: $CODE"
+          test "$CODE" = "200" || { head -c 600 work/cloudflare-research.json; echo; exit 1; }
+          jq -e '.ok == true' work/cloudflare-research.json >/dev/null
+          jq '{ok,research_id,evidence_count,source_coverage,verification,google_trends_rss_status,google_trends_api_status,topic_recommendation}' work/cloudflare-research.json
+          jq -e '(.evidence_count // 0) >= 3 and (.source_coverage.official_primary // 0) >= 1 and (.source_coverage.independent_reporting // 0) >= 2' work/cloudflare-research.json >/dev/null
+          CLAIMS=$(jq -r '(.verified_claims // []) | length' work/cloudflare-research.json)
+          if [ "$CLAIMS" -lt 1 ]; then
+            echo "SAFE BLOCK: sources were retrieved, but no cross-checked claim passed the Worker evidence gate. No script/render/upload was requested."
+            exit 2
+          fi
+          echo "PASS: Cloudflare returned primary sources, independent reporting and at least one cross-checked claim."
+      - name: Store diagnostic artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-free-research-${{ github.run_id }}
+          path: work/cloudflare-research.json
+          if-no-files-found: warn
+          retention-days: 3
