@@ -41,7 +41,7 @@ jobs:
       - name: Compile project tools and validate workflow order
         run: |
           set -euo pipefail
-          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/write_editing_tool_manifest.py
+          python -m py_compile tools/generate_music.py tools/make_evidence_charts.py tools/voice_editor.py tools/make_brand_assets.py tools/seo_metadata.py tools/fetch_free_video.py tools/make_premium_thumbnail.py tools/make_3d_hero_overlay.py tools/generate_kokoro_voice.py tools/render_transitions.py tools/scene_director.py tools/groq_thumbnail_brief.py tools/daily_content_research.py tools/groq_video_review.py tools/convert_video_3d.py tools/convert_video_midas_sbs.py tools/asset_reuse_guard.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/fetch_free_media.py tools/compose_scene_overlays.py tools/visual_budget.py tools/write_editing_tool_manifest.py
           python - <<'PY'
           from pathlib import Path
           import ast
@@ -81,6 +81,7 @@ jobs:
               "Edit generated narration, add pauses and script cues, and generate captions",
               "Generate original topic-aware background score",
               "Find additional free, topic-matched Wikimedia Commons footage",
+              "Discover licensed Full-HD commercially usable images and eligible NASA clips",
               "Bootstrap visual history from recent verified production deliveries",
               "Reject previously used or weakly matched visual assets",
               "Add stock creator and license attribution",
@@ -88,6 +89,7 @@ jobs:
               "Improve SEO title, description, tags, sources and chapters",
               "Create AI Tech Lab branded intro and subscribe popup",
               "Assemble final video and thumbnail",
+              "Enforce Full-HD six-minute visual budget before QA and upload",
               "QA rendered production",
               "Verify narration, music, captions, and premium thumbnail assets",
               "Groq router reviews rendered video, visual match, audio assets and thumbnail",
@@ -117,6 +119,9 @@ jobs:
               "Create original graphics",
               "Generate only evidence-supported data charts",
               "Generate script-matched illustrated scenes",
+              "Generate bounded topic-matched FLUX stills",
+              "Generate topic-matched 3D hero overlay",
+              "Prepare transparent HUD and evidence-graph overlays for matching scenes",
               "Render scenes",
               "Generate original topic-aware background score",
               "Improve SEO title, description, tags, sources and chapters"
@@ -135,13 +140,21 @@ jobs:
                   raise SystemExit(f"Visual novelty guard lacks required logic: {marker}")
           if "actions: read" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Bootstrapping the previous production manifest requires read-only Actions permission.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "Enforce Full-HD six-minute visual budget before QA and upload", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq router reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
+          import subprocess
+          for test in [
+              ["python", "tools/fetch_free_media.py", "--self-test"],
+              ["python", "tools/visual_budget.py", "--self-test"],
+          ]:
+              subprocess.run(test, check=True)
+          print("Free-media licensing and visual-budget fail-closed self-tests passed.")
+
           if not all(names.index(a) < names.index(b) for a,b in zip(ordered_final, ordered_final[1:])):
               raise SystemExit("Final media QA, strict license gate and upload check are out of order.")
-          for path in (Path("tools/fetch_free_video.py"), Path("tools/make_premium_thumbnail.py")):
+          for path in (Path("tools/fetch_free_video.py"), Path("tools/fetch_free_media.py"), Path("tools/compose_scene_overlays.py"), Path("tools/visual_budget.py"), Path("tools/make_premium_thumbnail.py")):
               if not path.is_file():
                   raise SystemExit(f"Required tool is missing: {path}")
-          if not (names.index("Find additional free, topic-matched Wikimedia Commons footage") < names.index("Improve SEO title, description, tags, sources and chapters") < names.index("Create AI Tech Lab branded intro and subscribe popup") < names.index("Assemble final video and thumbnail")):
+          if not (names.index("Find additional free, topic-matched Wikimedia Commons footage") < names.index("Discover licensed Full-HD commercially usable images and eligible NASA clips") < names.index("Improve SEO title, description, tags, sources and chapters") < names.index("Create AI Tech Lab branded intro and subscribe popup") < names.index("Assemble final video and thumbnail")):
               raise SystemExit("Research assets, SEO, brand intro and rendering are out of order.")
           voice = wf["jobs"]["render"]["steps"][names.index("Validate Kokoro narration before scene timing")].get("run", "")
           if "work/kokoro_tts_report.json" not in voice or "quality_gate" not in voice:
@@ -161,7 +174,7 @@ jobs:
               if marker not in render:
                   raise SystemExit(f"Renderer assembly is missing: {marker}")
           scene_render = wf["jobs"]["render"]["steps"][names.index("Render scenes")].get("run", "")
-          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png", "scene_overlay_", "vignette=PI/5", "saturation=1.10", "colorbalance=", "noise=alls=1.2:allf=t"):
+          for marker in ("def shot_filter(i)", "sin(t*0.58", "zoompan=", "ai_security_3d_hero.png", "scene_overlay_", "composite_overlay_scene_", "chart_overlay_scene_", "free_media_scene_", "primary_asset", "chart_overlay_applied", "vignette=PI/5", "saturation=1.10", "colorbalance=", "noise=alls=1.2:allf=t"):
               if marker not in scene_render:
                   raise SystemExit(f"Scene motion/3D overlay is missing: {marker}")
           brand_script = Path("tools/make_brand_assets.py").read_text(encoding="utf-8")
