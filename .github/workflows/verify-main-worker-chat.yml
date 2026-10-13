@@ -1,3 +1,4 @@
+# Read-only health and unauthenticated-route check; intentionally has no publishing credentials.
 name: Verify Main Worker Health and API Protection (No Publishing)
 
 on:
