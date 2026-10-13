@@ -83,7 +83,7 @@ jobs:
           request = urllib.request.Request(
               'https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/self-heal/patch',
               data=json.dumps(body).encode(),
-              headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'], 'Content-Type': 'application/json'},
+              headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'], 'Content-Type': 'application/json', 'User-Agent': 'AI-Tech-Lab-Self-Healing-Agent/1.0'},
               method='POST'
           )
           try:
