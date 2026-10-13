@@ -8,6 +8,8 @@ on:
       - "tools/publish_self_heal_report.py"
       - "cloudflare/ai-tech-lab-daily-handoff/worker.js"
       - ".github/workflows/ai-self-healing-agent.yml"
+      - ".github/workflows/verify-ai-fallback.yml"
+      - ".github/workflows/verify-main-worker-chat.yml"
   schedule:
     - cron: "*/15 * * * *"
   workflow_run:
@@ -16,6 +18,8 @@ on:
       - "AI Tech Lab Automatic Daily Production Handoff"
       - "AI Assistant Renderer"
       - "CI Workflow Guard"
+      - "Verify authenticated AI fallback (no upload)"
+      - "Verify Main Worker Health and API Protection (No Publishing)"
       - "Renderer Static Validation"
       - "Verify Daily Handoff Endpoint (No Upload)"
       - "Midas SBS Validation"
