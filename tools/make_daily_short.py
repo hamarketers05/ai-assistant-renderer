@@ -188,6 +188,57 @@ def main():
         except Exception as compact_error:
             print("Short compaction failed (" + type(compact_error).__name__ + "); length gate remains active.")
 
+    # Last-resort recovery: reuse sentences from the already fact-checked long script
+    # rather than failing or inventing a new claim when free AI inference under-runs.
+    if short_title and not 100 <= words <= 135:
+        original_sentences = [
+            re.sub(r"\s+", " ", part).strip()
+            for part in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", script)
+            if part.strip()
+        ]
+        short_sentences = [
+            re.sub(r"\s+", " ", part).strip()
+            for part in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", short_text)
+            if part.strip()
+        ]
+        if short_sentences and original_sentences:
+            from difflib import SequenceMatcher
+            existing_norm = {re.sub(r"[^a-z0-9]+", " ", part.lower()).strip() for part in short_sentences}
+            title_terms = set(re.findall(r"[a-z0-9]{3,}", short_title.lower()))
+            short_terms = set(re.findall(r"[a-z0-9]{3,}", short_text.lower()))
+            stop_terms = {"the", "and", "for", "that", "this", "with", "you", "your", "are", "but", "not", "what", "how", "why", "from"}
+            anchor_terms = (title_terms | short_terms) - stop_terms
+            candidates = []
+            for idx, sentence in enumerate(original_sentences):
+                normalized = re.sub(r"[^a-z0-9]+", " ", sentence.lower()).strip()
+                if not normalized or normalized in existing_norm:
+                    continue
+                if any(SequenceMatcher(None, normalized, existing).ratio() >= 0.78 for existing in existing_norm if existing):
+                    continue
+                terms = set(re.findall(r"[a-z0-9]{3,}", normalized)) - stop_terms
+                overlap = len(terms & anchor_terms)
+                sentence_words = len(re.findall(r"\b[\w'-]+\b", sentence))
+                if overlap and 8 <= sentence_words <= 42:
+                    candidates.append((overlap / max(1, len(terms)) + min(overlap, 5) * 0.08, idx, sentence, sentence_words))
+            candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+            insertion = max(0, len(short_sentences) - 1)  # preserve the original final CTA/closing sentence
+            selected = []
+            current_words = words
+            for _, _, sentence, sentence_words in candidates:
+                if current_words + sentence_words > 132:
+                    continue
+                selected.append(sentence)
+                current_words += sentence_words
+                if 105 <= current_words <= 132:
+                    break
+            if 100 <= current_words <= 135 and selected:
+                short_sentences[insertion:insertion] = selected
+                short_text = " ".join(short_sentences)
+                words = len(re.findall(r"\b[\w'-]+\b", short_text))
+                if 100 <= words <= 135:
+                    print("Short recovery passed using only non-duplicated sentences from the fact-checked long script: " + str(words) + " words.")
+                else:
+                    print("Source-script Short recovery did not hit the word-count gate; no rendered Short will be released.")
     description = re.sub(r"\s+", " ", str(result.get("description", "")).strip())
     if not description:
         description = "A quick AI Tech Lab explainer based on the sources listed below."
