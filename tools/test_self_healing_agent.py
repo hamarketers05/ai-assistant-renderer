@@ -88,6 +88,18 @@ def main():
     assert "wait for the free allocation reset" in actual_worker_502["safe_recovery"]
     rate_issue = agent.classify_known_infrastructure_failure({"name": "AI Tech Lab Daily Research and Script"}, "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover.")
     assert rate_issue and rate_issue["code"] == "GROQ_RATE_LIMITED"
+    assert "Retry-After/reset window" in rate_issue["safe_recovery"]
+    # Regression from live Cloudflare Observability: the exact outbound Groq-compatible
+    # span signature must classify as upstream 429 throttling, not credential absence.
+    live_groq_telemetry_429 = (
+        "transactionName=fetch /openai/v1/chat/completions; message=dark-sunset-a2a1 fetch 429; "
+        "neighboring trace message=dark-sunset-a2a1 fetch 200"
+    )
+    observed_groq_429 = agent.classify_known_infrastructure_failure(
+        {"name": "Verify Cloudflare Trend Script (No Publishing)"}, live_groq_telemetry_429
+    )
+    assert observed_groq_429 and observed_groq_429["code"] == "GROQ_RATE_LIMITED"
+    assert "do not repeatedly invoke the exhausted Workers AI fallback" in observed_groq_429["safe_recovery"]
 
     tavily_issue = agent.classify_known_infrastructure_failure(
         {"name": "AI Tech Lab Daily Research and Script"},
