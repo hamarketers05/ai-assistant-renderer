@@ -152,7 +152,7 @@ jobs:
           print("Free-media licensing, graph overlays and visual-budget fail-closed self-tests passed.")
 
           budget_code = Path("tools/visual_budget.py").read_text(encoding="utf-8")
-          for marker in ('"rendered_scene_count_between_70_and_90"', '"at_least_70_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"at_least_25_hud_overlays_applied"', '"native_full_hd_output"', '"native_vertical_output"', '"at_least_4_hud_overlays_applied"', '"at_least_2_flux_images_actually_used"', '"at_least_4_vecteezy_assets_verified"'):
+          for marker in ('"rendered_scene_count_between_80_and_90"', '"at_least_80_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"at_least_25_hud_overlays_applied"', '"native_full_hd_output"', '"native_vertical_output"', '"at_least_4_hud_overlays_applied"', '"at_least_2_flux_images_actually_used"', '"at_least_4_vecteezy_assets_verified"'):
               if marker not in budget_code:
                   raise SystemExit(f"Strict long-video visual budget missing: {marker}")
           media_code = Path("tools/fetch_free_media.py").read_text(encoding="utf-8")
