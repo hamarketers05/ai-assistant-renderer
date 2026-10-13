@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - "production/launch_ai_tech_lab_content_22.json"
+      - ".github/workflows/fix-video-22-description.yml"
 
 permissions:
   actions: read
@@ -103,7 +104,9 @@ jobs:
             "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=$VIDEO_ID")
           if [ "$CODE" != "200" ]; then
             echo "YouTube description correction failed: HTTP $CODE."
-            jq '{error:{code:.error.code,message:.error.message}}' update_result.json || true
+            # Print structured reason/domain fields only; never print OAuth tokens or request headers.
+            jq '{error:{code:.error.code,message:.error.message,status:.error.status,details:.error.details,errors:[.error.errors[]? | {reason,domain,location,locationType,message}]}}' update_result.json || true
+            echo "If reason=insufficientPermissions, the stored OAuth grant may need YouTube write scope (youtube or youtube.force-ssl). No permission check is bypassed."
             exit 1
           fi
 
