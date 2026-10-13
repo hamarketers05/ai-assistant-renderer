@@ -23,7 +23,7 @@ REQUIRED_TOP_LEVEL = {
     "decision_rules", "stages", "workflows", "tools", "incident_routes",
     "protected_operations", "tool_role_policy",
 }
-PROTECTED_TERMS = ("credentials", "billing", "YouTube upload", "QA gates")
+PROTECTED_TERMS = ("credentials", "billing", "YouTube upload", "rendered-video QA gates")
 
 
 def _api_json(url: str, token: str):
