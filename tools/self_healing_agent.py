@@ -289,7 +289,8 @@ def attempt_patch(run, job, log):
     try:
         diff = get_diff(text)
     except ValueError as exc:
-        return False, str(exc)
+        preview = (" Model response: " + text[:140].replace("\\n", " ")) if target == "tools/self_healing_canary.py" else ""
+        return False, str(exc) + preview
     headers = set(re.findall(r"^(?:---|\+\+\+) [ab]/([^\t\n]+)", diff, re.M))
     if headers != {target} or "/dev/null" in diff or "GIT binary patch" in diff:
         return False, "Generated patch violated single-file allowlist; rejected."
@@ -419,7 +420,7 @@ def analyze(runs):
                 # Production failures never receive synthetic diagnostics.
                 if (run.get("name") == "Self-Healing E2E Repair Test"
                         and job.get("name") == "Isolated deterministic repair canary"):
-                    log_items.append((job, "Controlled E2E canary failure: tools/self_healing_canary.py expected answer 42 but got 41; fix answer() in this isolated test utility only."))
+                    log_items.append((job, "DETERMINISTIC E2E TEST FAILURE: tools/self_healing_canary.py raises AssertionError because answer() returns 41 while its test expects 42. The defect is proven and isolated. Change only answer() from return 41 to return 42. Return a minimal unified diff with headers --- a/tools/self_healing_canary.py and +++ b/tools/self_healing_canary.py; no other file changes."))
                     REPORT["actions"].append({"action": "use_controlled_canary_evidence", "run_id": run.get("id"), "reason": "GitHub transient log-download authorization failure; synthetic evidence is restricted to the dedicated deterministic canary."})
                 else:
                     REPORT["unresolved"].append(f"Could not retrieve failure log for run {run['id']} job {job.get('name')}: {type(exc).__name__}: {str(exc)[:260]}")
