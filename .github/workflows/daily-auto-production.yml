@@ -1,0 +1,139 @@
+name: AI Tech Lab Automatic Daily Production Handoff
+
+on:
+  workflow_run:
+    workflows: ["AI Tech Lab Daily Research and Script"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful daily-content-research.yml run ID (for a no-upload dry run)"
+        required: true
+        type: string
+      dry_run:
+        description: "Validate the real artifact and Worker auth without creating D1 rows or starting renders"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: ai-tech-lab-auto-handoff-${{ github.event.workflow_run.id || inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  handoff:
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.source_run_id }}
+      DRY_RUN: ${{ github.event_name == 'workflow_run' && 'false' || inputs.dry_run }}
+      HANDOFF_URL: https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev
+      GROQ_TEXT_MODEL: openai/gpt-oss-20b
+    steps:
+      - name: Checkout the current main branch automation helpers
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download the research artifact from the successful source run
+        uses: actions/download-artifact@v4
+        with:
+          name: ai-tech-lab-research-${{ env.SOURCE_RUN_ID }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: handoff/input
+
+      - name: Validate that required research package files exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          find handoff/input -type f -maxdepth 5 -print
+          test -n "$(find handoff/input -type f -name daily_content_package.json -print -quit)"
+          test -n "$(find handoff/input -type f -name tavily_evidence.json -print -quit)"
+          test -n "$GROQ_API_KEY"
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+      - name: Generate an original English Short from the sourced long-form script
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_TEXT_MODEL: ${{ env.GROQ_TEXT_MODEL }}
+        run: |
+          set -euo pipefail
+          cp "$(find handoff/input -type f -name daily_content_package.json -print -quit)" work_package.tmp.json
+          mkdir -p work
+          cp work_package.tmp.json work/daily_content_package.json
+          cp "$(find handoff/input -type f -name tavily_evidence.json -print -quit)" work/tavily_evidence.json
+          python -m pip install --disable-pip-version-check --quiet --upgrade pip
+          python tools/make_daily_short.py
+          test -s work/short_content_package.json
+          cat work/short_content_package.json | jq '{title,script_word_count,content_format,qa}'
+
+      - name: Verify handoff and reserve safe D1 content records
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAILY_SOURCE_RUN_ID: ${{ env.SOURCE_RUN_ID }}
+          HANDOFF_URL: ${{ env.HANDOFF_URL }}
+          DRY_RUN: ${{ env.DRY_RUN }}
+        run: |
+          set -euo pipefail
+          cp "$(find handoff/input -type f -name daily_content_package.json -print -quit)" work/daily_content_package.json
+          cp "$(find handoff/input -type f -name tavily_evidence.json -print -quit)" work/tavily_evidence.json
+          python tools/daily_auto_handoff.py
+          test -s work/auto_handoff_result.json
+          cat work/auto_handoff_result.json
+
+      - name: Dispatch the existing FFmpeg renderer for the long video and Short
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_API: ${{ github.api_url }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dispatch_one() {
+            local key="$1"
+            local enabled
+            enabled=$(jq -r --arg k "dispatch_$key" '.[$k] // false' work/auto_handoff_result.json)
+            if [ "$enabled" != "true" ]; then
+              echo "Skipping $key renderer dispatch: idempotency/state guard says it is not needed."
+              return 0
+            fi
+            local body_file="work/dispatch_$key.json"
+            jq -c --arg k "${key}_dispatch" '.[$k]' work/auto_handoff_result.json > "$body_file"
+            test -s "$body_file"
+            local code
+            code=$(curl -sS --retry 3 --retry-delay 2 --max-time 60 -o "work/dispatch_${key}_response.json" -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "Content-Type: application/json" \
+              --data-binary @"$body_file" \
+              "$GH_API/repos/$GH_REPO/actions/workflows/manual.yml/dispatches")
+            if [ "$code" != "204" ]; then
+              echo "Renderer dispatch for $key failed with HTTP $code."
+              jq '{message,errors}' "work/dispatch_${key}_response.json" || true
+              exit 1
+            fi
+            echo "Existing AI Assistant Renderer dispatched for $key content."
+          }
+          dispatch_one long
+          dispatch_one short
+
+      - name: Upload a 7-day auditable handoff report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-auto-handoff-${{ github.run_id }}
+          path: |
+            work/auto_handoff_result.json
+            work/short_content_package.json
+          if-no-files-found: warn
+          retention-days: 7
