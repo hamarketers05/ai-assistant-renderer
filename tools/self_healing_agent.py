@@ -490,8 +490,18 @@ def attempt_patch(run, job, log):
             "post_push_validation": "Renderer Static Validation dispatched", "resume_workflow": resumed})
         return True, "Patch tested and committed; renderer validation dispatched, and safe upstream continuation attempted where the source run can be verified."
     except Exception as exc:
+        # The runner checkout is disposable. If a patch commit was created but the
+        # remote advanced before push, return the local branch to the current remote
+        # main so another candidate in this same scan never inherits stale edits.
+        cmd(["git", "reset", "--", target], check=False)
         cmd(["git", "checkout", "--", target], check=False)
-        cmd(["git", "apply", "-R", str(patch_file)], check=False)
+        try:
+            remote_head = cmd(["git", "rev-parse", "origin/main"]).strip()
+            local_head = cmd(["git", "rev-parse", "HEAD"]).strip()
+            if remote_head and local_head != remote_head:
+                cmd(["git", "reset", "--hard", "origin/main"], check=False)
+        except Exception:
+            pass
         return False, "Patch rejected by local validation: " + str(exc)[:450]
 
 def retry_failed(run, failed_jobs):
