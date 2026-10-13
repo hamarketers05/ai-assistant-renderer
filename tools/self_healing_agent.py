@@ -50,7 +50,7 @@ PATCHABLE = {
 HEALTH_URLS = [
     ("main-cloudflare-worker", "https://dark-sunset-a2a1.hamarketers05.workers.dev/health"),
     ("production-worker", "https://ai-production-worker.hamarketers05.workers.dev/health"),
-    ("cloudflare-supervisor", "https://ai-assistant-supervisor.hamarketers05.workers.dev/health"),
+    ("cloudflare-supervisor", "https://ai-assistant-supervisor.hamarketers05.workers.dev/"),
     ("daily-handoff-worker", "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/health"),
 ]
 
@@ -262,6 +262,21 @@ def retry_failed(run, failed_jobs):
         "run_id": run["id"], "failed_jobs": [j.get("name") for j in failed_jobs],
         "reason": "Logs contain transient infrastructure failure markers."})
 
+def superseded_by_success(run, all_runs):
+    failed_at = dt(run.get("created_at"))
+    if not failed_at:
+        return False
+    branch = run.get("head_branch")
+    for newer in all_runs:
+        if newer.get("name") != run.get("name") or newer.get("head_branch") != branch:
+            continue
+        if newer.get("conclusion") != "success":
+            continue
+        newer_at = dt(newer.get("created_at"))
+        if newer_at and newer_at > failed_at:
+            return True
+    return False
+
 def analyze(runs):
     count = 0
     retried_daily = False
@@ -269,6 +284,8 @@ def analyze(runs):
         if count >= 4:
             break
         if run.get("status") != "completed" or run.get("conclusion") != "failure":
+            continue
+        if superseded_by_success(run, runs):
             continue
         if run.get("name") == "AI Tech Lab Autonomous Self-Healing Agent":
             continue
