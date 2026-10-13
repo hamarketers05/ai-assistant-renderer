@@ -228,13 +228,17 @@ def classify_known_infrastructure_failure(run, log):
             "root_cause": "The Main Worker category-rotation contract or its deterministic regression checks failed; this may be a Worker-code regression or a date/category metadata mismatch.",
             "safe_recovery": "Retry the read-only rotation probes once, verify US Eastern date/index/next-category and the seven-day self-test, then open a deduplicated incident. Keep source/fact gates closed until checks recover. Do not deploy a Worker patch automatically, bypass research evidence checks, or switch to paid providers."
         }
-    if "groq_rate_limited" in lower or (
+    live_groq_span_429 = (
+        "fetch /openai/v1/chat/completions" in lower
+        or "api.groq.com/openai/v1/chat/completions" in lower
+    ) and ("fetch 429" in lower or "http 429" in lower or "status":429" in lower)
+    if live_groq_span_429 or "groq_rate_limited" in lower or (
         "trusted_ai_proxy" in lower and "http 429" in lower and "groq" in lower
     ):
         return {
             "code": "GROQ_RATE_LIMITED",
-            "root_cause": "The authenticated Main Worker reached Groq's free-tier rate/token limit. This is a shared upstream capacity limit, not a code or credential defect.",
-            "safe_recovery": "The caller now respects Groq request spacing and the Main Worker supplies a Retry-After hint. Retry this research stage at most once after the bounded wait; do not cascade into the exhausted Workers AI allocation and never enable paid billing."
+            "root_cause": "Groq-compatible chat-completion spans returned HTTP 429. Live Worker telemetry has also shown successful HTTP 200 spans, so this observed failure pattern is upstream rate/token throttling rather than proof that the Groq credential is missing.",
+            "safe_recovery": "Respect the upstream Retry-After/reset window; allow at most one bounded retry only when it fits the request timeout. If still rate-limited, stop the script job safely and retain it as pending for a later retry; do not repeatedly invoke the exhausted Workers AI fallback, never enable paid billing, and do not bypass script/fact/audio QA."
         }
     if "tavily_quota_cooldown" in lower or (
         ("tavily http 432" in lower or "http 432" in lower)
