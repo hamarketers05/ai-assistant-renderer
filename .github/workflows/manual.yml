@@ -44,6 +44,10 @@ on:
         description: "Comma-separated YouTube tags"
         required: false
         type: string
+      editorial_category:
+        description: "AI Tech Lab seven-day US editorial category"
+        required: false
+        type: string
       publish_at:
         description: "Optional UTC publish time"
         required: false
@@ -71,6 +75,7 @@ jobs:
       INPUT_DESCRIPTION: ${{ inputs.description }}
       INPUT_TAGS: ${{ inputs.tags }}
       INPUT_PUBLISH_AT: ${{ inputs.publish_at }}
+      EDITORIAL_CATEGORY: ${{ inputs.editorial_category }}
 
     steps:
       - name: Checkout repository
@@ -1654,6 +1659,7 @@ jobs:
           name: ai-tech-lab-editing-manifest-${{ inputs.content_id }}
           path: |
             work/editing_tool_manifest.json
+            work/mini_agent_render_execution_report.json
             work/thumbnail_imagemagick_report.json
             work/flux_generation_report.json
             work/transition_sfx_report.json
@@ -1915,3 +1921,27 @@ jobs:
         run: |
           echo "Content $CONTENT_ID already has video ID ${{ steps.youtube_state.outputs.video_id }}."
           echo "Duplicate upload skipped. Do not delete the old scheduled video."
+      - name: Compile downstream mini-agent execution evidence
+        if: always()
+        env:
+          ALREADY_UPLOADED: ${{ steps.youtube_state.outputs.already_uploaded }}
+          EXISTING_VIDEO_ID: ${{ steps.youtube_state.outputs.video_id }}
+        run: |
+          set -euo pipefail
+          python3 tools/mini_agent_delivery_report.py
+
+      - name: Save final mini-agent execution reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-mini-agents-${{ inputs.content_id }}
+          path: |
+            work/mini_agent_render_execution_report.json
+            work/mini_agent_publish_execution_report.json
+            work/mini_agent_learning_execution_report.json
+            work/mini_agent_delivery_summary.json
+            work/editing_tool_manifest.json
+            work/video_review_report.json
+            work/youtube_post_upload_review.json
+          if-no-files-found: warn
+          retention-days: 30
