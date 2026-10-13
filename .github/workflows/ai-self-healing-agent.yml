@@ -22,6 +22,7 @@ on:
       - "Verify Main Worker Health and API Protection (No Publishing)"
       - "Renderer Static Validation"
       - "Verify Daily Handoff Endpoint (No Upload)"
+      - "Verify Cloudflare Free-Source Research"
       - "Midas SBS Validation"
       - "Self-Healing E2E Repair Test"
       - "Verify and correct Maia 300 YouTube source metadata"
