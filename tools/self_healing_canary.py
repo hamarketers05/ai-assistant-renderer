@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Isolated non-production self-healing repair canary.
 
-This tiny arithmetic defect is deliberately injected for one end-to-end test.
+This isolated assertion protects the self-healing repair/validation/restart path.
 It has no imports from production rendering code and performs no external actions.
 """
 import sys
 
 def answer():
-    # Deliberately wrong for the isolated repair test; expected result is 42.
+    # Fixed value after the isolated self-healing repair test.
     return 42
 
 def self_test():
