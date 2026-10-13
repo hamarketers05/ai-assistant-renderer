@@ -286,7 +286,7 @@ def _parse_feed_entries(xml_bytes, feed_name, feed_url):
             continue
         description = _local_xml_text(node, {"description", "summary", "encoded", "content"})
         description = html.unescape(re.sub(r"<[^>]+>", " ", description))
-        description = re.sub(r"\\s+", " ", description).strip()
+        description = re.sub(r"\s+", " ", description).strip()
         published = _local_xml_text(node, {"pubdate", "published", "updated", "date", "issued"})
         publisher = feed_name
         for child in list(node):
@@ -294,7 +294,7 @@ def _parse_feed_entries(xml_bytes, feed_name, feed_url):
                 publisher = str(child.attrib.get("url") or child.text or feed_name).strip()
                 break
         out.append({
-            "title": re.sub(r"\\s+", " ", html.unescape(title)).strip()[:220],
+            "title": re.sub(r"\s+", " ", html.unescape(title)).strip()[:220],
             "url": link[:1000],
             "content": (description or ("Official/research feed entry. Headline: " + html.unescape(title).strip()))[:1100],
             "published_date": published[:80],
@@ -308,7 +308,7 @@ def _parse_feed_entries(xml_bytes, feed_name, feed_url):
 def _free_source_search(query, include_domains=None):
     """No-key fallback using public RSS/Atom feeds, Google News RSS, and arXiv's public feed."""
     global _FREE_SOURCE_CACHE
-    query = re.sub(r"\\s+", " ", str(query or "")).strip()[:240]
+    query = re.sub(r"\s+", " ", str(query or "")).strip()[:240]
     domain_filters = [
         str(x).lower().strip().lstrip(".")
         for x in (include_domains or [])
@@ -514,7 +514,7 @@ def main():
     (outdir / "tool_improvement_research.json").write_text(json.dumps(improvement_report, indent=2, ensure_ascii=False), encoding="utf-8")
 
     topic = groq_json(
-        "You are the US-audience editorial trend strategist for AI Tech Lab. Choose an original explainer in the assigned editorial category; do not copy trending titles. Do not claim search volume or growth when not provided. Return JSON keys: category (one exact category from the supplied rotation), topic, angle, why_now, category_override_reason, research_queries (exactly 2 concise Tavily queries), trend_evidence (matching supplied video titles/URLs), avoid_title_similarity, improvement_recommendations (array of at most 3 objects with idea, source_url, free_tier_impact, validation_test, implementation_mode). Only recommend an improvement if supported by the supplied official documentation; never recommend paid tools, new secrets, broader permissions, or automatic production-code changes. Use the scheduled category by default. Override it only when at least three distinct current US trend videos materially support another listed category; state the evidence and reason. Prefer a distinctive, debate-worthy angle and an evidence-grounded prediction or tension; avoid generic trend recaps.\n\n" + NATURAL_VOICE_GUIDANCE,
+        "You are the US-audience editorial trend strategist for AI Tech Lab. Choose an original explainer in the assigned editorial category; do not copy trending titles. Do not claim search volume or growth when not provided. Return JSON keys: category (one exact category from the supplied rotation), topic, angle, why_now, category_override_reason, research_queries (exactly 2 concise web-research queries), trend_evidence (matching supplied video titles/URLs), avoid_title_similarity, improvement_recommendations (array of at most 3 objects with idea, source_url, free_tier_impact, validation_test, implementation_mode). Only recommend an improvement if supported by the supplied official documentation; never recommend paid tools, new secrets, broader permissions, or automatic production-code changes. Use the scheduled category by default. Override it only when at least three distinct current US trend videos materially support another listed category; state the evidence and reason. Prefer a distinctive, debate-worthy angle and an evidence-grounded prediction or tension; avoid generic trend recaps.\n\n" + NATURAL_VOICE_GUIDANCE,
         json.dumps({"current_us_youtube_popular_videos": trend_sample, "manual_direction_if_any": args.seed_topic,
                     "target_date_us_eastern": editorial_date, "editorial_category_rotation": rotation,
                     "weekly_official_tool_improvement_research": improvement_report,
@@ -569,7 +569,7 @@ def main():
 
     raw_results = []
     for query in queries:
-        raw_results.extend(tavily_search(tv_key, query, ["example.com", "github.com"]))
+        raw_results.extend(tavily_search(tv_key, query))
     sources = clean_sources(raw_results)
     if len(sources) < 4:
         raise SystemExit(f"Research providers returned only {len(sources)} usable HTTPS sources; at least four are required.")
@@ -589,7 +589,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
 
 """ + NATURAL_VOICE_GUIDANCE,
         json.dumps({"editorial_category": topic["category"], "topic": topic_name, "editorial_angle": angle, "why_now": topic.get("why_now", ""),
-                    "youtube_trend_context": trend_sample[:12], "tavily_sources": evidence_context,
+                    "youtube_trend_context": trend_sample[:12], "retrieved_sources": evidence_context,
                     "previous_video_feedback": learning}, ensure_ascii=False), max_tokens=3300)
     title = re.sub(r"\s+", " ", str(draft.get("title", "")).strip())[:100]
     script = re.sub(r"\r\n?", "\n", str(draft.get("script", "")).strip())
