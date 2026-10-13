@@ -39,9 +39,11 @@ jobs:
       - name: Validate pipeline knowledge catalog and self-healing safety
         run: |
           set -euo pipefail
-          python -m py_compile tools/pipeline_health_check.py tools/test_pipeline_health_check.py tools/self_healing_agent.py tools/test_self_healing_agent.py tools/self_healing_ml.py tools/test_self_healing_ml.py
+          python -m py_compile tools/pipeline_health_check.py tools/test_pipeline_health_check.py tools/self_healing_agent.py tools/test_self_healing_agent.py tools/self_healing_ml.py tools/test_self_healing_ml.py tools/self_healing_pipeline_health.py tools/test_self_healing_pipeline_health.py
           python tools/pipeline_health_check.py
           python tools/test_pipeline_health_check.py
+          python tools/test_self_healing_pipeline_health.py
+          python tools/self_healing_pipeline_health.py
           python tools/test_self_healing_agent.py
           python tools/test_self_healing_ml.py
 
