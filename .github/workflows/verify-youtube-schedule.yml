@@ -137,3 +137,5 @@ jobs:
             work/final_verification_report.json
           if-no-files-found: ignore
           retention-days: 14
+
+# E2E verification refresh: run the independent YouTube Data API + D1 check.
