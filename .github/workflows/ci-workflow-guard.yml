@@ -113,7 +113,7 @@ jobs:
               "evidence_charts_report.json": {"charts_created":[],"charts_requested":0},
               "visual_coverage_report.json": {"status":"passed","content_id":"9876","content_format_target":"native 1080x1920 AI Tech Lab Short",
                   "checks":{"native_vertical_output":True,"duration_in_20_to_60_second_window":True,
-                            "rendered_scene_count_between_8_and_20":True,"at_least_8_unique_primary_visual_assets":True,
+                            "rendered_scene_count_between_8_and_30":True,"at_least_8_unique_primary_visual_assets":True,
                             "at_least_4_hud_overlays_applied":True,"at_least_2_flux_images_actually_used":True,
                             "at_least_4_vecteezy_assets_verified":True,"caption_file_has_at_least_5_cues":True,
                             "every_rendered_scene_has_primary_asset_record":True},

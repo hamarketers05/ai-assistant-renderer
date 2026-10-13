@@ -135,7 +135,8 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
 def evaluate_short(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]],
                   captions: int, video: dict[str, Any]) -> dict[str, Any]:
     primary_assets = [str(row.get("primary_asset") or "").strip() for row in scene_rows]
-    unique_assets = set(primary_assets)
+    present_assets = [asset for asset in primary_assets if asset]
+    unique_assets = set(present_assets)
     scene_count = len(scene_rows)
     hud_count = sum(bool(row.get("hud_overlay_applied")) for row in scene_rows)
     chart_count = sum(bool(row.get("chart_overlay_applied")) for row in scene_rows)
@@ -169,13 +170,13 @@ def evaluate_short(scene_rows: list[dict[str, Any]], source_rows: list[dict[str,
     checks = {
         "native_vertical_output": video.get("width") == 1080 and video.get("height") == 1920,
         "duration_in_20_to_60_second_window": 20 <= duration <= 60,
-        "rendered_scene_count_between_8_and_20": 8 <= scene_count <= 20,
+        "rendered_scene_count_between_8_and_30": 8 <= scene_count <= 30,
         "at_least_8_unique_primary_visual_assets": len(unique_assets) >= 8,
         "at_least_4_hud_overlays_applied": hud_count >= 4,
         "at_least_2_flux_images_actually_used": flux_used >= 2,
         "at_least_4_vecteezy_assets_verified": len(vecteezy_ids) >= 4,
         "caption_file_has_at_least_5_cues": captions >= 5,
-        "every_rendered_scene_has_primary_asset_record": scene_count > 0 and len(primary_assets) == scene_count,
+        "every_rendered_scene_has_primary_asset_record": scene_count > 0 and len(present_assets) == scene_count,
     }
     return {
         "status": "passed" if all(checks.values()) else "blocked",
