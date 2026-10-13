@@ -1,0 +1,138 @@
+name: Verify YouTube scheduled upload
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-youtube-schedule.yml"
+  workflow_dispatch:
+    inputs:
+      content_id:
+        description: "D1 content ID"
+        required: true
+        default: "22"
+        type: string
+      video_id:
+        description: "YouTube video ID"
+        required: true
+        default: "qGfh_E2Idls"
+        type: string
+      expected_title:
+        description: "Exact expected YouTube title"
+        required: true
+        default: "Microsoft's Maia 300: 40% More AI Per Megawatt?"
+        type: string
+      expected_publish_at:
+        description: "Expected scheduled publish time in UTC"
+        required: true
+        default: "2026-10-14T16:00:00Z"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify YouTube privacy, schedule, and D1 sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CONTENT_ID: "${{ inputs.content_id || '22' }}"
+      VIDEO_ID: "${{ inputs.video_id || 'qGfh_E2Idls' }}"
+      EXPECTED_TITLE: "${{ inputs.expected_title || 'Microsoft''s Maia 300: 40% More AI Per Megawatt?' }}"
+      EXPECTED_PUBLISH_AT: "${{ inputs.expected_publish_at || '2026-10-14T16:00:00Z' }}"
+      WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+      WORKER_AUTH_TOKEN: "${{ secrets.WORKER_AUTH_TOKEN }}"
+    steps:
+      - name: Get short-lived YouTube access token from Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          test -n "$WORKER_AUTH_TOKEN" || { echo "WORKER_AUTH_TOKEN secret is missing."; exit 1; }
+          CODE=$(curl -sS --max-time 45 -o work/youtube_token.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" --data '{}' \
+            "$WORKER_URL/youtube/access-token")
+          if [ "$CODE" != "200" ] || [ "$(jq -r '.ok // false' work/youtube_token.json)" != "true" ]; then
+            echo "Cloudflare could not provide a YouTube access token (HTTP $CODE)."
+            jq '{ok,error,provider_error,http_status}' work/youtube_token.json || true
+            exit 1
+          fi
+          ACCESS_TOKEN=$(jq -er '.access_token | select(type == "string" and length > 20)' work/youtube_token.json)
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "Short-lived YouTube authorization obtained."
+
+      - name: Independently verify video through YouTube Data API v3
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE=$(curl -sS --max-time 45 -G -o work/youtube_video.json -w "%{http_code}" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Accept: application/json" \
+            --data-urlencode "part=snippet,status" \
+            --data-urlencode "id=$VIDEO_ID" \
+            "https://www.googleapis.com/youtube/v3/videos")
+          if [ "$CODE" != "200" ]; then
+            echo "YouTube Data API verification request failed (HTTP $CODE)."
+            jq '{error:{code:.error.code,message:.error.message,status:.error.status}}' work/youtube_video.json || true
+            exit 1
+          fi
+          jq -e --arg id "$VIDEO_ID" --arg title "$EXPECTED_TITLE" --arg at "$EXPECTED_PUBLISH_AT" '
+            (.items | length) == 1 and
+            .items[0].id == $id and
+            .items[0].snippet.title == $title and
+            .items[0].status.privacyStatus == "private" and
+            .items[0].status.publishAt == $at
+          ' work/youtube_video.json >/dev/null || {
+            echo "FAIL: video exists or has metadata, but title/privacy/scheduled time did not exactly match the expected values."
+            jq '[.items[]? | {id, title:.snippet.title, privacyStatus:.status.privacyStatus, publishAt:.status.publishAt, uploadStatus:.status.uploadStatus}]' work/youtube_video.json || true
+            exit 1
+          }
+          jq --arg verified_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+            {verified:true,verified_at_utc:$verified_at,source:"YouTube Data API v3",video_id:.items[0].id,
+             title:.items[0].snippet.title,privacy_status:.items[0].status.privacyStatus,
+             publish_at:.items[0].status.publishAt,upload_status:.items[0].status.uploadStatus}
+          ' work/youtube_video.json > work/youtube_schedule_verification.json
+          jq '{verified,verified_at_utc,source,video_id,title,privacy_status,publish_at,upload_status}' work/youtube_schedule_verification.json
+          echo "YouTube independently confirms the private scheduled video."
+
+      - name: Repair/sync D1 only after YouTube verification passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n --arg content_id "$CONTENT_ID" --arg video_id "$VIDEO_ID" --arg publish_at "$EXPECTED_PUBLISH_AT" \
+            '{content_id:($content_id|tonumber),video_id:$video_id,publish_at:$publish_at}' > work/youtube_upload_record.json
+          CODE=$(curl -sS --max-time 45 -o work/d1_sync_response.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" --data-binary @work/youtube_upload_record.json \
+            "$WORKER_URL/youtube/upload-result")
+          if [ "$CODE" != "200" ] || [ "$(jq -r '.ok // false' work/d1_sync_response.json)" != "true" ]; then
+            echo "YouTube is independently verified, but D1 sync still needs attention (HTTP $CODE)."
+            jq '{ok,error,content_id,video_id,status}' work/d1_sync_response.json || true
+            exit 1
+          fi
+          jq '{ok,content_id,video_id,status}' work/d1_sync_response.json
+          jq --slurpfile d1 work/d1_sync_response.json '. + {d1_sync:{ok:$d1[0].ok,content_id:$d1[0].content_id,status:$d1[0].status}}' \
+            work/youtube_schedule_verification.json > work/final_verification_report.json
+          {
+            echo "## YouTube scheduled upload verification"
+            echo ""
+            echo "- YouTube Data API v3: **PASS**"
+            echo "- Privacy: **private**"
+            echo "- Scheduled publish (UTC): `$EXPECTED_PUBLISH_AT`"
+            echo "- D1 synchronization: **PASS**"
+            echo "- Video ID: `$VIDEO_ID`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Archive verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-schedule-verification-${{ github.run_id }}
+          path: |
+            work/youtube_schedule_verification.json
+            work/d1_sync_response.json
+            work/final_verification_report.json
+          if-no-files-found: ignore
+          retention-days: 14
