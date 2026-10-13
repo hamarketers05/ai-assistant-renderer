@@ -146,8 +146,11 @@ def probe_workers():
         if not item["ok"]:
             REPORT["unresolved"].append(f"{name} health probe failed; Cloudflare supervisor/failover remains responsible for service failover.")
 
-def dispatch(workflow_file):
-    status, _ = api("POST", f"/repos/{REPO}/actions/workflows/{workflow_file}/dispatches", {"ref": "main"})
+def dispatch(workflow_file, inputs=None):
+    payload = {"ref": "main"}
+    if inputs is not None:
+        payload["inputs"] = inputs
+    status, _ = api("POST", f"/repos/{REPO}/actions/workflows/{workflow_file}/dispatches", payload)
     if status not in (201, 204):
         raise RuntimeError(f"Workflow dispatch returned HTTP {status}.")
 
@@ -228,6 +231,10 @@ def attempt_patch(run, job, log):
     path = Path(target)
     if not path.is_file():
         return False, "Allowlisted target not found in checkout."
+    recent_patch = cmd(["git", "log", "--since=24 hours ago", "--format=%s", "--all",
+                        "--fixed-strings", "--grep", f"path={target}"]).strip()
+    if recent_patch:
+        return False, "This file already received an automatic repair in the last 24 hours; preventing repeated AI patch loops."
     if cmd(["git", "status", "--porcelain"]).strip():
         return False, "Checkout was not clean; refusing to mix changes."
     prompt = {
@@ -289,11 +296,33 @@ def attempt_patch(run, job, log):
             dispatch("validate-renderer.yml")
         except Exception as exc:
             REPORT["unresolved"].append("Code patch pushed after local tests, but full validator dispatch failed: " + str(exc)[:150])
+        resumed = None
+        try:
+            workflow_name = str(run.get("name", ""))
+            if workflow_name == "AI Tech Lab Daily Research and Script":
+                dispatch("daily-content-research.yml")
+                resumed = "daily-content-research.yml"
+                REPORT["actions"].append({"action": "resume_pipeline_after_patch", "workflow": resumed,
+                    "reason": "Research helper was repaired, locally validated and committed; fresh research run started."})
+            elif workflow_name == "AI Tech Lab Automatic Daily Production Handoff":
+                source_match = re.search(r"(?:SOURCE_RUN_ID|source_run_id)\s*[:=]\s*(\d{5,})", log, re.I)
+                if not source_match:
+                    source_match = re.search(r"ai-tech-lab-research-(\d{5,})", log, re.I)
+                if source_match:
+                    source_run_id = source_match.group(1)
+                    dispatch("daily-auto-production.yml", {"source_run_id": source_run_id, "dry_run": False})
+                    resumed = "daily-auto-production.yml"
+                    REPORT["actions"].append({"action": "resume_pipeline_after_patch", "workflow": resumed,
+                        "source_run_id": source_run_id, "reason": "Repaired handoff helper and restarted against the original successful research artifact with duplicate protection."})
+                else:
+                    REPORT["unresolved"].append("Handoff helper was repaired, but the source research run ID could not be proved from logs; automatic resume was skipped safely.")
+        except Exception as exc:
+            REPORT["unresolved"].append("Validated repair was committed but the originating pipeline could not be resumed automatically: " + str(exc)[:200])
         REPORT["actions"].append({"action": "auto_code_patch_committed", "path": target, "provider": provider,
             "source_run_id": run["id"], "commit": cmd(["git", "rev-parse", "HEAD"]).strip(),
             "tests": ["py_compile", "allowlisted self-test when available", "compileall tools", "git diff --check"],
-            "post_push_validation": "Renderer Static Validation dispatched"})
-        return True, "Patch tested, committed and full renderer validation dispatched."
+            "post_push_validation": "Renderer Static Validation dispatched", "resume_workflow": resumed})
+        return True, "Patch tested and committed; renderer validation dispatched, and safe upstream continuation attempted where the source run can be verified."
     except Exception as exc:
         cmd(["git", "checkout", "--", target], check=False)
         cmd(["git", "apply", "-R", str(patch_file)], check=False)
