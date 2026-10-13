@@ -6,6 +6,19 @@
 **Reviewed code commit:** `dcd8f18845d886ef0e60184b321a6bf35db23bbd`  
 **Current release status:** BLOCKED — daily publishing is not end-to-end verified. Round-one changes are committed; automated validators are still running.
 
+## Latest verification checkpoint — 2026-10-13
+
+**Latest implementation commits:** `481aa4b327433b6034c934a040c8c26772d5e825` (self-healing tests wired into CI) and `ad66e71c1823fe8e728a6c02bc6fdaa9edf8949b` (renderer validator fix).
+
+- Verified failure evidence: Renderer Static Validation run [38440938623](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38440938623) failed because the validator required the obsolete `APPROVED_SCRIPT_SHA` token. The real reuse gate uses `SCRIPT_SHA256` and `STORED_SCRIPT_SHA`, comparing the stored sidecar against the current script hash before audio reuse.
+- Fix committed: `.github/workflows/validate-renderer.yml` now checks `STORED_SCRIPT_SHA` instead of the obsolete marker. Re-validation after commit `ad66e71c1823fe8e728a6c02bc6fdaa9edf8949b` is **pending**, not yet claimed passed.
+- Self-healing regression tests: `tools/test_self_healing_agent.py` already runs in the renderer validator; commit `481aa4b327433b6034c934a040c8c26772d5e825` additionally wires `py_compile` and the regression suite into `CI Workflow Guard`, so rule-based recovery safety is checked on every workflow/tools change. The new CI result is **pending**.
+- Latest verified trend endpoint behavior remains fail-closed: run [38438168315](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38438168315) passed its verifier contract but did **not** generate a script because fewer than 3 distinct category-related YouTube videos were available. Do not weaken this evidence gate.
+- Self-healing is a deterministic rule-based recovery controller with regression tests, bounded retries and a narrow patch allowlist; it is **not ML-trained**, and it is not fully production-verified. The last controller run found the category-evidence blocker and could not persist its report to D1 because the free-tier daily row-read quota was exhausted. No billing change was made.
+- No-publish boundary preserved: no production content row, MP4, YouTube upload, schedule or analytics result was created/verified during this checkpoint.
+
+**Next action:** retrieve the Actions result for the post-`ad66e71c1823fe8e728a6c02bc6fdaa9edf8949b` Renderer Static Validation run and the post-`481aa4b327433b6034c934a040c8c26772d5e825` CI Workflow Guard run; fix only concrete failing assertions, then repeat bounded no-publish verification after the D1 free quota resets.
+
 ## Round One checkpoint — 2026-10-13 (authoritative current state)
 
 **Reviewed code commit:** `dcd8f18845d886ef0e60184b321a6bf35db23bbd`
