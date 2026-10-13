@@ -20,7 +20,7 @@ def parse_json(text):
             lines = lines[1:]
         if lines and lines[-1].strip() == chr(96) * 3:
             lines = lines[:-1]
-        text = "\\n".join(lines).strip()
+        text = "\n".join(lines).strip()
     obj = json.loads(text)
 def main():
     if not KEY:
