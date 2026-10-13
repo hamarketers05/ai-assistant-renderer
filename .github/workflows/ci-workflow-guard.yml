@@ -91,6 +91,7 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          from PIL import Image
           scene = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
           average = float(scene.get("scene_duration_seconds", {}).get("mean", 99))
           if scene.get("exact_word_timing") is not True or scene.get("planned_visual_scenes", 0) < 12 or average > 4.5:
