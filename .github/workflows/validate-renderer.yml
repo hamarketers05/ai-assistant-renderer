@@ -355,6 +355,7 @@ jobs:
           python tools/test_self_healing_agent.py
           python tools/test_make_daily_short.py
           python tools/test_ai_text_client.py
+          python tools/fetch_free_video.py --self-test
 
       - name: Smoke-test FLUX composition without consuming AI quota
         run: |
