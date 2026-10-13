@@ -669,7 +669,7 @@ jobs:
           test -s work/commons_media_report.json
           cat work/commons_media_report.json
 
-      - name: Discover Full-HD commercially usable images and eligible NASA clips
+      - name: Discover licensed Full-HD commercially usable images and eligible NASA clips
         env:
           SMITHSONIAN_API_KEY: ${{ secrets.SMITHSONIAN_API_KEY }}
         run: |
