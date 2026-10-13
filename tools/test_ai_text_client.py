@@ -54,6 +54,38 @@ def main():
             raise AssertionError("Main Worker auth failure must stop before fallback.")
         assert len(main_calls) == 1, main_calls
 
+        # Main Worker Groq 429 is retried once after the server's bounded Retry-After,
+        # without falling through to the exhausted Workers AI allowance.
+        rate_calls, sleeps = [], []
+        def groq_rate_then_ok(url, payload, headers, timeout):
+            rate_calls.append(url)
+            if len(rate_calls) == 1:
+                hdr = Message()
+                hdr["Retry-After"] = "1"
+                raise urllib.error.HTTPError(url, 429, "rate limited", hdr, io.BytesIO(b'{"code":"GROQ_RATE_LIMITED"}'))
+            return {"ok": True, "choices": [{"message": {"content": '{"ok":true}'}}]}
+        client._post_json = groq_rate_then_ok
+        client.time.sleep = sleeps.append
+        result = client.chat_completion({"messages": [{"role": "user", "content": "rate-limit test"}]}, ".github/workflows/daily-content-research.yml", timeout=1)
+        assert result.get("provider") == "main_worker_groq" and len(rate_calls) == 2, (result, rate_calls)
+        assert sleeps == [1], sleeps
+
+        rate_calls.clear()
+        def groq_rate_stays_limited(url, payload, headers, timeout):
+            rate_calls.append(url)
+            hdr = Message()
+            hdr["Retry-After"] = "1"
+            raise urllib.error.HTTPError(url, 429, "rate limited", hdr, io.BytesIO(b'{"code":"GROQ_RATE_LIMITED"}'))
+        client._post_json = groq_rate_stays_limited
+        try:
+            client.chat_completion({"messages": [{"role": "user", "content": "rate-limit test"}]}, ".github/workflows/daily-content-research.yml", timeout=1)
+        except RuntimeError as exc:
+            assert "did not recover" in str(exc), str(exc)
+        else:
+            raise AssertionError("Persistent Groq rate limits should stop after one retry.")
+        assert len(rate_calls) == 2 and all(url.endswith("/internal/ai/generate") for url in rate_calls), rate_calls
+
+        client.time.sleep = lambda _: None
         os.environ["WORKER_AUTH_TOKEN"] = ""
         calls = []
 
@@ -96,7 +128,7 @@ def main():
             raise AssertionError("Known quota exhaustion must raise a stable stop code.")
         assert len(calls) == 1, calls
 
-        print("AI_TEXT_CLIENT_RETRY_TEST_PASS: Main Worker Groq prioritized; transient retries bounded; known quota exhaustion stops immediately")
+        print("AI_TEXT_CLIENT_RETRY_TEST_PASS: Groq 429 honors one bounded retry; no cascade into exhausted Workers AI quota")
     finally:
         client._post_json, client.time.sleep = original_post, original_sleep
         for name, old in before.items():
