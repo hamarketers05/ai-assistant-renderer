@@ -54,6 +54,7 @@ jobs:
           if [ -z "$GROQ_API_KEY" ]; then echo "Groq key absent; authenticated Cloudflare Workers AI fallback is enabled."; fi
           test -n "$GITHUB_TOKEN"
           python -m pip install --disable-pip-version-check numpy pillow
+          python tools/mini_agents.py --self-test
 
       - name: Get existing YouTube OAuth token for Data API v3 trend reads
         env:
@@ -118,6 +119,8 @@ jobs:
             work/description.txt
             work/tags.txt
             work/thumbnail_brief.json
+            work/tool_improvement_research.json
+            work/mini_agent_execution_report.json
             output/thumbnail_preview.jpg
           if-no-files-found: error
           retention-days: 7
