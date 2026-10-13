@@ -94,8 +94,14 @@ def validate_catalog(catalog: Any, repo_root: Path) -> list[str]:
             errors.append(f"{prefix} must mark workflow/configuration as not being runtime proof")
         for field in ("tool_paths", "workflow_paths"):
             paths = stage.get(field)
-            if not isinstance(paths, list) or not paths:
-                errors.append(f"{prefix}.{field} must be a non-empty array")
+            if not isinstance(paths, list):
+                errors.append(f"{prefix}.{field} must be an array")
+                continue
+            if not paths:
+                # A stage with no registered implementation must say so explicitly;
+                # an empty path list must never imply that the stage is complete.
+                if not str(stage.get("state", "")).startswith("not_verified_in_current_registered_"):
+                    errors.append(f"{prefix}.{field} is empty without an explicit unregistered-stage state")
                 continue
             for path in paths:
                 if not _safe_repo_path(path):
