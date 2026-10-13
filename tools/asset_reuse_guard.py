@@ -8,7 +8,8 @@ from pathlib import Path
 HISTORY=Path("learning/used_visual_assets.json")
 MANIFEST=Path("work/asset_sources.jsonl")
 REPORT=Path("work/asset_reuse_report.json")
-MIN_LICENSED_CLIPS=4
+MIN_LICENSED_CLIPS_LONG=4
+MIN_LICENSED_CLIPS_SHORT=1
 
 def canonical_url(value):
     try:
@@ -70,7 +71,11 @@ def save_report(data):
     REPORT.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding="utf-8")
     print(json.dumps(data,ensure_ascii=False))
 
-def validate(content_id):
+def validate(content_id, content_format="LONG_VIDEO"):
+    content_format=str(content_format or "LONG_VIDEO").strip().upper()
+    if content_format not in {"LONG_VIDEO","SHORT"}:
+        raise SystemExit("Unsupported content format; asset gate remains blocked.")
+    minimum_new_clips=MIN_LICENSED_CLIPS_SHORT if content_format=="SHORT" else MIN_LICENSED_CLIPS_LONG
     history=load_history()
     prior=set()
     for item in history.get("used",[]): prior.update(identity(item))
@@ -98,14 +103,15 @@ def validate(content_id):
         accepted.append(item); seen.update(keys)
     MANIFEST.parent.mkdir(parents=True,exist_ok=True)
     MANIFEST.write_text("".join(json.dumps(x,ensure_ascii=False)+"\n" for x in accepted),encoding="utf-8")
-    data={"status":"validated" if len(accepted)>=MIN_LICENSED_CLIPS else "blocked",
-          "content_id":str(content_id),"candidate_assets":len(raw),"accepted_new_assets":len(accepted),
+    data={"status":"validated" if len(accepted)>=minimum_new_clips else "blocked",
+          "content_id":str(content_id),"content_format":content_format,
+          "candidate_assets":len(raw),"accepted_new_assets":len(accepted),
           "removed_assets":removed,"previous_video_reuse":False,"within_video_duplicates":False,
-          "minimum_new_licensed_clips_required":MIN_LICENSED_CLIPS,
+          "minimum_new_licensed_clips_required":minimum_new_clips,
           "policy":"A stock visual from an earlier delivered video is excluded; weak matches are replaced by new generated scene art."}
     save_report(data)
-    if len(accepted)<MIN_LICENSED_CLIPS:
-        raise SystemExit(f"VISUAL NOVELTY GATE BLOCKED: {len(accepted)} new relevant licensed clips remain; {MIN_LICENSED_CLIPS} required.")
+    if len(accepted)<minimum_new_clips:
+        raise SystemExit(f"VISUAL NOVELTY GATE BLOCKED for {content_format}: {len(accepted)} new relevant licensed clips remain; {minimum_new_clips} required.")
 
 def seed(content_id, manifest_path):
     history=load_history()
@@ -199,11 +205,12 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--mode",choices=("seed","validate","persist","merge-history"),required=True)
     p.add_argument("--content-id",required=True)
+    p.add_argument("--content-format",choices=("LONG_VIDEO","SHORT"),default="LONG_VIDEO")
     p.add_argument("--manifest",default="work/previous_assets.jsonl")
     p.add_argument("--candidate",default="work/asset_history_candidate.json")
     a=p.parse_args()
     if a.mode=="validate":
-        validate(a.content_id)
+        validate(a.content_id,a.content_format)
     elif a.mode=="persist":
         persist(a.content_id)
     elif a.mode=="merge-history":
