@@ -327,8 +327,10 @@ def attempt_patch(run, job, log):
         return False, "Allowlisted target not found in checkout."
     recent_patch = cmd(["git", "log", "--since=24 hours ago", "--format=%s", "--all",
                         "--fixed-strings", "--grep", f"path={target}"]).strip()
-    if recent_patch:
+    if recent_patch and target != "tools/self_healing_canary.py":
         return False, "This file already received an automatic repair in the last 24 hours; preventing repeated AI patch loops."
+    # Repeated repairs are allowed only for the purpose-built isolated E2E canary;
+    # its dedicated test workflow is the only approved source of a fault for this file.
     # The controller owns the untracked work/ directory for logs/reports; ignore only
     # those generated artifacts, while still rejecting any unrelated working-tree changes.
     dirty = [line for line in cmd(["git", "status", "--porcelain"]).splitlines()
