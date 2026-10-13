@@ -80,7 +80,7 @@ jobs:
           echo "YOUTUBE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           rm -f work_token.json
 
-      - name: Select US YouTube topic, research through Tavily or free RSS, and write and audit script
+      - name: Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq primary / Workers AI fallback
         run: |
           set -euo pipefail
           mkdir -p work output
