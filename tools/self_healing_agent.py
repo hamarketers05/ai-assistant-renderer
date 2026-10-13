@@ -6,7 +6,8 @@ Bounded actions:
 - patch one allowlisted visual/editing Python file only, then validate before pushing;
 - dispatch the existing renderer validator after an automatic code patch;
 - start missed daily research automation;
-- probe the main, production, supervisor, and handoff Workers.
+- probe the main, production, supervisor, and handoff Workers;
+- download failed-step logs via GitHub's signed redirect without forwarding the bearer token.
 Protected: workflow YAML, Worker code, credentials, database schemas, voice gates, QA gates,
 YouTube upload/scheduling and publishing code. No blind retry of the renderer upload workflow.
 """
