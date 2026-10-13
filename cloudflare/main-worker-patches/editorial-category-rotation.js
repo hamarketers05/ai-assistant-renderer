@@ -16,3 +16,31 @@ function nfCategoryRotation(dateValue){const day=nfEditorialDate(dateValue),anch
 function nfEditorialVideoId(item){const explicit=String(item&&(item.video_id||item.youtube_video_id)||"").trim();if(explicit)return explicit;try{const u=new URL(String(item&&item.url||"")),host=u.hostname.toLowerCase();if(host==="youtu.be")return u.pathname.split("/").filter(Boolean)[0]||"";if(host.endsWith("youtube.com")){const ids=u.searchParams.get("v");if(ids)return ids;const parts=u.pathname.split("/").filter(Boolean);if((parts[0]==="shorts"||parts[0]==="live")&&parts[1])return parts[1]}}catch(_){}return""}
 function nfResolveEditorialCategory(items,dateValue){const rotation=nfCategoryRotation(dateValue),videos=new Map();for(const item of Array.isArray(items)?items:[]){const tier=String(item&&(item.source_tier||item.source_type)||"").toLowerCase();if(tier!=="youtube_api"&&tier!=="youtube_popular")continue;const id=nfEditorialVideoId(item);if(!id)continue;if(!videos.has(id))videos.set(id,(String(item.title||"")+" "+String(item.content||item.description_excerpt||"")).toLowerCase())}const scores={};for(const cat of NF_EDITORIAL_CATEGORIES){let count=0,score=0;for(const text of videos.values()){const hits=cat.keywords.filter(k=>text.includes(k.toLowerCase()));if(hits.length){count++;score+=Math.min(3,hits.length)}}scores[cat.name]={matching_video_count:count,score}}const baseline=scores[rotation.category],ranked=NF_EDITORIAL_CATEGORIES.map((c,i)=>({name:c.name,index:i,...scores[c.name]})).sort((a,b)=>b.score-a.score||a.index-b.index),winner=ranked[0],accept=!!winner&&winner.name!==rotation.category&&winner.matching_video_count>=3&&winner.score>=baseline.score+3,chosen=NF_EDITORIAL_CATEGORIES.find(c=>c.name===(accept?winner.name:rotation.category));return{date_us_eastern:rotation.date_us_eastern,timezone:rotation.timezone,category:chosen.name,category_brief:chosen.brief,rotation_category:rotation.category,override:accept,override_status:accept?"accepted_strong_live_trend":winner&&winner.name!==rotation.category?"rejected_insufficient_live_trend_evidence":"scheduled_rotation",supporting_video_count:accept?winner.matching_video_count:baseline.matching_video_count,evidence_scores:scores,distinct_youtube_video_count:videos.size}}
 function nfCategoryRotationSelfTest(){const anchor="2026-10-13",cycle=NF_EDITORIAL_CATEGORIES.map((_,i)=>nfCategoryRotation(new Date(Date.parse(anchor+"T00:00:00Z")+i*86400000).toISOString().slice(0,10)).category),cyclePass=new Set(cycle).size===7&&nfCategoryRotation("2026-10-20").category===cycle[0]&&nfCategoryRotation("2026-10-14").category===cycle[1],weak=[{url:"https://www.youtube.com/watch?v=robot1",source_tier:"youtube_api",title:"Humanoid robot demonstration"},{url:"https://www.youtube.com/watch?v=robot2",source_tier:"youtube_api",title:"Robotics lab tests a new robot arm"},{url:"https://www.youtube.com/watch?v=robot2",source_tier:"youtube_api",title:"Duplicate robotics evidence"}],weakPass=!nfResolveEditorialCategory(weak,anchor).override,strong=[{url:"https://www.youtube.com/watch?v=robot1",source_tier:"youtube_api",title:"Humanoid robot demonstration and robotics"},{url:"https://www.youtube.com/watch?v=robot2",source_tier:"youtube_api",title:"Robotics lab tests a new robot arm"},{url:"https://www.youtube.com/watch?v=robot3",source_tier:"youtube_popular",title:"Physical AI robot system explained"}],strongDecision=nfResolveEditorialCategory(strong,anchor),strongPass=strongDecision.override&&strongDecision.category==="Robotics & Physical AI",invalidDatePass=(()=>{try{nfCategoryRotation("2026-02-30");return false}catch(_){return true}})();return{ok:cyclePass&&weakPass&&strongPass&&invalidDatePass,checks:{seven_unique_days_and_wraparound:cyclePass,duplicate_video_ids_do_not_count:weakPass,three_video_trend_override:strongPass,invalid_date_rejected:invalidDatePass},category_count:NF_EDITORIAL_CATEGORIES.length,anchor,cycle,strong_decision:strongDecision}}
+
+
+// Trend-to-script gate added to the live Main Worker bundle on 2026-10-13.
+// This helper is intentionally recorded as a fragment, not a deployable Worker by itself.
+function nfEditorialTrendGate(items,categoryName){
+ const cat=NF_EDITORIAL_CATEGORIES.find(x=>x.name===categoryName);
+ if(!cat)return{ok:false,error:"Unknown editorial category",category:categoryName,videos:[]};
+ const videos=new Map();
+ for(const x of Array.isArray(items)?items:[]){
+  const tier=String(x.source_tier||x.source_type||"").toLowerCase();
+  if(tier!=="youtube_api"&&tier!=="youtube_popular")continue;
+  const id=nfEditorialVideoId(x);if(!id)continue;
+  const text=(String(x.title||"")+" "+String(x.content||x.description_excerpt||"")).toLowerCase();
+  const matched=cat.keywords.filter(k=>text.includes(k.toLowerCase()));if(!matched.length)continue;
+  const row={video_id:id,url:String(x.url||"https://www.youtube.com/watch?v="+id),title:String(x.title||"").trim(),published_at:x.published_at||null,matched_keywords:matched,match_score:matched.length,score:Number(x.score||0)};
+  const old=videos.get(id);if(!old||row.match_score>old.match_score)videos.set(id,row);
+ }
+ const rows=[...videos.values()].sort((a,b)=>b.match_score-a.match_score||b.score-a.score);
+ return{ok:rows.length>=3,category:categoryName,distinct_video_count:rows.length,minimum_required:3,videos:rows.slice(0,8),gate:rows.length>=3?"PASS":"BLOCKED_INSUFFICIENT_CATEGORY_RELATED_YOUTUBE_VIDEOS"};
+}
+
+// Live integration contract (confirmed by deployment API metadata; runtime verification is
+// delegated to the GitHub runner because this environment cannot reach the public Worker URL):
+// POST /editorial/trend-script, Authorization: Bearer WORKER_AUTH_TOKEN
+// -> research from YouTube Data API v3 + free public RSS/Atom/arXiv (Tavily disabled),
+// -> at least 3 distinct category-related videos, natural Groq / Workers AI script,
+// -> 850-1000 spoken words and independent natural-voice/current-claim audit.
+// This route returns a package; it does not upload or schedule a video.
