@@ -23,8 +23,8 @@ DEFAULT_EVAL = BASE / "self_healing_incidents_eval.jsonl"
 DEFAULT_MODEL = Path("work/self_healing_ml_model.json")
 DEFAULT_EVAL_REPORT = Path("work/self_healing_ml_evaluation.json")
 MODEL_VERSION = "incident-nb-v2"
-MIN_CONFIDENCE = 0.55
-MIN_MARGIN = 0.08
+MIN_CONFIDENCE = 0.10
+MIN_MARGIN = 0.005
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "because", "by", "did",
     "do", "does", "for", "from", "had", "has", "have", "in", "into",
@@ -99,6 +99,8 @@ class Prediction:
     confidence: float
     margin: float
     second_label: str
+    known_feature_count: int
+    known_feature_ratio: float
     scores: list[dict[str, float | str]]
 
     @property
@@ -163,6 +165,11 @@ class IncidentNaiveBayes:
         return sorted(scores, key=lambda item: item[1], reverse=True)
 
     def predict(self, text: str) -> Prediction:
+        features = _tokens(text)
+        vocabulary = set(self.vocabulary)
+        known = [token for token in features if token in vocabulary]
+        known_feature_count = len(set(known))
+        known_feature_ratio = len(known) / max(len(features), 1)
         scored = self.decision_scores(text)
         best_label, best_score = scored[0]
         second_label, second_score = scored[1]
@@ -172,13 +179,20 @@ class IncidentNaiveBayes:
         posterior = exp_scores[0] / total
         second_posterior = exp_scores[1] / total
         margin = posterior - second_posterior
-        if not _tokens(text) or posterior < MIN_CONFIDENCE or margin < MIN_MARGIN:
+        # Softmax posterior shrinks as taxonomy size grows; require actual lexical
+        # evidence plus a nontrivial best-vs-runner-up margin instead of using a
+        # fixed 0.55 threshold designed for only ten classes. A one-token match
+        # such as "unknown" is insufficient to classify an out-of-domain message.
+        if (known_feature_count < 2 or known_feature_ratio < 0.08
+                or posterior < MIN_CONFIDENCE or margin < MIN_MARGIN):
             shown_label = "LOW_CONFIDENCE_UNCLASSIFIED"
         else:
             shown_label = best_label
         return Prediction(
             label=shown_label, confidence=round(posterior, 6),
             margin=round(margin, 6), second_label=second_label,
+            known_feature_count=known_feature_count,
+            known_feature_ratio=round(known_feature_ratio, 6),
             scores=[{"label": label, "relative_posterior": round(exp_scores[i] / total, 6)}
                     for i, (label, _) in enumerate(scored[:3])],
         )
@@ -248,7 +262,10 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
         results.append({
             "expected": row["label"], "predicted": prediction.label,
             "correct": hit, "confidence": prediction.confidence,
-            "second_label": prediction.second_label,
+            "margin": prediction.margin, "second_label": prediction.second_label,
+            "known_feature_count": prediction.known_feature_count,
+            "known_feature_ratio": prediction.known_feature_ratio,
+            "was_classified": prediction.label != "LOW_CONFIDENCE_UNCLASSIFIED",
         })
     per_class = {
         label: {
@@ -263,6 +280,13 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
         sum(per_class[label]["accuracy"] for label in expected_labels) / len(expected_labels)
         if expected_labels else 0.0
     )
+    classified_results = [row for row in results if row["was_classified"]]
+    classified_count = len(classified_results)
+    selective_correct_count = sum(int(row["correct"]) for row in classified_results)
+    classification_coverage = classified_count / len(rows) if rows else 0.0
+    selective_accuracy = (
+        selective_correct_count / classified_count if classified_count else 0.0
+    )
     return {
         "model_version": MODEL_VERSION,
         "evaluation_count": len(rows),
@@ -270,11 +294,15 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
         "accuracy": round(accuracy, 4),
         "macro_accuracy": round(macro_accuracy, 4),
         "unclassified_count": unclassified_count,
+        "classified_count": classified_count,
+        "classification_coverage": round(classification_coverage, 4),
+        "selective_accuracy": round(selective_accuracy, 4),
         "class_count": len(expected_labels),
         "per_class": per_class,
         "threshold_accuracy_target": 0.80,
         "threshold_macro_accuracy_target": 0.75,
-        "passed": bool(rows) and accuracy >= 0.80 and macro_accuracy >= 0.75,
+        "threshold_classification_coverage_target": 0.80,
+        "passed": bool(rows) and accuracy >= 0.80 and macro_accuracy >= 0.75 and classification_coverage >= 0.80,
         "results": results,
     }
 def train_and_save(train_path: Path = DEFAULT_TRAIN, eval_path: Path = DEFAULT_EVAL,
@@ -348,6 +376,8 @@ def run_self_test() -> dict:
         "holdout_accuracy": metrics["accuracy"],
         "holdout_count": metrics["evaluation_count"], "passed": metrics["passed"],
         "macro_accuracy": metrics["macro_accuracy"], "class_count": len(model.labels),
+        "classification_coverage": metrics["classification_coverage"],
+        "selective_accuracy": metrics["selective_accuracy"],
     }
 
 
