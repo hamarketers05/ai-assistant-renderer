@@ -1048,7 +1048,7 @@ jobs:
                   raise SystemExit(f"Scene render failed: {scene}")
 
               primary_asset = stock if has_stock else (flux_graphic if has_flux else (free_media_graphic if has_external_image else graphic))
-              has_hud_overlay = bool((has_stock or has_flux or has_external_image) and Path(f"assets/scene_overlay_{scene}.png").is_file())
+              has_hud_overlay = bool((has_stock or has_flux or has_external_image) and Path(f"assets/composite_overlay_scene_{scene}.png").is_file() and Path(f"assets/scene_overlay_{scene}.png").is_file())
               has_chart_overlay = bool(chart_selected and Path(f"assets/chart_overlay_scene_{scene}.png").is_file())
               rendered_asset_records.append({
                   "scene": scene,
