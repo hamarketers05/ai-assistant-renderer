@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # This also exercises the Worker’s one-time JSON-mode compatibility retry.
+          # Provider JSON mode is omitted; response JSON is validated by the calling script.
           test -n "$WORKER_AUTH_TOKEN"
           printf '%s' '{"messages":[{"role":"system","content":"Return exactly one valid JSON object."},{"role":"user","content":"Return only {\"probe\":\"ok\"}."}],"max_tokens":30,"temperature":0,"response_format":{"type":"json_object"}}' > request.json
           code=$(curl -sS --max-time 45 -o response.json -w "%{http_code}" \
