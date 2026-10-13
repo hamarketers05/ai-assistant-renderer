@@ -244,6 +244,20 @@ def self_test() -> None:
     report = evaluate(scenes, sources, 25, {"width": 1920, "height": 1080, "duration_seconds": 360})
     if report["status"] != "passed":
         raise SystemExit(f"Visual budget self-test failed: {report}")
+    # Verify a valid free Commons alternative passes without Flux or a paid/unconfirmed Vecteezy tier.
+    commons_sources = [{
+        "provider":"Wikimedia Commons","asset_id":"commons-"+str(i),"scene":str(i),
+        "asset_path":f"assets/scene_{i}.mp4",
+        "source_url":f"https://commons.wikimedia.org/wiki/File:Free_fixture_{i}",
+        "creator":f"Commons creator {i}","license_label":"CC BY 4.0",
+        "license_url":"https://creativecommons.org/licenses/by/4.0/",
+        "commercial_use_allowed":True,
+    } for i in range(4)]
+    no_flux_scenes = [dict(row, flux_image_used=False) for row in scenes]
+    commons_report = evaluate(no_flux_scenes, commons_sources, 25,
+                              {"width":1920,"height":1080,"duration_seconds":360})
+    if commons_report["status"] != "passed":
+        raise SystemExit(f"Commons/local-art free fallback failed: {commons_report}")
     boundary = evaluate(scenes[:80], sources, 25,
                         {"width": 1920, "height": 1080, "duration_seconds": 360})
     if boundary["status"] != "passed":
@@ -274,6 +288,20 @@ def self_test() -> None:
     short = evaluate_short(short_scenes, short_sources, 10, {"width":1080,"height":1920,"duration_seconds":45})
     if short["status"] != "passed":
         raise SystemExit(f"Short visual-budget positive test failed: {short}")
+    # Short fallback case: one fully attributed Commons clip plus unique local scenes must pass.
+    short_commons = [{
+        "provider":"Wikimedia Commons","asset_id":"short-commons-1","scene":"0",
+        "asset_path":"assets/short_stock_0.mp4",
+        "source_url":"https://commons.wikimedia.org/wiki/File:Short_fixture",
+        "creator":"Commons short creator","license_label":"CC BY 4.0",
+        "license_url":"https://creativecommons.org/licenses/by/4.0/",
+        "commercial_use_allowed":True,
+    }]
+    local_short_scenes = [dict(row, flux_image_used=False) for row in short_scenes]
+    short_free_fallback = evaluate_short(local_short_scenes, short_commons, 10,
+                                         {"width":1080,"height":1920,"duration_seconds":45})
+    if short_free_fallback["status"] != "passed":
+        raise SystemExit(f"Short Commons/local-art fallback failed: {short_free_fallback}")
     short_bad = evaluate_short(short_scenes, short_sources[:2], 10, {"width":1920,"height":1080,"duration_seconds":75})
     if short_bad["status"] != "blocked":
         raise SystemExit("Short visual-budget fail-closed test failed.")
