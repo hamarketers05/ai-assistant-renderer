@@ -1,0 +1,24 @@
+name: Self-Healing E2E Repair Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/self_healing_canary.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  injected-canary-failure:
+    name: Isolated deterministic repair canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+      - name: Run the isolated repair canary (intentionally fails until repaired)
+        run: |
+          set -euo pipefail
+          python tools/self_healing_canary.py --self-test
