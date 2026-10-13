@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Daily US-topic workflow: YouTube Data API v3 signals -> Tavily evidence -> Groq script + hook audit."""
+"""Daily US-topic workflow: YouTube trend signals -> evidence from Tavily or free RSS/Atom -> AI script + hook audit."""
 from __future__ import annotations
 import argparse, json, os, re, time, urllib.error, urllib.parse, urllib.request
 import html
@@ -697,10 +697,10 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
          "evidence_files": ["work/youtube_trend_signals.json", "work/topic_brief.json"], "details": category_decision},
         {"agent_id": "scriptwriter", "status": "completed", "actual_tools_used": ai_tools,
          "evidence_files": ["work/daily_content_package.json", "work/script.txt"], "details": {"human_voice_score": human_voice_qa["score"], "hook_score": hook_score}},
-        {"agent_id": "fact_editor", "status": "completed", "actual_tools_used": ai_tools + ["Tavily source evidence"],
+        {"agent_id": "fact_editor", "status": "completed", "actual_tools_used": ai_tools + ["source evidence: " + research_provider],
          "evidence_files": ["work/hook_audit.json", "work/tavily_evidence.json"], "details": {"source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]), "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"])}},
         {"agent_id": "improvement_scout", "status": "completed" if scout_status == "completed" else "skipped" if not scout_plan.get("enabled") else scout_status,
-         "actual_tools_used": ["Tavily Search API", scout_plan.get("domain", "official documentation")] if scout_status == "completed" else [],
+         "actual_tools_used": [("Tavily Search API" if "Tavily Search API" in _RESEARCH_PROVIDER_NAMES else "free public RSS/Atom"), scout_plan.get("domain", "official documentation")] if scout_status == "completed" else [],
          "evidence_files": ["work/tool_improvement_research.json"], "details": {"tool": scout_plan.get("tool"), "status": scout_status,
                      "official_source_count": len(improvement_report.get("sources", [])),
                      "recommendations_count": len(checked_recommendations), "no_automatic_code_changes": True}}
