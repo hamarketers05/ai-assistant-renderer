@@ -54,7 +54,7 @@ jobs:
           My view is that the most useful AI agent is not the one given the most freedom. It is the one that reliably completes a well-defined job while making its limits visible. More autonomy can create value, but only when the organization knows what the agent may do, measures how it performs, and remains accountable for the outcome.
 
           So before connecting your next AI agent to a business tool, ask three questions: What is the minimum access it needs? Which actions must a person approve? And how will you detect and reverse a mistake? Start small, measure actual results, and expand only after the evidence supports it. Automate repeatable work—but never outsource responsibility.
-SCRIPT
+          SCRIPT
           cat > description.txt <<'DESCRIPTION'
           Autonomous AI agents can create risk when they have excessive permissions, trust untrusted instructions, or take consequential actions without review. This AI Tech Lab explainer offers a practical safety checklist for individuals and businesses, grounded in NIST risk-management guidance and OWASP GenAI security work.
 
@@ -82,8 +82,8 @@ SCRIPT
           05:25 The three questions to ask
 
           Subscribe to AI Tech Lab for practical, evidence-based coverage of AI tools, agents and future technology.
-DESCRIPTION
-          WORDS=$(python3 -c 'import re,sys; print(len(re.findall(r"\\b[\\w-]+\\b", sys.stdin.read())))' < script.txt)
+          DESCRIPTION
+          WORDS=$(python3 -c 'import re,sys; print(len(re.findall(r"\b[\w-]+\b", sys.stdin.read())))' < script.txt)
           if [ "$WORDS" -lt 850 ] || [ "$WORDS" -gt 1000 ]; then
             echo "Dispatch stopped: script word count $WORDS outside 850-1000."
             exit 1
