@@ -211,8 +211,25 @@ jobs:
           research_names = [step.get("name", "") for step in research_wf["jobs"]["research-and-script"]["steps"]]
           if not any(item.get("cron") == "0 14 * * *" for item in research_wf.get("on", {}).get("schedule", [])):
               raise SystemExit("Daily US topic research schedule is missing.")
-          if not all(x in research_names for x in ["Verify free-provider configuration", "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq primary / Workers AI fallback", "Generate an AI thumbnail brief with Groq primary / Workers AI fallback and render the preview", "Publish research package artifact for Kokoro voice production"]):
-              raise SystemExit("Daily research stages are missing or out of order.")
+          research_topic_stage_aliases = [
+              "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq primary / Workers AI fallback",
+              "Select US YouTube topic, research through Tavily or free RSS, and write and audit script",
+          ]
+          required_research_stages = [
+              "Verify free-provider configuration",
+              "Generate an AI thumbnail brief with Groq primary / Workers AI fallback and render the preview",
+              "Publish research package artifact for Kokoro voice production",
+          ]
+          if not all(x in research_names for x in required_research_stages) or not any(x in research_names for x in research_topic_stage_aliases):
+              raise SystemExit("Daily research stages are missing.")
+          topic_stage = next(x for x in research_topic_stage_aliases if x in research_names)
+          ordered_research_positions = [research_names.index(x) for x in [
+              "Verify free-provider configuration", topic_stage,
+              "Generate an AI thumbnail brief with Groq primary / Workers AI fallback and render the preview",
+              "Publish research package artifact for Kokoro voice production",
+          ]]
+          if ordered_research_positions != sorted(ordered_research_positions):
+              raise SystemExit("Daily research stages are out of order.")
           if not all(x in Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8") for x in ["WORKER_AUTH_TOKEN", "TAVILY_API_KEY", "GROQ_API_KEY", "openai/gpt-oss-20b", "/youtube/access-token"]):
               raise SystemExit("Daily topic workflow is not configured for YouTube v3 + Tavily + Groq.")
           if not all(research_names.index(a) < research_names.index(b) for a,b in zip(research_names[1:], research_names[2:])):
@@ -331,6 +348,8 @@ jobs:
               assert not unused_output.exists()
           print("Static validation passed: research, Groq, thumbnail, audio/visual QA, upload gate, learning, and safe optional 2D3D export.")
           PY
+          python tools/test_self_healing_agent.py
+          python tools/test_make_daily_short.py
 
       - name: Smoke-test FLUX composition without consuming AI quota
         run: |
