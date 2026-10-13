@@ -144,6 +144,7 @@ jobs:
           ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "Enforce Full-HD six-minute visual budget before QA and upload", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq primary / Workers AI fallback reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
           import subprocess
           for test in [
+              ["python", "tools/fetch_free_video.py", "--self-test"],
               ["python", "tools/fetch_free_media.py", "--self-test"],
               ["python", "tools/compose_scene_overlays.py", "--self-test"],
               ["python", "tools/visual_budget.py", "--self-test"],
@@ -281,8 +282,11 @@ jobs:
           if "chart_matches(scene_text, detail)" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Only a script/source-matched chart may enter the final video.")
           director_code = Path("tools/scene_director.py").read_text(encoding="utf-8")
-          if "word-timestamped clause-aware scene phrases" not in director_code or "target=max(2.4" not in director_code:
-              raise SystemExit("Scene director must schedule visual change points around short voice-aligned phrases.")
+          if ("word-timestamped clause-aware scene phrases" not in director_code
+                  or "target=max(" not in director_code
+                  or "float(duration)/max(1,int(max_scenes))" not in director_code
+                  or "min_scene=" not in director_code):
+              raise SystemExit("Scene director must schedule voice-aligned visual changes using the configured scene budget.")
           transitions_code = Path("tools/render_transitions.py").read_text(encoding="utf-8")
           for marker in ('"pixelize"', '"zoomin"', 'transition_frames_at_30fps'):
               if marker not in transitions_code:
