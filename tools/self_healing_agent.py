@@ -534,10 +534,15 @@ def superseded_by_success(run, all_runs):
     for newer in all_runs:
         if newer.get("name") not in accepted_names or newer.get("head_branch") != branch:
             continue
-        if newer.get("conclusion") != "success":
-            continue
         newer_at = dt(newer.get("created_at"))
-        if newer_at and newer_at > failed_at:
+        if not newer_at or newer_at <= failed_at:
+            continue
+        # Do not create a stale incident while a newer validation of the same workflow
+        # is still queued/running. The next scheduled scan will report it if it fails;
+        # a later successful run permanently supersedes this older failure.
+        if newer.get("conclusion") == "success":
+            return True
+        if newer.get("status") in {"queued", "in_progress"}:
             return True
     return False
 
