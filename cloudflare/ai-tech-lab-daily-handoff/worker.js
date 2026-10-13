@@ -183,7 +183,13 @@ async function generateSelfHealPatch(request, env) {
     "tools/write_editing_tool_manifest.py", "tools/make_evidence_charts.py", "tools/generate_scene_art.py",
     "tools/compose_scene_overlays.py", "tools/visual_budget.py", "tools/fetch_free_media.py",
     "tools/generate_flux_images.py", "tools/make_premium_thumbnail.py", "tools/groq_thumbnail_brief.py",
-    "tools/daily_auto_handoff.py", "tools/make_daily_short.py"
+    "tools/daily_auto_handoff.py", "tools/make_daily_short.py",
+    "tools/asset_reuse_guard.py", "tools/convert_video_3d.py",
+    "tools/convert_video_midas_sbs.py", "tools/daily_content_research.py",
+    "tools/fetch_free_video.py", "tools/generate_kokoro_voice.py",
+    "tools/generate_music.py", "tools/groq_video_review.py",
+    "tools/make_3d_hero_overlay.py", "tools/make_brand_assets.py",
+    "tools/seo_metadata.py", "tools/voice_editor.py"
   ]);
   const source = String(body.source || "");
   const log = String(body.log || "");
