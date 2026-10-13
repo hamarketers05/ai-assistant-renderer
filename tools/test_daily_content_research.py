@@ -29,6 +29,10 @@ def test_repair():
 
 def test_fail_closed():
     old = research.chat_completion
+    old_sleep = research.time.sleep
+    old_start = research._LAST_GROQ_START
+    research.time.sleep = lambda _: None
+    research._LAST_GROQ_START = 0.0
     calls=[]
     research.chat_completion=lambda *args,**kwargs: (calls.append(1) or response('{"bad" "json"}'))
     try:
@@ -41,6 +45,8 @@ def test_fail_closed():
         assert len(calls)==2
     finally:
         research.chat_completion=old
+        research.time.sleep=old_sleep
+        research._LAST_GROQ_START=old_start
 
 if __name__=="__main__":
     test_repair()
