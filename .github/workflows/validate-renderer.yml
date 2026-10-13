@@ -141,7 +141,7 @@ jobs:
                   raise SystemExit(f"Visual novelty guard lacks required logic: {marker}")
           if "actions: read" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Bootstrapping the previous production manifest requires read-only Actions permission.")
-          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "Enforce Full-HD six-minute visual budget before QA and upload", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq primary / Workers AI fallback reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Convert final master to 3D before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified 3D upload artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
+          ordered_final = ["Create AI Tech Lab branded intro and subscribe popup", "Assemble final video and thumbnail", "Enforce Full-HD six-minute visual budget before QA and upload", "QA rendered production", "Verify narration, music, captions, and premium thumbnail assets", "Groq primary / Workers AI fallback reviews rendered video, visual match, audio assets and thumbnail", "Save video artifacts", "Persist final QA feedback for the next video", "Block upload if final quality review found critical issues", "Require script-relevant licensed footage before upload", "Check existing YouTube upload", "Select and verify 2D master or optional 3D output before YouTube upload", "Create per-video editing tool execution manifest", "Save editing manifest artifact", "Save verified final video artifact", "Get YouTube access token", "Prepare YouTube metadata and schedule", "Upload video using YouTube Data API", "Record uploaded video and schedule", "Set custom thumbnail", "Verify uploaded video with YouTube Data API v3", "Persist unique visual asset history after verified YouTube delivery"]
           import subprocess
           for test in [
               ["python", "tools/fetch_free_video.py", "--self-test"],
@@ -186,7 +186,7 @@ jobs:
           if "work/video_review_report.json" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
               raise SystemExit("Per-video editing manifest must require actual Groq review evidence.")
           manifest_code = Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8")
-          for marker in ('stereo.get("status") != "success"', 'stereo_quality.get("pinned_lut_integrity_verified") is True', 'any(value is not True for value in coverage_checks.values())'):
+          for marker in ('stereo.get("status") != "success"', 'args.stereo_output == "2D"', 'stereo.get("standard_master_is_publish_source") is not True', 'stereo_quality.get("pinned_lut_integrity_verified") is True', 'any(value is not True for value in coverage_checks.values())'):
               if marker not in manifest_code:
                   raise SystemExit(f"Per-video manifest must verify stereo/LUT and every visual-budget check: {marker}")
           if "count_rendered_stock_sources" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
@@ -195,16 +195,21 @@ jobs:
               raise SystemExit("Per-video manifest must report HUD overlay use across all primary visual types accurately.")
           if "target_new_licensed_clips" not in Path("tools/fetch_free_video.py").read_text(encoding="utf-8"):
               raise SystemExit("Free-media video acquisition must report its per-video asset target.")
-          # Human voice review is a release gate: Kokoro can auto-generate the preview,
-          # but no rendering or YouTube upload may proceed before that exact audio is approved.
-          if "inputs.audio_url == ''" not in workflow_source or "inputs.audio_url != ''" not in workflow_source or "VOICE_AUDIO_APPROVAL_PENDING" not in workflow_source:
-              raise SystemExit("Renderer is missing the explicit Kokoro voice-approval release gate.")
-          if "work/kokoro_audio_quality.json" not in workflow_source or "work/kokoro_script.sha256" not in workflow_source:
-              raise SystemExit("Renderer must validate audio quality and bind approval to the exact script hash.")
+          # Automatic Kokoro is expected: objective quality checks are mandatory, human approval is not.
+          if "inputs.audio_url == ''" not in workflow_source or "inputs.audio_url != ''" not in workflow_source:
+              raise SystemExit("Renderer must support automatic Kokoro and verified audio reuse.")
+          for marker in ("tools/generate_kokoro_voice.py", "work/kokoro_audio_quality.json", "quality_gate", "voice_ready=true"):
+              if marker not in workflow_source:
+                  raise SystemExit(f"Automatic Kokoro audio QA contract missing: {marker}")
+          if "VOICE_AUDIO_APPROVAL_PENDING" in workflow_source or "wait for user approval" in workflow_source.lower():
+              raise SystemExit("Human voice approval must not block automatic production.")
+          for marker in ("work/kokoro_script.sha256", "APPROVED_SCRIPT_SHA", "SCRIPT_SHA256"):
+              if marker not in workflow_source:
+                  raise SystemExit(f"Reused narration must stay tied to the exact script hash: {marker}")
           manifest_pos = workflow_source.index("- name: Request production manifest")
-          manifest_block = workflow_source[manifest_pos:manifest_pos + 220]
-          if "inputs.audio_url != ''" not in manifest_block:
-              raise SystemExit("Production manifest must be gated on explicit reuse of the approved voice-preview object path.")
+          manifest_block = workflow_source[manifest_pos:manifest_pos + 400]
+          if "inputs.audio_url != ''" not in manifest_block or "steps.voice_gate.outputs.voice_ready == 'true'" not in manifest_block:
+              raise SystemExit("Production manifest must require verified reused or automatically generated narration.")
           render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "work/transition_sfx.wav", "tools/make_transition_sfx.py", "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08", "drawbox=x=0:y=0:w=iw:h=131", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
@@ -219,30 +224,26 @@ jobs:
           if "retention-days: 7" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Seven-day recovery artifact retention is missing.")
           research_wf = yaml.load(Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-          research_names = [step.get("name", "") for step in research_wf["jobs"]["research-and-script"]["steps"]]
+          research_source = Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8")
+          research_job = research_wf.get("jobs", {}).get("cloudflare-research-and-script", {})
+          research_names = [step.get("name", "") for step in research_job.get("steps", [])]
           if not any(item.get("cron") == "0 14 * * *" for item in research_wf.get("on", {}).get("schedule", [])):
               raise SystemExit("Daily US topic research schedule is missing.")
-          research_topic_stage_aliases = [
-              "Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq primary / Workers AI fallback",
-              "Select US YouTube topic, research through Tavily or free RSS, and write and audit script",
-          ]
           required_research_stages = [
-              "Verify free-provider configuration",
-              "Generate an AI thumbnail brief with Groq primary / Workers AI fallback and render the preview",
-              "Publish research package artifact for Kokoro voice production",
+              "Checkout for the existing production handoff contract",
+              "Request category-verified trend research and natural script from Cloudflare",
+              "Publish category-verified script package for automatic voice production",
           ]
-          if not all(x in research_names for x in required_research_stages) or not any(x in research_names for x in research_topic_stage_aliases):
-              raise SystemExit("Daily research stages are missing.")
-          topic_stage = next(x for x in research_topic_stage_aliases if x in research_names)
-          ordered_research_positions = [research_names.index(x) for x in [
-              "Verify free-provider configuration", topic_stage,
-              "Generate an AI thumbnail brief with Groq primary / Workers AI fallback and render the preview",
-              "Publish research package artifact for Kokoro voice production",
-          ]]
+          if not research_job or not all(x in research_names for x in required_research_stages):
+              raise SystemExit("Cloudflare trend-to-script research stages are missing.")
+          ordered_research_positions = [research_names.index(x) for x in required_research_stages]
           if ordered_research_positions != sorted(ordered_research_positions):
-              raise SystemExit("Daily research stages are out of order.")
-          if not all(x in Path(".github/workflows/daily-content-research.yml").read_text(encoding="utf-8") for x in ["WORKER_AUTH_TOKEN", "TAVILY_API_KEY", "GROQ_API_KEY", "openai/gpt-oss-20b", "/youtube/access-token"]):
-              raise SystemExit("Daily topic workflow is not configured for YouTube v3 + Tavily + Groq.")
+              raise SystemExit("Cloudflare research and artifact stages are out of order.")
+          for marker in ("WORKER_AUTH_TOKEN", "/editorial/trend-script", "research_evidence.json", "ai-tech-lab-research-", "America/New_York"):
+              if marker not in research_source:
+                  raise SystemExit(f"Cloudflare trend-to-script workflow contract missing: {marker}")
+          if "TAVILY_API_KEY" in research_source or "GROQ_API_KEY" in research_source:
+              raise SystemExit("Daily research runner must not depend on Tavily quota or expose a Groq key.");
           if not all(research_names.index(a) < research_names.index(b) for a,b in zip(research_names[1:], research_names[2:])):
               raise SystemExit("Daily research steps are not ordered.")
           research_code = Path("tools/daily_content_research.py").read_text(encoding="utf-8")
@@ -319,16 +320,16 @@ jobs:
               if marker.lower() not in stereo_code.lower():
                   raise SystemExit(f"Required 2D3D conversion safeguard missing: {marker}")
           manual_text = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
-          for marker in ("stereo_output:", "default: SBS", "Convert final master to 3D before YouTube upload", "Save verified 3D upload artifact", "output/AI_TECH_LAB_", "_3D_", "--require-success", "work/stereo_3d_report.json"):
+          for marker in ("stereo_output:", "default: 2D", "- 2D", "Select and verify 2D master or optional 3D output before YouTube upload", "Save verified final video artifact", "output/AI_TECH_LAB_", "_3D_", "--require-success", "work/stereo_3d_report.json", "standard_2d_master"):
               if marker not in manual_text:
                   raise SystemExit(f"Pre-upload stereoscopic conversion control missing: {marker}")
           manual_names = [step.get("name", "") for step in wf["jobs"]["render"]["steps"]]
-          if not manual_names.index("Check existing YouTube upload") < manual_names.index("Convert final master to 3D before YouTube upload") < manual_names.index("Upload video using YouTube Data API"):
-              raise SystemExit("3D conversion must finish before the YouTube upload step.")
+          if not manual_names.index("Check existing YouTube upload") < manual_names.index("Select and verify 2D master or optional 3D output before YouTube upload") < manual_names.index("Upload video using YouTube Data API"):
+              raise SystemExit("Selected output validation must finish before the YouTube upload step.")
           upload_step = wf["jobs"]["render"]["steps"][manual_names.index("Upload video using YouTube Data API")].get("run", "")
           expected_video = 'VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_' + chr(36) + '{{ inputs.stereo_output }}.mp4"'
-          if expected_video not in upload_step:
-              raise SystemExit("YouTube upload must use the 3D output, never the standard 2D source.")
+          if ('if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ] && [ "' + chr(36) + '{{ inputs.stereo_output }}' + '" = "2D" ]; then') not in upload_step or 'VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"' not in upload_step or expected_video not in upload_step:
+              raise SystemExit("YouTube upload must select the standard 2D master by default and use only a verified 3D file when explicitly requested.")
           router_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
           for marker in ("qwen/qwen3.8-27b", "video_frame_", "thumbnail_review", "near_black_frame_ratio", "decision", "next_video_rules"):
               if marker not in router_code:

@@ -20,14 +20,15 @@ on:
           - SHORT
         default: LONG_VIDEO
       stereo_output:
-        description: "Required 3D format; the generated 3D file, not the 2D source, is uploaded and scheduled."
+        description: "Output format. Standard 16:9 2D is the default; stereoscopic output is optional."
         required: false
         type: choice
         options:
+          - 2D
           - SBS
           - TB
           - ANAGLYPH
-        default: SBS
+        default: 2D
       title:
         description: "Video title"
         required: true
@@ -1747,39 +1748,62 @@ jobs:
           jq -e '.status == "success" and .engine == "MiDaS AI" and .model == "MiDaS_small" and .activation_inference == "passed"' work/midas_activation_report.json >/dev/null
           echo "Pinned MiDaS AI model and dependencies installed, loaded and inference-tested. Final master is ready for FFmpeg SBS conversion."
 
-      - name: Convert final master to 3D before YouTube upload
+      - name: Select and verify 2D master or optional 3D output before YouTube upload
         if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' ) }}
         env:
           STEREO_OUTPUT: ${{ inputs.stereo_output }}
         run: |
           set -euo pipefail
-          if [[ "$STEREO_OUTPUT" == "SBS" ]]; then
-            .venv/bin/python tools/convert_video_midas_sbs.py \
-              --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
-              --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_SBS.mp4" \
-              --mode SBS \
-              --content-format "$CONTENT_FORMAT" \
-              --report work/stereo_3d_report.json \
-              --max-duration-seconds 480 \
-              --max-conversion-seconds 5400 \
-              --require-success
-            jq -e '.engine == "MiDaS AI + FFmpeg" and .status == "success"' work/stereo_3d_report.json >/dev/null
+          if [[ "$STEREO_OUTPUT" == "2D" ]]; then
+            MASTER="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+            test -s "$MASTER"
+            RESOLUTION=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$MASTER")
+            [ "$RESOLUTION" = "1920x1080" ] || { echo "STANDARD_2D_QA_FAILED: expected 1920x1080 master, got $RESOLUTION."; exit 1; }
+            AUDIO_STREAM=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "$MASTER")
+            [ "$AUDIO_STREAM" = "audio" ] || { echo "STANDARD_2D_QA_FAILED: final master has no audio stream."; exit 1; }
+            DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$MASTER")
+            jq -n --arg output "$MASTER" --arg resolution "$RESOLUTION" --argjson duration "$DURATION" '{
+              tool:"standard_2d_master",engine:"Standard 2D master",status:"success",
+              mode:"2D",requested_mode:"2D",main_video_untouched:true,
+              standard_master_is_publish_source:true,output:$output,
+              source_probe:{duration_seconds:$duration,dimensions:$resolution,has_audio:true},
+              quality_checks:{
+                audio_preserved:true,duration_matches_master:true,
+                video_dimensions_correct_for_mode:($resolution=="1920x1080"),
+                color_grade_applied:false,pinned_lut_integrity_verified:false
+              }
+            }' > work/stereo_3d_report.json
+            jq -e '.status == "success" and .engine == "Standard 2D master" and .standard_master_is_publish_source == true and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
+            echo "Standard 2D master passed resolution and audio checks; 3D conversion was not run."
           else
-            sudo apt-get update
-            sudo apt-get install -y git
-            .venv/bin/python tools/convert_video_3d.py \
-              --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
-              --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4" \
-              --mode "$STEREO_OUTPUT" \
-              --content-format "$CONTENT_FORMAT" \
-              --report work/stereo_3d_report.json \
-              --max-duration-seconds 480 \
-              --max-conversion-seconds 5400 \
-              --require-success
+            if [[ "$STEREO_OUTPUT" == "SBS" ]]; then
+              .venv/bin/python tools/convert_video_midas_sbs.py \
+                --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
+                --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_SBS.mp4" \
+                --mode SBS \
+                --content-format "$CONTENT_FORMAT" \
+                --report work/stereo_3d_report.json \
+                --max-duration-seconds 480 \
+                --max-conversion-seconds 5400 \
+                --require-success
+              jq -e '.engine == "MiDaS AI + FFmpeg" and .status == "success"' work/stereo_3d_report.json >/dev/null
+            else
+              sudo apt-get update
+              sudo apt-get install -y git
+              .venv/bin/python tools/convert_video_3d.py \
+                --input "output/AI_TECH_LAB_$CONTENT_ID.mp4" \
+                --output "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4" \
+                --mode "$STEREO_OUTPUT" \
+                --content-format "$CONTENT_FORMAT" \
+                --report work/stereo_3d_report.json \
+                --max-duration-seconds 480 \
+                --max-conversion-seconds 5400 \
+                --require-success
+            fi
+            jq -e '.status == "success" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
+            test -s "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
+            echo "Only quality-verified stereoscopic output is eligible for upload."
           fi
-          jq -e '.status == "success" and .quality_checks.audio_preserved == true and .quality_checks.duration_matches_master == true and .quality_checks.video_dimensions_correct_for_mode == true' work/stereo_3d_report.json >/dev/null
-          test -s "output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
-          echo "Only the verified stereoscopic output is eligible for YouTube upload."
 
       - name: Create per-video editing tool execution manifest
         if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
@@ -1787,7 +1811,7 @@ jobs:
           STEREO_OUTPUT: ${{ inputs.stereo_output }}
         run: |
           set -euo pipefail
-          if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
+          if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ] && [ "$STEREO_OUTPUT" != "2D" ]; then
             FINAL_VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${STEREO_OUTPUT}.mp4"
           else
             FINAL_VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
@@ -1811,13 +1835,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Save verified 3D upload artifact
+      - name: Save verified final video artifact
         if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' ) }}
         uses: actions/upload-artifact@v4
         with:
-          name: ai-tech-lab-3d-ready-${{ inputs.content_id }}
+          name: ai-tech-lab-video-ready-${{ inputs.content_id }}
           path: |
-            output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4
+            output/AI_TECH_LAB_${{ inputs.content_id }}*.mp4
             work/stereo_3d_report.json
             work/editing_tool_manifest.json
             work/flux_generation_report.json
@@ -1899,7 +1923,9 @@ jobs:
         if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         run: |
           set -euo pipefail
-          if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
+          if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ] && [ "${{ inputs.stereo_output }}" = "2D" ]; then
+            VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
+          elif [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
             VIDEO="output/AI_TECH_LAB_${CONTENT_ID}_3D_${{ inputs.stereo_output }}.mp4"
           else
             VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"

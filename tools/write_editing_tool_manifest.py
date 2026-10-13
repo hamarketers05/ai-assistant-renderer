@@ -86,7 +86,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--content-id", required=True)
     parser.add_argument("--format", choices=("LONG_VIDEO", "SHORT"), required=True)
-    parser.add_argument("--stereo-output", default="SBS")
+    parser.add_argument("--stereo-output", choices=("2D", "SBS", "TB", "ANAGLYPH"), default="2D")
     parser.add_argument("--final-video", required=True)
     parser.add_argument("--thumbnail", default="")
     parser.add_argument("--output", default="work/editing_tool_manifest.json")
@@ -169,10 +169,12 @@ def main() -> None:
     stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
     if not is_short:
         if stereo.get("status") != "success":
-            raise SystemExit("Editing manifest blocked: final 3D stereoscopic conversion did not report success.")
+            raise SystemExit("Editing manifest blocked: selected final video output did not report success.")
+        if args.stereo_output == "2D" and (stereo.get("engine") != "Standard 2D master" or stereo.get("standard_master_is_publish_source") is not True):
+            raise SystemExit("Editing manifest blocked: 2D mode must publish the validated standard master, without invoking the 3D converter.")
         for key in ("audio_preserved", "duration_matches_master", "video_dimensions_correct_for_mode"):
             if stereo_quality.get(key) is not True:
-                raise SystemExit(f"Editing manifest blocked: stereoscopic output did not verify {key}.")
+                raise SystemExit(f"Editing manifest blocked: selected video output did not verify {key}.")
         if args.stereo_output == "SBS" and not (stereo_quality.get("color_grade_applied") is True and stereo_quality.get("pinned_lut_integrity_verified") is True):
             raise SystemExit("Editing manifest blocked: SBS output did not verify pinned Kodak LUT application and integrity.")
     if video_review.get("review_status") != "completed" or video_review.get("decision") not in {"PASS", "IMPROVE"}:
@@ -243,7 +245,7 @@ def main() -> None:
         {"tool": "Original topic-aware music", "status": "used", "purpose": "locally synthesized score with voice ducking"},
         {"tool": "2.35:1 letterboxing", "status": "skipped" if is_short else "used", "reason": "native vertical canvas for Shorts" if is_short else "cinematic bars inside the 16:9 YouTube container"},
         {"tool": "Premium thumbnail", "status": "used" if thumb is not None else "unverified", "purpose": "1280x720 Pillow composition with 3D pop-out, glow and short title text", "brief_source": "Groq brief" if thumbnail_brief.get("hook") else "local fallback"},
-        {"tool": "MiDaS + FFmpeg stereoscopic render", "status": "used" if (not is_short and stereo.get("status") == "success") else ("not_applicable" if is_short else "unverified"), "purpose": "3D depth and SBS output before upload", "stereo_mode": args.stereo_output},
+        {"tool": "MiDaS + FFmpeg stereoscopic render", "status": "used" if (not is_short and args.stereo_output != "2D" and stereo.get("status") == "success") else ("not_applicable" if is_short or args.stereo_output == "2D" else "unverified"), "purpose": "Optional stereoscopic output; standard 2D remains the default publish master", "stereo_mode": args.stereo_output},
         {"tool": "Pinned Rec.709 Kodak 2383 D55 LUT", "status": "used" if sbs_lut_used else "not_applicable", "purpose": "integrity-verified LUT transform in the SBS conversion stage", "integrity_verified": sbs_lut_used, "rights_note": "The existing source repository's commercial license was not independently verified; checksum integrity is not proof of usage rights."},
         {"tool": "Evidence-supported charts", "status": "used" if evidence_charts_used > 0 else "skipped", "chart_count": evidence_charts_used, "generated_chart_count": len(evidence_charts_generated), "unused_chart_count": max(0, len(evidence_charts_generated) - evidence_charts_used), "display_mode": "transparent overlay only; never replaces the scene primary image/video", "reason": "only source-backed charts with a topic/number match to the scene are included; no statistics are invented"},
         {"tool": "Full-HD visual-budget gate", "status": "not_applicable" if is_short else "used", "gate_status": visual_coverage.get("status", "missing"), "visual_counts": visual_coverage.get("visual_counts", {}), "checks": visual_coverage.get("checks", {}), "blocked_upload_if_failed": not is_short},
@@ -260,6 +262,8 @@ def main() -> None:
     warnings = []
     if is_short:
         warnings.append("Shorts keep their native 9:16 canvas, so 2.35:1 letterboxing and 3D SBS conversion are not applied.")
+    elif args.stereo_output == "2D":
+        warnings.append("Standard 16:9 2D master is selected for publishing; stereoscopic conversion is opt-in.")
     if stereo.get("status") == "success" and args.stereo_output == "SBS":
         if not sbs_lut_used:
             warnings.append("SBS report did not confirm both LUT application and pinned-file integrity.")

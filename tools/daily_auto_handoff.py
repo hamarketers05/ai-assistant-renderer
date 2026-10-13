@@ -72,7 +72,7 @@ def dispatch_payload(pkg, content_id, fmt, publish_at):
         "inputs": {
             "content_id": str(content_id),
             "content_format": fmt,
-            "stereo_output": "SBS",
+            "stereo_output": "2D",
             "title": str(pkg.get("title", ""))[:100],
             "script": str(pkg.get("script", "")),
             "description": str(pkg.get("description", ""))[:4900],

@@ -154,6 +154,20 @@ artifact: ai-tech-lab-research-
     )
     assert trend_gate and trend_gate["code"] == "YOUTUBE_CATEGORY_TREND_EVIDENCE_INSUFFICIENT"
     assert "Keep the trend gate closed" in trend_gate["safe_recovery"]
+    obsolete_voice_gate = agent.classify_known_infrastructure_failure(
+        {"name": "Renderer Static Validation"},
+        "Renderer is missing the explicit Kokoro voice-approval release gate.",
+    )
+    assert obsolete_voice_gate and obsolete_voice_gate["code"] == "OBSOLETE_HUMAN_VOICE_APPROVAL_VALIDATOR"
+    assert "Never add a human voice gate" in obsolete_voice_gate["safe_recovery"]
+
+    stereo_default = agent.classify_known_infrastructure_failure(
+        {"name": "Renderer Static Validation"},
+        "default: SBS; YouTube upload must use the 3D output.",
+    )
+    assert stereo_default and stereo_default["code"] == "STANDARD_2D_DEFAULT_RENDERER_CONTRACT_DRIFT"
+    assert "2D is default" in stereo_default["safe_recovery"]
+
     short_script = agent.classify_renderer_input_quality_failure(
         {"name": "AI Assistant Renderer"},
         'CONTENT_FORMAT=LONG_VIDEO\n"planned_visual_scenes": 49'

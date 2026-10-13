@@ -181,9 +181,27 @@ def classify_renderer_input_quality_failure(run, log):
     return None
 
 def classify_known_infrastructure_failure(run, log):
+    """Map recognized incidents to bounded recovery guidance without weakening release gates."""
     """Recognize recurring infrastructure failures whose correct response is auth/config, not code edits."""
     name = str(run.get("name") or "")
     lower = str(log or "").lower()
+    if name == "Renderer Static Validation" and (
+        "renderer is missing the explicit kokoro voice-approval release gate" in lower
+        or ("voice-approval release gate" in lower and "kokoro" in lower)
+    ):
+        return {
+            "code": "OBSOLETE_HUMAN_VOICE_APPROVAL_VALIDATOR",
+            "root_cause": "The static validator still demands a human voice-approval gate, contrary to the automatic Kokoro plus objective audio-QA requirement.",
+            "safe_recovery": "Align the validator with automatic Kokoro generation, script-hash binding for reused audio, and objective audio-quality/duration checks. Never add a human voice gate or weaken audio QA.",
+        }
+    if name == "Renderer Static Validation" and (
+        "default: sbs" in lower or "youtube upload must use the 3d output" in lower
+    ):
+        return {
+            "code": "STANDARD_2D_DEFAULT_RENDERER_CONTRACT_DRIFT",
+            "root_cause": "The renderer validator or upload contract still assumes stereoscopic output is mandatory/default instead of standard 16:9 2D.",
+            "safe_recovery": "Coordinate workflow input, output selection, manifest, and validator so 2D is default and stereoscopic modes are opt-in. Retain strict audio, duration, dimensions and conversion-report checks.",
+        }
     if ("d1" in lower and ("daily read limit" in lower or "daily write limit" in lower or "free-tier row read limit" in lower)):
         return {
             "code": "D1_FREE_TIER_DAILY_LIMIT_EXHAUSTED",
