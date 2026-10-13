@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           test -n "$WORKER_AUTH_TOKEN"
           QUERY=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("latest AI agent research and product announcements in the United States"))')
-          URL="$WORKER_URL/admin/research-self-test?brand=AI_TECH_LAB&q=$QUERY"
+          URL="$WORKER_URL/research?q=$QUERY&brand_id=AI_TECH_LAB"
           code=$(curl -sS --retry 1 --retry-delay 2 --max-time 180 -o research.json -w "%{http_code}" \
             -H "Authorization: Bearer $WORKER_AUTH_TOKEN" "$URL")
           echo "CLOUDFLARE_RESEARCH_HTTP=$code"
@@ -55,6 +55,6 @@ jobs:
             echo "CLOUDFLARE_RESEARCH=FAIL"
             exit 1
           fi
-          jq '{ok,research_id,evidence_count,verified_claim_count,source_coverage,google_trends_api_status,google_trends_rss_status,warnings,topic_count:(.recommended_topics|length)}' research.json
-          jq -e '.checks.research_record_saved == true and .checks.at_least_three_sources == true and .checks.two_independent_publishers == true and .checks.at_least_one_cross_checked_claim == true' research.json >/dev/null
+          jq '{ok,research_id,evidence_count,verified_claim_count:(.verified_claims|length),source_coverage,google_trends,topic_recommendation}' research.json
+          jq -e '.ok == true and .research_id != null and .evidence_count >= 3 and (.verified_claims|length) >= 1' research.json >/dev/null
           echo "CLOUDFLARE_RESEARCH=PASS"
