@@ -231,7 +231,7 @@ def classify_known_infrastructure_failure(run, log):
     live_groq_span_429 = (
         "fetch /openai/v1/chat/completions" in lower
         or "api.groq.com/openai/v1/chat/completions" in lower
-    ) and ("fetch 429" in lower or "http 429" in lower or "status":429" in lower)
+    ) and ("fetch 429" in lower or "http 429" in lower or '"status":429' in lower)
     if live_groq_span_429 or "groq_rate_limited" in lower or (
         "trusted_ai_proxy" in lower and "http 429" in lower and "groq" in lower
     ):
