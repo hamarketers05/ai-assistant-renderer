@@ -59,10 +59,17 @@ jobs:
           fi
           [[ "$VIDEO_ID" =~ ^[A-Za-z0-9_-]{11}$ ]] || { echo "Target YouTube video ID is invalid."; exit 1; }
 
-          # Verify the production run is the expected Maia 300 delivery before changing anything.
-          REPORT_URL=$(jq -r '.url' "$REPORT")
-          test "$REPORT_URL" = "https://www.youtube.com/watch?v=$VIDEO_ID"
-          echo "Target video ID validated from the renderer's YouTube read-after-write report."
+          # Verify the exact renderer report for normal post-render runs, or the static
+          # target ID for an explicit metadata-only correction. The API state is checked below.
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            REPORT_URL=$(jq -er '.url' "$REPORT")
+            test "$REPORT_URL" = "https://www.youtube.com/watch?v=$VIDEO_ID"
+            echo "Target video ID validated from the renderer's YouTube read-after-write report."
+          else
+            PACKAGE_VIDEO_ID=$(jq -er '.video_id' "$PACKAGE")
+            test "$VIDEO_ID" = "$PACKAGE_VIDEO_ID"
+            echo "Target video ID validated against the metadata-only package."
+          fi
 
           TOKEN_CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 45 -o token.json -w "%{http_code}" \
             -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
