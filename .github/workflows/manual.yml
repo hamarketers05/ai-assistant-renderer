@@ -1446,6 +1446,7 @@ jobs:
             work/video_review_report.json
             work/video_review_metrics.json
             work/thumbnail_brief.json
+            work/thumbnail_imagemagick_report.json
             work/scene_director_report.json
             work/voice_word_timestamps.json
             work/asset_reuse_report.json
@@ -1646,6 +1647,7 @@ jobs:
           name: ai-tech-lab-editing-manifest-${{ inputs.content_id }}
           path: |
             work/editing_tool_manifest.json
+            work/thumbnail_imagemagick_report.json
             work/flux_generation_report.json
             work/transition_sfx_report.json
             work/rendered_scene_assets_report.json
