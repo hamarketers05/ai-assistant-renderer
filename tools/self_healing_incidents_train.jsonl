@@ -1,0 +1,50 @@
+{"label":"GROQ_RATE_LIMITED","text":"fetch /openai/v1/chat/completions HTTP 429 rate limit; Retry-After 30 seconds"}
+{"label":"GROQ_RATE_LIMITED","text":"GROQ_RATE_LIMITED upstream token throughput limit returned 429; honor x-ratelimit-reset"}
+{"label":"GROQ_RATE_LIMITED","text":"api.groq.com returned status 429 too many requests for chat completions"}
+{"label":"GROQ_RATE_LIMITED","text":"Groq primary throttled by requests per minute; bounded retry did not recover"}
+{"label":"GROQ_RATE_LIMITED","text":"upstream Groq rate token window remains blocked; response 429 is not a missing credential"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"Cloudflare Workers AI error 4006 daily free neuron allocation of 10000 exhausted"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"daily free allocation used up in Workers AI; 4006 neurons quota"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"Workers AI cannot run: free daily neuron allowance exhausted; wait for UTC reset"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"Cloudflare AI daily quota has no neurons remaining today error 4006"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"provider quota: too many neurons used for today's free allocation in Workers AI"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"D1 free-tier daily row read limit exhausted; do not run additional SELECT requests"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"Cloudflare D1 daily write quota exceeded; waiting until UTC reset"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"D1 HTTP 500 daily read limit reached for free plan"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"database row-read free allocation was exhausted; D1 query blocked until reset"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"D1 free plan table reads unavailable because daily quota has been consumed"}
+{"label":"SCRIPT_LENGTH_GATE","text":"script length gate failed: 1048 spoken words; required 850-1000"}
+{"label":"SCRIPT_LENGTH_GATE","text":"long video draft under minimum of 850 words; word-count release gate blocked"}
+{"label":"SCRIPT_LENGTH_GATE","text":"LONG_VIDEO spoken words 1001 exceed upper bound 1000"}
+{"label":"SCRIPT_LENGTH_GATE","text":"script candidate too short at 730 words and failed 850 minimum"}
+{"label":"SCRIPT_LENGTH_GATE","text":"rewrite was rejected because resulting script exceeds allowed 1000 word max"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"natural_script_audit rejected script; independent QA approved false, unsupported current claims nonempty"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"hook score 5 and human_voice_score 6 did not meet independent QA threshold"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"independent Groq QA did not approve script at natural script audit stage"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"audit output malformed and unsupported_current_claims missing; release blocked"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"script factual audit found an unsupported current claim; no package released"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"youtube_category_trend_gate blocked insufficient category related videos; distinct_video_count=2"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"selected category only had two unique relevant trend videos, minimum three required"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"not enough topic-matching YouTube videos to pass live trend evidence"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"trend research fail closed because fewer than 3 distinct video IDs were found"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"use evergreen scheduled rotation fallback when live trend evidence remains sparse"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"Tavily HTTP 432 usage limit exceeded; apply 24 hour quota cooldown"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"TAVILY_FREE_TIER_QUOTA_EXHAUSTED free plan search limit"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"Tavily said usage limit exceeded and research API rate restricted until tomorrow"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"research Tavily endpoint returned 432 daily quota exhausted"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"do not retry Tavily during free-tier cooldown because quota consumed"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"GitHub action worker received HTTP 503 service unavailable transient outage"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"connection reset by peer during HTTPS request; retry one time with backoff"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"read timed out awaiting upstream; temporary network failure"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"unexpected EOF from remote endpoint, runner lost communication"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"HTTP 502 internal service error suggests transient provider outage"}
+{"label":"AUDIO_QA_FAILURE","text":"Kokoro audio QA failed because narration file is missing and duration unavailable"}
+{"label":"AUDIO_QA_FAILURE","text":"voice_ready false because generated narration WAV is silent; objective audio quality blocked"}
+{"label":"AUDIO_QA_FAILURE","text":"narration playback could not be decoded by ffprobe; audio integrity gate failed"}
+{"label":"AUDIO_QA_FAILURE","text":"generated voice audio quality score below required threshold; do not start scene timing"}
+{"label":"AUDIO_QA_FAILURE","text":"caption and narration timing sync failed the audio validation gate"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"GROQ_API_KEY missing; authentication failure 401; no credential configured"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"API key is missing for upstream service; retries cannot create secret"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"WORKER_AUTH_TOKEN unavailable so protected internal endpoint authentication failed"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"invalid or missing credentials; provider rejected request with HTTP 401"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"repository secret not configured and no authenticated fallback is available"}
