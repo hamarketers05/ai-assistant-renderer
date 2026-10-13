@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
-      - name: Run the isolated repair canary (intentionally fails until repaired)
+      - name: Run isolated repair canary regression assertion
         run: |
           set -euo pipefail
           python tools/self_healing_canary.py --self-test
