@@ -132,6 +132,34 @@ def classify_configuration_failure(log):
         "credential_action": "An authorized maintainer must configure the required Actions secret. Never print, infer, or fabricate credentials."
     }
 
+def classify_renderer_input_quality_failure(run, log):
+    """Recognize malformed short long-form inputs; do not patch scene timing or blindly rerun."""
+    if run.get("name") != "AI Assistant Renderer":
+        return None
+    text = str(log or "")
+    lower = text.lower()
+    is_long = "content_format: long_video" in lower or "content_format=long_video" in lower
+    if "script length gate blocked" in lower:
+        return {
+            "code": "RENDERER_SCRIPT_WORD_COUNT_GATE",
+            "root_cause": "The supplied script is outside the format-specific word-count range.",
+            "safe_recovery": "Do not patch the renderer to accept a short script. Use the evidence-backed research workflow; long videos require 850-1000 words and Shorts require 100-135 words."
+        }
+    if "duration gate blocked" in lower:
+        return {
+            "code": "RENDERER_NARRATION_DURATION_GATE",
+            "root_cause": "Generated and edited narration duration is outside the format-specific release budget.",
+            "safe_recovery": "Do not remove the duration/visual QA gate. Repair the source script and re-run narration preflight; LONG_VIDEO edited narration must be 296-360 seconds, SHORT 20-56 seconds."
+        }
+    scene_counts = re.findall(r'"planned_visual_scenes"\s*:\s*(\d+)', text)
+    if is_long and scene_counts and int(scene_counts[-1]) < 80:
+        return {
+            "code": "LONG_FORM_SCRIPT_UNDERLENGTH",
+            "root_cause": f"The LONG_VIDEO input produced only {int(scene_counts[-1])} voice-aligned scenes, below the enforced 80-90 scene budget; its narration is not long enough.",
+            "safe_recovery": "Do not modify scene_director.py or bypass QA. Replace the short input with a source-backed 850-1000-word script, require 296-360 seconds of edited narration, and rerun only after preflight passes."
+        }
+    return None
+
 def fetch_logs(job_id):
     # Diagnose only the failed step where possible; successful report steps mention other files.
     failed_numbers = set()
@@ -658,6 +686,21 @@ def analyze(runs):
                 f"Run {run['id']} ({run.get('name')}): {config_issue['code']}. "
                 f"{config_issue['root_cause']} {config_issue['credential_action']}"
             )
+            count += 1
+            continue
+        input_issue = classify_renderer_input_quality_failure(run, joined)
+        if input_issue:
+            REPORT["actions"].append({
+                "action": "classified_renderer_input_quality_failure",
+                "run_id": run.get("id"),
+                **input_issue
+            })
+            REPORT["unresolved"].append(
+                f"Run {run['id']} ({run.get('name')}): {input_issue['code']}. "
+                f"{input_issue['root_cause']} {input_issue['safe_recovery']}"
+            )
+            # Invalid inputs are not transient infrastructure faults; no blind retry or
+            # code patch of scene_director.py is safe here.
             count += 1
             continue
         if run.get("name") in SAFE_RETRY and is_transient(joined):
