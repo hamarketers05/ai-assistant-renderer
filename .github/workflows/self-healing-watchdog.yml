@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "tools/self_healing_rescue.py"
+      - "tools/pipeline_catalog.json"
+      - "tools/pipeline_health_check.py"
+      - "tools/test_pipeline_health_check.py"
       - ".github/workflows/self-healing-watchdog.yml"
   schedule:
     - cron: "*/15 * * * *"
@@ -53,12 +56,26 @@ jobs:
           python -m py_compile tools/self_healing_rescue.py
           python tools/self_healing_rescue.py
 
+      - name: Run independent read-only pipeline stage health audit
+        if: always()
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/pipeline_health_check.py tools/test_pipeline_health_check.py
+          python tools/test_pipeline_health_check.py
+          python tools/pipeline_health_check.py --output work/pipeline_health_report.json
+
       - name: Save machine-readable recovery report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-watchdog-${{ github.run_id }}
-          path: work/self_healing_report.json
+          path: |
+            work/self_healing_report.json
+            work/pipeline_health_report.json
           if-no-files-found: warn
           retention-days: 7
 
