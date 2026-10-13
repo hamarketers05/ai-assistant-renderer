@@ -15,10 +15,10 @@ MIN_WIDTH, MIN_HEIGHT = 1920, 1080
 MAX_API_REQUESTS = 120
 MIN_API_INTERVAL_SECONDS = 1.25
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
-ANCHORS = set("ai artificial intelligence automation automated agent agents robot robots robotics cybersecurity cyber security privacy fraud software code coding programming algorithm algorithms neural model models developer developers workplace factory industry industries worker workers finance fairness bias biased oversight autonomy autonomous chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
+ANCHORS = set("ai artificial intelligence automation automated agent agents robot robots robotics cybersecurity cyber security privacy surveillance security fraud software code coding programming algorithm algorithms neural model models developer developers workplace factory industry industries worker workers finance fairness ethics ethical governance bias biased oversight accountability transparency safety risk risks autonomy autonomous misinformation disinformation deepfake deepfakes manipulation regulation compliance control chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
 # One-word matches are accepted only when they name a distinctive hardware concept.
 # Generic anchors such as "data", "power", "center", or "network" are insufficient alone.
-SPECIFIC_SINGLE_ANCHORS = set("ai artificial intelligence automation agent agents robot robots robotics cybersecurity security privacy fraud software code programming algorithm neural chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter megawatt megawatts networking bandwidth circuit circuits hardware motherboard transistor transistors".split())
+SPECIFIC_SINGLE_ANCHORS = set("automation agent agents robot robots robotics cybersecurity security privacy surveillance fraud software code programming algorithm deepfake chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter megawatt megawatts networking bandwidth circuit circuits hardware motherboard transistor transistors".split())
 MIN_VIDEO_RELEVANCE = 0.30
 API_REQUESTS = 0
 LAST_API_REQUEST = 0.0
@@ -94,6 +94,11 @@ def anchor_terms(text):
         "robot": {"automation", "agent"}, "robots": {"automation", "agents"},
         "robotics": {"robot", "automation"}, "automated": {"automation", "robot"},
         "cybersecurity": {"cyber", "security"}, "cyber": {"security", "cybersecurity"},
+        "surveillance": {"privacy", "security"}, "privacy": {"surveillance", "security"},
+        "ethics": {"ethical", "governance", "fairness"}, "ethical": {"ethics", "governance"},
+        "accountability": {"oversight", "governance"}, "oversight": {"accountability", "governance"},
+        "misinformation": {"disinformation", "deepfake"}, "disinformation": {"misinformation", "deepfake"},
+        "deepfakes": {"deepfake", "misinformation"}, "risks": {"risk", "safety"},
         "software": {"code", "algorithm"}, "programming": {"software", "code"},
         "microchip": {"chip", "processor"}, "microchips": {"chip", "processor"},
         "cpu": {"processor"}, "gpus": {"gpu", "processor", "accelerator"},
@@ -118,10 +123,12 @@ def topic_queries(text):
     queries = []
     # Topic-family searches cover the full AI Tech Lab niche, not only AI chips.
     # Per-file titles/descriptions, resolution, license, and repeat-use checks remain mandatory.
-    if anchors & {"ai", "artificial", "intelligence", "automation", "automated", "agent", "agents", "robot", "robots", "robotics", "algorithm", "algorithms", "neural", "model", "models"}:
+    if anchors & {"privacy", "surveillance"}:
+        queries.extend(["privacy surveillance technology", "surveillance cameras privacy"])
+    if anchors & {"cybersecurity", "cyber", "security", "fraud", "bias", "biased", "misinformation", "deepfake"}:
+        queries.extend(["cybersecurity computer security", "computer security surveillance"])
+    if anchors & {"ai", "artificial", "intelligence", "automation", "automated", "agent", "agents", "robot", "robots", "robotics", "algorithm", "algorithms", "neural", "model", "models", "ethics", "ethical", "governance", "oversight", "accountability", "safety"}:
         queries.extend(["AI automation robot", "artificial intelligence agent"])
-    if anchors & {"cybersecurity", "cyber", "security", "privacy", "fraud", "bias", "biased"}:
-        queries.extend(["cyber security computer", "computer security automation"])
     if anchors & {"software", "code", "coding", "programming", "developer", "developers", "algorithm", "algorithms"}:
         queries.extend(["software developer computer", "computer programming code"])
     if anchors & {"worker", "workers", "workplace", "factory", "industry", "industries", "finance"}:
@@ -299,7 +306,7 @@ def main():
 
             # Read a few metadata records per shared query; caches ensure that the same
             # candidate isn't fetched repeatedly for every scene.
-            for title_score, title in candidates[:4]:
+            for title_score, title in candidates[:8]:
                 if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
                     break
                 try:
@@ -333,11 +340,7 @@ def main():
                         continue
                     if len(set(matching_anchors)) < 2 and not (set(matching_anchors) & SPECIFIC_SINGLE_ANCHORS):
                         continue
-                    specific = scene_anchors & {
-                        "chip", "chips", "chiplet", "semiconductor", "processor", "gpu", "nvidia",
-                        "silicon", "microchip", "wafer", "accelerator", "maia", "server", "rack",
-                        "networking", "bandwidth", "circuit", "hardware", "motherboard", "transistor"
-                    }
+                    specific = scene_anchors & SPECIFIC_SINGLE_ANCHORS
                     if specific and not (specific & set(matching_anchors)):
                         continue
                     source_url = str(info.get("descriptionurl") or "")
