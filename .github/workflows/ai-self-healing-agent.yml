@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, urllib.request, pathlib
+          import json, os, urllib.request, urllib.error, pathlib
           source = pathlib.Path("tools/daily_content_research.py").read_text(encoding="utf-8")[:30000]
           payload = {
               "workflow_run_id": os.environ["GITHUB_RUN_ID"],
@@ -87,8 +87,12 @@ jobs:
               headers={"Authorization": "Bearer " + os.environ["GITHUB_TOKEN"],
                        "Content-Type": "application/json", "Accept": "application/json"},
               method="POST")
-          with urllib.request.urlopen(request, timeout=35) as response:
-              result = json.loads(response.read().decode("utf-8"))
+          try:
+              with urllib.request.urlopen(request, timeout=35) as response:
+                  result = json.loads(response.read().decode("utf-8"))
+          except urllib.error.HTTPError as exc:
+              print("Workers AI fallback HTTP failure:", exc.code, exc.read(1000).decode("utf-8", "replace"))
+              raise
           if result.get("ok") is not True or result.get("provider") != "cloudflare_workers_ai" or not result.get("patch"):
               raise RuntimeError("Workers AI fallback did not confirm inference.")
           print("Workers AI fallback connected; provider=cloudflare_workers_ai; patch_returned=true; patch_applied=false.")
