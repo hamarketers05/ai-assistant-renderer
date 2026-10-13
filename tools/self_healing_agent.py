@@ -510,12 +510,17 @@ def initialize_ml_model():
         ML_CLASSIFIER = model
         ML_MODEL_DETAILS = {
             "status": "trained_and_evaluated",
-            "model_version": "incident-nb-v1",
+            "model_version": model.to_dict().get("model_version", "unknown"),
             "algorithm": "Multinomial Naive Bayes (word and adjacent-word features)",
             "training_examples": model.training_count,
             "classes": model.labels,
             "holdout_examples": metrics["evaluation_count"],
             "holdout_accuracy": metrics["accuracy"],
+            "holdout_macro_accuracy": metrics.get("macro_accuracy"),
+            "classification_coverage": metrics.get("classification_coverage"),
+            "selective_accuracy": metrics.get("selective_accuracy"),
+            "unclassified_predictions": metrics.get("unclassified_count"),
+            "holdout_class_count": metrics.get("class_count"),
             "holdout_target": metrics["threshold_accuracy_target"],
             "holdout_passed": metrics["passed"],
             "prediction_confidence_calibrated": False,

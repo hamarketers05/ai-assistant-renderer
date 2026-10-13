@@ -22,9 +22,9 @@ DEFAULT_TRAIN = BASE / "self_healing_incidents_train.jsonl"
 DEFAULT_EVAL = BASE / "self_healing_incidents_eval.jsonl"
 DEFAULT_MODEL = Path("work/self_healing_ml_model.json")
 DEFAULT_EVAL_REPORT = Path("work/self_healing_ml_evaluation.json")
-MODEL_VERSION = "incident-nb-v1"
-MIN_CONFIDENCE = 0.55
-MIN_MARGIN = 0.08
+MODEL_VERSION = "incident-nb-v2"
+MIN_CONFIDENCE = 0.10
+MIN_MARGIN = 0.005
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "because", "by", "did",
     "do", "does", "for", "from", "had", "has", "have", "in", "into",
@@ -44,6 +44,26 @@ SAFE_ADVISORIES = {
     "TRANSIENT_NETWORK_FAILURE": "Use bounded retry/backoff only for allowlisted jobs; preserve job state and prevent duplicate work.",
     "AUDIO_QA_FAILURE": "Keep render/upload blocked until real audio exists, decodes, has valid duration, and passes objective quality/sync checks.",
     "CREDENTIAL_CONFIG_MISSING": "Stop and report the missing configuration; retries cannot create secrets. Never expose tokens or switch to paid providers.",
+    "CODE_SYNTAX_OR_IMPORT_FAILURE": "Inspect the exact traceback; make the smallest allowlisted code patch, run compile and focused tests, and revert if validation fails. Never expose secrets or bypass QA.",
+    "TEST_REGRESSION_FAILURE": "Identify the first failing assertion, preserve the regression test, patch narrowly, then rerun focused and CI validation. Never weaken a release gate just to make tests green.",
+    "WORKFLOW_CONFIG_INVALID": "Validate workflow YAML and actionlint output; change only the known workflow contract, review permissions and triggers, then require CI before merge.",
+    "DEPENDENCY_INSTALL_FAILURE": "Check the pinned dependency, Python version and transient package-index errors; retry transient failures once, do not upgrade pins blindly, and verify license and compatibility.",
+    "RENDER_TIMEOUT": "Stop at the bounded timeout, preserve checkpoints and logs, inspect slow stages, and retry only once when safe. Never treat a partial MP4 as complete.",
+    "VIDEO_INTEGRITY_FAILURE": "Keep upload blocked; validate size, ffprobe metadata, frame decode, duration, resolution, frame rate and playback before considering a rerender.",
+    "CAPTION_SYNC_FAILURE": "Regenerate captions from verified narration timestamps, validate monotonic cues and audio duration, and keep release blocked until sync checks pass.",
+    "ASSET_LICENSE_FAILURE": "Quarantine the asset and replace it only with media whose exact license and attribution are verified; never lower the licensing gate.",
+    "DISK_SPACE_EXHAUSTED": "Inspect disk usage and remove only known disposable temporary files after confirming source artifacts and checkpoints are safe; do not delete production state.",
+    "SUPABASE_STORAGE_FAILURE": "Use bounded retry only for transient errors; preserve the local artifact and verify remote object key, size and checksum before marking storage complete.",
+    "YOUTUBE_QUOTA_EXHAUSTED": "Stop YouTube API calls until quota reset; never retry-loop, publish without readback, or enable billing without explicit approval.",
+    "YOUTUBE_UPLOAD_FAILURE": "Check resumable session and remote video readback before retry; reuse the same upload identity where supported and never create a second video when status is uncertain.",
+    "DUPLICATE_UPLOAD_RISK": "Block new upload until the existing content hash, idempotency key, upload job and remote video ID have been checked. Do not assume an earlier timeout means no upload.",
+    "SCHEDULE_READBACK_FAILURE": "Keep video private; verify video ID, privacyStatus and publishAt from YouTube readback. Do not claim scheduling succeeded when any field is missing or mismatched.",
+    "CONTENT_DEDUP_STATE_FAILURE": "Stop handoff until persisted job state, content hash and recent-title checks are verified; do not process or upload a duplicate item while storage state is uncertain.",
+    "SOURCE_CLAIM_MISMATCH": "Remove or rewrite the unsupported claim against retained credible source evidence; retain citations and keep factual QA blocking until each claim is supported.",
+    "JSON_SCHEMA_PARSE_FAILURE": "Capture a sanitized parse/schema error, issue at most one bounded structured repair, validate again, and reject malformed or incomplete output without weakening the schema.",
+    "QUEUE_JOB_FAILURE": "Inspect attempt count, idempotency and dead-letter evidence; use bounded retry for transient faults and preserve the message when its state is uncertain.",
+    "WORKER_DEPLOYMENT_FAILURE": "Do not shift traffic; read back the active version and bindings, keep the known-good rollback target, compare configuration and restore only through a verified reversible deployment.",
+    "MODEL_OUTPUT_INVALID": "Reject empty, truncated or malformed output; allow at most one bounded schema-constrained retry using existing evidence, then fail closed and preserve diagnostics."
 }
 
 
@@ -79,6 +99,8 @@ class Prediction:
     confidence: float
     margin: float
     second_label: str
+    known_feature_count: int
+    known_feature_ratio: float
     scores: list[dict[str, float | str]]
 
     @property
@@ -143,6 +165,11 @@ class IncidentNaiveBayes:
         return sorted(scores, key=lambda item: item[1], reverse=True)
 
     def predict(self, text: str) -> Prediction:
+        features = _tokens(text)
+        vocabulary = set(self.vocabulary)
+        known = [token for token in features if token in vocabulary]
+        known_feature_count = len(set(known))
+        known_feature_ratio = len(known) / max(len(features), 1)
         scored = self.decision_scores(text)
         best_label, best_score = scored[0]
         second_label, second_score = scored[1]
@@ -152,13 +179,20 @@ class IncidentNaiveBayes:
         posterior = exp_scores[0] / total
         second_posterior = exp_scores[1] / total
         margin = posterior - second_posterior
-        if not _tokens(text) or posterior < MIN_CONFIDENCE or margin < MIN_MARGIN:
+        # Softmax posterior shrinks as taxonomy size grows; require actual lexical
+        # evidence plus a nontrivial best-vs-runner-up margin instead of using a
+        # fixed 0.55 threshold designed for only ten classes. A one-token match
+        # such as "unknown" is insufficient to classify an out-of-domain message.
+        if (known_feature_count < 2 or known_feature_ratio < 0.08
+                or posterior < MIN_CONFIDENCE or margin < MIN_MARGIN):
             shown_label = "LOW_CONFIDENCE_UNCLASSIFIED"
         else:
             shown_label = best_label
         return Prediction(
             label=shown_label, confidence=round(posterior, 6),
             margin=round(margin, 6), second_label=second_label,
+            known_feature_count=known_feature_count,
+            known_feature_ratio=round(known_feature_ratio, 6),
             scores=[{"label": label, "relative_posterior": round(exp_scores[i] / total, 6)}
                     for i, (label, _) in enumerate(scored[:3])],
         )
@@ -180,35 +214,105 @@ class IncidentNaiveBayes:
         }
 
 
+def validate_splits(training: list[dict[str, str]], holdout: list[dict[str, str]]) -> dict:
+    """Fail training if classes are uncovered or exact/normalized rows cross the split."""
+    train_counts = Counter(row["label"] for row in training)
+    eval_counts = Counter(row["label"] for row in holdout)
+    train_labels, eval_labels = set(train_counts), set(eval_counts)
+    known_labels = set(SAFE_ADVISORIES)
+    if train_labels != known_labels:
+        raise ValueError(
+            f"Training labels must exactly match safe advisory taxonomy; "
+            f"missing={sorted(known_labels - train_labels)}, extra={sorted(train_labels - known_labels)}"
+        )
+    if eval_labels != train_labels:
+        raise ValueError(
+            f"Holdout must cover every train class; missing={sorted(train_labels - eval_labels)}, "
+            f"extra={sorted(eval_labels - train_labels)}"
+        )
+    undertrained = {label: count for label, count in train_counts.items() if count < 5}
+    under_evaluated = {label: count for label, count in eval_counts.items() if count < 2}
+    if undertrained or under_evaluated:
+        raise ValueError(f"Insufficient class coverage: training={undertrained}, holdout={under_evaluated}")
+    def normalise(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+    train_texts = {normalise(row["text"]) for row in training}
+    overlaps = [row["text"] for row in holdout if normalise(row["text"]) in train_texts]
+    if overlaps:
+        raise ValueError(f"Training/holdout data leakage: {len(overlaps)} duplicated examples")
+    return {"training_class_counts": dict(sorted(train_counts.items())),
+            "holdout_class_counts": dict(sorted(eval_counts.items())),
+            "class_count": len(train_labels), "exact_normalised_overlap_count": 0}
+
+
 def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
     results = []
     correct = 0
+    expected_labels = sorted({row["label"] for row in rows})
+    per_class_counts: Counter[str] = Counter()
+    per_class_correct: Counter[str] = Counter()
+    unclassified_count = 0
     for row in rows:
         prediction = model.predict(row["text"])
         hit = prediction.label == row["label"]
         correct += int(hit)
+        per_class_counts[row["label"]] += 1
+        per_class_correct[row["label"]] += int(hit)
+        unclassified_count += int(prediction.label == "LOW_CONFIDENCE_UNCLASSIFIED")
         results.append({
-            "expected": row["label"], "predicted": prediction.label,
+            "expected": row["label"], "predicted": prediction.label, "text": row["text"],
             "correct": hit, "confidence": prediction.confidence,
-            "second_label": prediction.second_label,
+            "margin": prediction.margin, "second_label": prediction.second_label,
+            "known_feature_count": prediction.known_feature_count,
+            "known_feature_ratio": prediction.known_feature_ratio,
+            "was_classified": prediction.label != "LOW_CONFIDENCE_UNCLASSIFIED",
         })
+    per_class = {
+        label: {
+            "support": per_class_counts[label],
+            "correct_count": per_class_correct[label],
+            "accuracy": round(per_class_correct[label] / per_class_counts[label], 4)
+        }
+        for label in expected_labels
+    }
+    accuracy = correct / len(rows) if rows else 0.0
+    macro_accuracy = (
+        sum(per_class[label]["accuracy"] for label in expected_labels) / len(expected_labels)
+        if expected_labels else 0.0
+    )
+    classified_results = [row for row in results if row["was_classified"]]
+    classified_count = len(classified_results)
+    selective_correct_count = sum(int(row["correct"]) for row in classified_results)
+    classification_coverage = classified_count / len(rows) if rows else 0.0
+    selective_accuracy = (
+        selective_correct_count / classified_count if classified_count else 0.0
+    )
     return {
         "model_version": MODEL_VERSION,
         "evaluation_count": len(rows),
         "correct_count": correct,
-        "accuracy": round(correct / len(rows), 4) if rows else 0.0,
+        "accuracy": round(accuracy, 4),
+        "macro_accuracy": round(macro_accuracy, 4),
+        "unclassified_count": unclassified_count,
+        "classified_count": classified_count,
+        "classification_coverage": round(classification_coverage, 4),
+        "selective_accuracy": round(selective_accuracy, 4),
+        "class_count": len(expected_labels),
+        "per_class": per_class,
         "threshold_accuracy_target": 0.80,
-        "passed": bool(rows) and correct / len(rows) >= 0.80,
+        "threshold_macro_accuracy_target": 0.75,
+        "threshold_classification_coverage_target": 0.80,
+        "passed": bool(rows) and accuracy >= 0.80 and macro_accuracy >= 0.75 and classification_coverage >= 0.80,
         "results": results,
     }
-
-
 def train_and_save(train_path: Path = DEFAULT_TRAIN, eval_path: Path = DEFAULT_EVAL,
                    model_path: Path = DEFAULT_MODEL, evaluation_path: Path = DEFAULT_EVAL_REPORT):
     training = read_jsonl(train_path)
     holdout = read_jsonl(eval_path)
+    split_diagnostics = validate_splits(training, holdout)
     model = IncidentNaiveBayes().fit(training)
     metrics = evaluate(model, holdout)
+    metrics["split_diagnostics"] = split_diagnostics
     model_path.parent.mkdir(parents=True, exist_ok=True)
     evaluation_path.parent.mkdir(parents=True, exist_ok=True)
     payload = model.to_dict()
@@ -217,6 +321,9 @@ def train_and_save(train_path: Path = DEFAULT_TRAIN, eval_path: Path = DEFAULT_E
     payload["holdout_accuracy"] = metrics["accuracy"]
     payload["holdout_count"] = metrics["evaluation_count"]
     payload["holdout_passed"] = metrics["passed"]
+    payload["holdout_macro_accuracy"] = metrics["macro_accuracy"]
+    payload["training_class_count"] = len(model.labels)
+    payload["evaluation_split_has_leakage"] = False
     model_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     evaluation_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     return model, metrics
@@ -241,6 +348,26 @@ def run_self_test() -> dict:
         "TRANSIENT_NETWORK_FAILURE": "HTTP 503 service unavailable connection reset",
         "AUDIO_QA_FAILURE": "Kokoro WAV missing narration audio QA failure duration",
         "CREDENTIAL_CONFIG_MISSING": "GROQ_API_KEY missing unauthorized 401 secret",
+        "CODE_SYNTAX_OR_IMPORT_FAILURE": "Python SyntaxError unexpected indent py_compile traceback",
+        "TEST_REGRESSION_FAILURE": "pytest regression assertion failed expected actual CI smoke test",
+        "WORKFLOW_CONFIG_INVALID": "GitHub Actions actionlint workflow YAML invalid expression",
+        "DEPENDENCY_INSTALL_FAILURE": "pip installation failed incompatible pinned wheel ModuleNotFoundError",
+        "RENDER_TIMEOUT": "FFmpeg renderer exceeded timeout encoding deadline",
+        "VIDEO_INTEGRITY_FAILURE": "ffprobe moov atom not found zero frames corrupt MP4",
+        "CAPTION_SYNC_FAILURE": "SRT subtitle timestamps do not align narration waveform",
+        "ASSET_LICENSE_FAILURE": "stock asset commercial license unverified attribution missing",
+        "DISK_SPACE_EXHAUSTED": "ENOSPC no space left on device runner disk full",
+        "SUPABASE_STORAGE_FAILURE": "Supabase upload checksum mismatch object readback timeout",
+        "YOUTUBE_QUOTA_EXHAUSTED": "YouTube Data API quotaExceeded daily project allocation",
+        "YOUTUBE_UPLOAD_FAILURE": "YouTube videos.insert resumable upload failed no video id",
+        "DUPLICATE_UPLOAD_RISK": "duplicate YouTube upload same content hash idempotency key",
+        "SCHEDULE_READBACK_FAILURE": "YouTube publishAt privacyStatus schedule readback mismatch",
+        "CONTENT_DEDUP_STATE_FAILURE": "D1 content hash dedup persisted job state missing duplicate",
+        "SOURCE_CLAIM_MISMATCH": "source citation contradicts exact factual claim unsupported",
+        "JSON_SCHEMA_PARSE_FAILURE": "JSONDecodeError malformed response missing required schema field",
+        "QUEUE_JOB_FAILURE": "Cloudflare Queue dead letter message retries exhausted",
+        "WORKER_DEPLOYMENT_FAILURE": "Cloudflare Worker active version bindings deployment verification failed",
+        "MODEL_OUTPUT_INVALID": "LLM empty truncated malformed structured JSON output",
     }.items():
         predicted = model.predict(cue)
         assert predicted.label == label, {"expected": label, "prediction": predicted.__dict__}
@@ -248,6 +375,13 @@ def run_self_test() -> dict:
         "training_count": model.training_count, "labels": model.labels,
         "holdout_accuracy": metrics["accuracy"],
         "holdout_count": metrics["evaluation_count"], "passed": metrics["passed"],
+        "macro_accuracy": metrics["macro_accuracy"], "class_count": len(model.labels),
+        "classification_coverage": metrics["classification_coverage"],
+        "selective_accuracy": metrics["selective_accuracy"],
+        "misclassified_holdout": [
+            {key: row[key] for key in ("expected", "predicted", "text", "confidence", "margin", "second_label")}
+            for row in metrics["results"] if not row["correct"]
+        ],
     }
 
 

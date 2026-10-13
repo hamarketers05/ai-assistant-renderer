@@ -48,3 +48,193 @@
 {"label":"CREDENTIAL_CONFIG_MISSING","text":"WORKER_AUTH_TOKEN unavailable so protected internal endpoint authentication failed"}
 {"label":"CREDENTIAL_CONFIG_MISSING","text":"invalid or missing credentials; provider rejected request with HTTP 401"}
 {"label":"CREDENTIAL_CONFIG_MISSING","text":"repository secret not configured and no authenticated fallback is available"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"python -m py_compile tools/scene_director.py failed with SyntaxError invalid syntax at line 83"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"renderer startup raised IndentationError unexpected indent in application module"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"Python import failed because source references an undefined name in a tool file"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"unterminated string literal stopped the self healing agent before it could start"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"AST parse detected malformed Python syntax in the modified renderer utility"}
+{"label":"TEST_REGRESSION_FAILURE","text":"unit regression test failed expected status 200 but got 401 after the patch"}
+{"label":"TEST_REGRESSION_FAILURE","text":"tools/test_self_healing_ml.py assertion failed because evaluation threshold was not met"}
+{"label":"TEST_REGRESSION_FAILURE","text":"CI smoke test now fails at the previously passing audio reuse gate"}
+{"label":"TEST_REGRESSION_FAILURE","text":"pytest detected changed behavior in the bounded retry regression fixture"}
+{"label":"TEST_REGRESSION_FAILURE","text":"the focused repair check returned nonzero after a supposedly minimal code change"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"actionlint reports invalid GitHub Actions workflow syntax and an unknown expression"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"workflow YAML parser says jobs must be a mapping but found an invalid structure"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"a workflow step references an output id that is not defined by any earlier step"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"GitHub Actions rejected the workflow because a required key or indentation is malformed"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"static validator could not load manual.yml due to malformed workflow configuration"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"pip wheel build failed while installing a pinned Python dependency"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"dependency resolution reports incompatible pinned package versions in requirements"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"GitHub runner cannot install the required module because the package index timed out"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"Python environment reports ModuleNotFoundError after the dependency installation step failed"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"package install returned a build backend error and no compatible wheel was produced"}
+{"label":"RENDER_TIMEOUT","text":"FFmpeg rendering exceeded the bounded job timeout before the output completed"}
+{"label":"RENDER_TIMEOUT","text":"scene renderer timed out while encoding the long video after repeated slow frames"}
+{"label":"RENDER_TIMEOUT","text":"renderer process exceeded its deadline and no verified final MP4 was produced"}
+{"label":"RENDER_TIMEOUT","text":"video composition job was cancelled after the render timeout limit was reached"}
+{"label":"RENDER_TIMEOUT","text":"encoding stalled at the same timestamp and the render supervisor reached its time budget"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"ffprobe cannot read the final mp4 because the container metadata is corrupt"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"decoded video has zero frames although the render command returned success"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"final video file is zero bytes and fails the media integrity gate"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"ffmpeg reports moov atom not found when validating the purported final output"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"output resolution or frame rate differs from the required verified video specification"}
+{"label":"CAPTION_SYNC_FAILURE","text":"caption timestamps drift from the narration and subtitle synchronization QA failed"}
+{"label":"CAPTION_SYNC_FAILURE","text":"SRT captions are empty while the verified narration audio contains speech"}
+{"label":"CAPTION_SYNC_FAILURE","text":"word-level caption timings exceed the actual audio duration by several seconds"}
+{"label":"CAPTION_SYNC_FAILURE","text":"subtitle validator found overlapping cues and a missing final caption segment"}
+{"label":"CAPTION_SYNC_FAILURE","text":"caption alignment does not match Kokoro voice timestamps so release must remain blocked"}
+{"label":"ASSET_LICENSE_FAILURE","text":"downloaded stock clip has no verified commercial license or attribution record"}
+{"label":"ASSET_LICENSE_FAILURE","text":"asset license checker rejected the image because the reuse terms are unknown"}
+{"label":"ASSET_LICENSE_FAILURE","text":"selected footage is not eligible for commercial use and must not enter the final render"}
+{"label":"ASSET_LICENSE_FAILURE","text":"creator attribution and license URL are missing from the media provenance record"}
+{"label":"ASSET_LICENSE_FAILURE","text":"media provenance audit found a prohibited source and blocked the video package"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"runner filesystem has no space left on device while writing temporary video frames"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"FFmpeg failed with ENOSPC because the render workspace storage is exhausted"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"temporary media generation stopped when disk free space fell below the safe threshold"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"artifact packaging could not proceed because the runner volume reached capacity"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"cannot write narration output because the workspace has insufficient disk space"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"Supabase Storage upload returned a transient gateway error before object readback"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"uploaded media checksum does not match the local verified artifact in Supabase Storage"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"storage bucket rejected the file because the object upload was incomplete"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"Supabase media upload timed out and no remote object checksum could be confirmed"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"storage readback returned 404 for the expected uploaded artifact key"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"YouTube Data API v3 returned quotaExceeded and the daily API quota is exhausted"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"youtube.googleapis.com reports quota limit reached; stop requests until quota reset"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"YouTube upload request failed with quotaExceeded and must not be retried in a tight loop"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"API quota usage has reached the daily YouTube project limit for video insert"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"YouTube service denied the operation because the API quota allocation is depleted"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"YouTube resumable upload failed with a transient 503 before video id readback"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"videos.insert returned an upload error and the remote video identifier is not confirmed"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"YouTube upload session returned HTTP 500 before finalization completed"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"thumbnail upload failed after the video upload; verify the existing video before retrying"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"YouTube API response is missing the video id so upload state must remain unconfirmed"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"upload retry was about to create a second YouTube video with the same idempotency key"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"existing YouTube video already matches the content hash and title; block duplicate insert"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"the previous upload timed out but remote status is unknown so do not start a new upload"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"two publication jobs are attempting to upload the same content row concurrently"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"duplicate-upload guard detected an existing remote video id for this exact package"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"YouTube API readback does not confirm the requested future publishAt timestamp"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"video is reported private but the database expected a scheduled publication state"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"scheduled time readback differs from the required America New York target time"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"YouTube response lacks privacyStatus or publishAt so schedule verification failed"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"cannot verify the future publication schedule; keep the uploaded video private"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"D1 lookup failed to persist the content state and duplicate topic prevention is unverified"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"content hash and recent title index did not prevent a second long video job"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"handoff state row is missing so the same content pair may be processed twice"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"database transaction did not record the completed pipeline stage before retry"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"dedup state conflict detected between the long video row and its related short row"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"script says the source confirmed a statistic but the cited source does not contain that claim"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"claim to source cross check failed because the linked article supports a different date"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"source evidence contradicts the script statement and factual review rejected the draft"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"current AI news claim has no credible primary source in the retained evidence records"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"citation is real but the exact sentence is unsupported by the source content"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"json decoder failed because the provider response contains malformed JSON syntax"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"API response parsed but required schema field is missing from the structured object"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"validation rejected a research record because its date field has the wrong type"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"response contained trailing prose outside the JSON object and schema validation stopped"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"strict JSON schema check found an unexpected field type and blocked the downstream task"}
+{"label":"QUEUE_JOB_FAILURE","text":"Cloudflare Queue message exceeded bounded retries and was sent to the dead letter queue"}
+{"label":"QUEUE_JOB_FAILURE","text":"queue consumer failed to acknowledge the job after successful idempotency check"}
+{"label":"QUEUE_JOB_FAILURE","text":"poison queue message repeatedly fails schema validation and must be quarantined safely"}
+{"label":"QUEUE_JOB_FAILURE","text":"background job remains pending because the queue delivery attempt failed"}
+{"label":"QUEUE_JOB_FAILURE","text":"queue retry counter reached its maximum and the failed message needs a safe diagnosis"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"Cloudflare Worker deployment failed and the expected active version was not read back"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"post deploy verification found the previous version still receiving one hundred percent traffic"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"worker upload succeeded but binding names changed unexpectedly so release verification failed"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"deployment health probe returned 503 after the candidate worker version was activated"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"rollback candidate is not confirmed and production traffic must not be shifted"}
+{"label":"MODEL_OUTPUT_INVALID","text":"LLM response is empty and contains no usable script or structured content"}
+{"label":"MODEL_OUTPUT_INVALID","text":"model returned refusal text where a JSON object matching the required schema was expected"}
+{"label":"MODEL_OUTPUT_INVALID","text":"generated output is truncated and missing the final required field"}
+{"label":"MODEL_OUTPUT_INVALID","text":"provider completion returned null choices and no message content"}
+{"label":"MODEL_OUTPUT_INVALID","text":"AI output has placeholder text and fails the required source locked content contract"}
+{"label":"GROQ_RATE_LIMITED","text":"Groq chat completion API returned 429 because request-per-minute capacity is temporarily saturated"}
+{"label":"GROQ_RATE_LIMITED","text":"the Groq provider requests a wait until x-ratelimit-reset before the next completion call"}
+{"label":"GROQ_RATE_LIMITED","text":"completion tokens exceeded current Groq throughput quota and provider rejected the request with status 429"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"Cloudflare AI inference returned code 4006 after today's complimentary neuron bucket was consumed"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"Workers AI free allocation is depleted until daily UTC refresh and should not be retried repeatedly"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"fallback model invocation cannot run because account neuron allowance has reached its daily ceiling"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"Cloudflare D1 refused row reads after the free daily read budget reached its ceiling"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"the database returns quota exceeded when persisting pipeline state for today's free plan"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"do not repeat D1 SELECT probes while the row-read allotment is consumed"}
+{"label":"SCRIPT_LENGTH_GATE","text":"the LONG_VIDEO transcript contains 812 spoken words and fails the minimum length check"}
+{"label":"SCRIPT_LENGTH_GATE","text":"script QA counted 1006 spoken words which exceeds the maximum allowed one thousand"}
+{"label":"SCRIPT_LENGTH_GATE","text":"the word-count validator rejected a 790-word narration draft before release"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"independent natural voice review gave the hook a score below seven and denied approval"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"the audit explicitly sets approved false even though the script length meets the target"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"content review found malformed audit JSON and cannot verify unsupported claim status"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"research found only two unique AI-topic videos for the requested category so trend selection fails closed"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"the three-distinct-video evidence minimum was not met by category-relevant search results"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"no credible topic-matched primary sources were found for a verified breaking-news angle"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"Tavily search usage ceiling is reached and returned HTTP 432 for this account"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"research API must honor the exhausted free-plan quota cooldown instead of sending new queries"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"the Tavily provider suspended further queries after the daily search allowance was consumed"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"runner received an upstream HTTP 504 gateway timeout while connecting to the research service"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"temporary DNS lookup failure interrupted an API request and returned no application response"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"socket timeout occurred between the GitHub runner and the provider with no quota error signal"}
+{"label":"AUDIO_QA_FAILURE","text":"ffprobe cannot decode the generated WAV codec stream and narration validation failed"}
+{"label":"AUDIO_QA_FAILURE","text":"the voice file has no audible signal and measured RMS energy falls below the silence threshold"}
+{"label":"AUDIO_QA_FAILURE","text":"narration sample rate and channel layout are invalid so voice playback cannot be verified"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"the repository secret GROQ_API_KEY was not injected into the workflow environment"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"request authentication returned 401 because WORKER_AUTH_TOKEN is absent from the deployment secrets"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"provider credential validation failed with unauthorized response before any quota was consumed"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"Python parser hit an unexpected closing parenthesis in tools/daily_auto_handoff.py"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"application import raises NameError because a referenced helper is missing from the module namespace"}
+{"label":"CODE_SYNTAX_OR_IMPORT_FAILURE","text":"compileall rejected the edited Python file due to an unterminated function call"}
+{"label":"TEST_REGRESSION_FAILURE","text":"existing unit suite failed after the repair and proves the behavior regressed"}
+{"label":"TEST_REGRESSION_FAILURE","text":"assertion-based smoke tests now fail on the previously accepted media manifest"}
+{"label":"TEST_REGRESSION_FAILURE","text":"CI test command returned exit status one from a failed self-healing safety invariant"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"actionlint found an invalid workflow trigger and rejected the jobs dependency graph"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"workflow parser could not resolve a malformed needs expression in the CI YAML file"}
+{"label":"WORKFLOW_CONFIG_INVALID","text":"GitHub Actions refused to start because a step uses an invalid shell or strategy key"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"pip resolver reports version conflict between pinned NumPy and the requested media library"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"package installation step failed to compile a native extension because build dependencies were missing"}
+{"label":"DEPENDENCY_INSTALL_FAILURE","text":"the runner could not retrieve a pinned wheel from the package index during environment setup"}
+{"label":"RENDER_TIMEOUT","text":"FFmpeg long-video render exceeded the job runtime budget while encoding the final scenes"}
+{"label":"RENDER_TIMEOUT","text":"scene render process stalled during video export and hit the configured maximum duration"}
+{"label":"RENDER_TIMEOUT","text":"the renderer timed out before muxing the narration and final output was left incomplete"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"ffprobe reports invalid duration and cannot enumerate a valid video stream in final.mp4"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"full decode test found a corrupt final frame and the MP4 integrity check failed"}
+{"label":"VIDEO_INTEGRITY_FAILURE","text":"the render output is missing its audio video stream metadata and does not pass the media contract"}
+{"label":"CAPTION_SYNC_FAILURE","text":"subtitle SRT timecodes drift from word-level voice timestamps and synchronization QA rejects release"}
+{"label":"CAPTION_SYNC_FAILURE","text":"caption cues overlap each other and the final subtitles fall outside the narration timeline"}
+{"label":"CAPTION_SYNC_FAILURE","text":"ASR transcript alignment placed several captions before the words actually spoken in the audio"}
+{"label":"ASSET_LICENSE_FAILURE","text":"the footage source provides no commercial-use permission so the licensing validator rejects it"}
+{"label":"ASSET_LICENSE_FAILURE","text":"creator name and exact license URL are absent from the selected image provenance metadata"}
+{"label":"ASSET_LICENSE_FAILURE","text":"the media manifest contains an asset under noncommercial terms and upload must remain blocked"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"ffmpeg frame extraction failed with ENOSPC while writing into a full temporary workspace"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"runner filesystem has only a few bytes remaining and cannot package the final artifacts"}
+{"label":"DISK_SPACE_EXHAUSTED","text":"disk quota prevents saving a background soundtrack because temporary render storage is full"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"Supabase Storage PUT request failed before the final object checksum could be read back"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"remote Supabase object path is missing after upload and artifact persistence cannot be confirmed"}
+{"label":"SUPABASE_STORAGE_FAILURE","text":"storage service returned gateway timeout during a media upload and the local master was retained"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"Google YouTube API says quotaExceeded and the daily units for this project are exhausted"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"videos.insert cannot proceed until the YouTube Data API quota window resets"}
+{"label":"YOUTUBE_QUOTA_EXHAUSTED","text":"YouTube metadata update was denied because the project's available API quota reached zero"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"videos.insert resumable session ended in an API error and no new video resource was returned"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"YouTube upload response timed out before finalizing the media and confirming a video id"}
+{"label":"YOUTUBE_UPLOAD_FAILURE","text":"upload session URI returned HTTP 503 and the active transfer needs status readback before retry"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"existing remote video id is already attached to this content hash so a second upload is forbidden"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"uncertain upload finalization plus an active retry job could produce duplicate YouTube videos"}
+{"label":"DUPLICATE_UPLOAD_RISK","text":"same content idempotency token has already been reserved by another publishing worker"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"YouTube API readback returned no publishAt value for the requested future scheduled video"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"privacy status remains private when the scheduler expected a confirmed scheduled publication"}
+{"label":"SCHEDULE_READBACK_FAILURE","text":"the retrieved video schedule is not equal to the requested noon America New York timestamp"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"content record does not contain the current script hash after the previous stage completed"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"recent-title duplicate guard could not read the prior D1 row so the next handoff is unsafe"}
+{"label":"CONTENT_DEDUP_STATE_FAILURE","text":"job completion marker was not committed and retrying may recreate the same long video and short"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"primary paper reports a different result than the exact claim written in the narration"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"the source article publication date contradicts the date quoted by the current-events script"}
+{"label":"SOURCE_CLAIM_MISMATCH","text":"verified citation does not contain the asserted capability and factual cross-check rejects the line"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"JSONDecodeError at line 1 column 17 shows the provider payload is malformed JSON syntax"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"structured research response is missing required source_url and fails the JSON schema validator"}
+{"label":"JSON_SCHEMA_PARSE_FAILURE","text":"API returned trailing text after the closing brace so the strict JSON object cannot be parsed"}
+{"label":"QUEUE_JOB_FAILURE","text":"Cloudflare Queue consumer exhausted all permitted attempts and moved the payload to the DLQ"}
+{"label":"QUEUE_JOB_FAILURE","text":"background queue job was not acknowledged and the delivery retry count reached its configured limit"}
+{"label":"QUEUE_JOB_FAILURE","text":"queue message fails required idempotency fields and remains in dead letter quarantine"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"Worker deploy verification did not confirm the candidate version at the expected traffic percentage"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"production bindings differ from the read-before-deploy snapshot so Worker release verification stops"}
+{"label":"WORKER_DEPLOYMENT_FAILURE","text":"Cloudflare deployment returned success but health probe shows the expected version is not active"}
+{"label":"MODEL_OUTPUT_INVALID","text":"LLM returned an empty choices array with no assistant message to process"}
+{"label":"MODEL_OUTPUT_INVALID","text":"script generation produced placeholder tokens instead of a complete source-backed narration"}
+{"label":"MODEL_OUTPUT_INVALID","text":"the completion is truncated before the required final JSON field and fails output validation"}

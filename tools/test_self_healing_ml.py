@@ -8,9 +8,11 @@ import self_healing_ml as ml
 
 def main():
     result = ml.run_self_test()
-    assert result["training_count"] >= 40
-    assert result["holdout_count"] >= 15
+    assert result["training_count"] >= 240
+    assert result["holdout_count"] >= 80
     assert result["holdout_accuracy"] >= 0.80
+    assert result["macro_accuracy"] >= 0.75
+    assert result["class_count"] >= 30
     assert result["passed"] is True
     print("SELF_HEALING_ML_TESTS_PASS: " + str(result))
 
