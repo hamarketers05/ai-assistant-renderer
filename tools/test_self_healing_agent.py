@@ -103,6 +103,14 @@ def main():
     rate_issue = agent.classify_known_infrastructure_failure({"name": "AI Tech Lab Daily Research and Script"}, "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover.")
     assert rate_issue and rate_issue["code"] == "GROQ_RATE_LIMITED"
     assert "Retry-After/reset window" in rate_issue["safe_recovery"]
+    route_429_issue = agent.classify_known_infrastructure_failure(
+        {"name": "AI Tech Lab Daily Research and Script"},
+        'Cloudflare trend-to-script route returned HTTP 502; "detail": "Groq request failed: HTTP 429".'
+    )
+    assert route_429_issue and route_429_issue["code"] == "GROQ_RATE_LIMITED"
+    assert "Do not immediately auto-re-dispatch" in route_429_issue["safe_recovery"]
+    assert "never enable paid billing" in route_429_issue["safe_recovery"]
+
     # Regression from live Cloudflare Observability: the exact outbound Groq-compatible
     # span signature must classify as upstream 429 throttling, not credential absence.
     live_groq_telemetry_429 = (
