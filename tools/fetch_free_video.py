@@ -123,12 +123,14 @@ def topic_queries(text):
     queries = []
     # Topic-family searches cover the full AI Tech Lab niche, not only AI chips.
     # Per-file titles/descriptions, resolution, license, and repeat-use checks remain mandatory.
+    # For AI/agent scenes, prioritize four focused robotics/automation searches first.
+    # Relevance and per-file license/resolution/reuse checks still decide what may be used.
+    if anchors & {"ai", "artificial", "intelligence", "automation", "automated", "agent", "agents", "robot", "robots", "robotics", "algorithm", "algorithms", "neural", "model", "models", "ethics", "ethical", "governance", "oversight", "accountability", "safety"}:
+        queries.extend(["AI automation robot", "artificial intelligence agent", "robotic arm industrial robot", "factory robot automation"])
     if anchors & {"privacy", "surveillance"}:
         queries.extend(["privacy surveillance technology", "surveillance cameras privacy"])
     if anchors & {"cybersecurity", "cyber", "security", "fraud", "bias", "biased", "misinformation", "deepfake"}:
         queries.extend(["cybersecurity computer security", "computer security surveillance"])
-    if anchors & {"ai", "artificial", "intelligence", "automation", "automated", "agent", "agents", "robot", "robots", "robotics", "algorithm", "algorithms", "neural", "model", "models", "ethics", "ethical", "governance", "oversight", "accountability", "safety"}:
-        queries.extend(["AI automation robot", "artificial intelligence agent"])
     if anchors & {"software", "code", "coding", "programming", "developer", "developers", "algorithm", "algorithms"}:
         queries.extend(["software developer computer", "computer programming code"])
     if anchors & {"worker", "workers", "workplace", "factory", "industry", "industries", "finance"}:
@@ -231,6 +233,8 @@ def self_test():
         raise SystemExit("Relevant AI automation/agent-footage self-test failed.")
     if not any("automation" in q.lower() or "artificial intelligence" in q.lower() for q in ai_queries):
         raise SystemExit("AI/automation scene did not produce a focused free-media query.")
+    if len(ai_queries) < 4 or not any("robotic arm" in q.lower() for q in ai_queries):
+        raise SystemExit("AI/agent footage search must inspect expanded Full-HD robotics candidates.")
     print(json.dumps({
         "status": "self_test_passed",
         "minimum_relevance_score": MIN_VIDEO_RELEVANCE,
@@ -306,7 +310,10 @@ def main():
 
             # Read a few metadata records per shared query; caches ensure that the same
             # candidate isn't fetched repeatedly for every scene.
-            for title_score, title in candidates[:8]:
+            # Search results are sorted by title relevance, but many Commons uploads are
+            # 720p/vertical. Inspect up to 20 candidates so eligible native-Full-HD files
+            # are not missed merely because a low-resolution match appears near the top.
+            for title_score, title in candidates[:20]:
                 if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
                     break
                 try:
