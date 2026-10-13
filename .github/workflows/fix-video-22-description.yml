@@ -94,14 +94,18 @@ jobs:
             before.json >/dev/null || { echo "Safety gate failed: current YouTube video is not the expected private scheduled Maia 300 video."; exit 1; }
 
           # Preserve existing title, category and tags; correct only the description to match the sourced package.
+          # videos.update requires the video resource ID in the JSON body (query-string id is not the resource ID).
           jq --arg description "$DESCRIPTION" \
-            '{snippet:{title:.items[0].snippet.title,description:$description,tags:(.items[0].snippet.tags // []),categoryId:.items[0].snippet.categoryId,defaultLanguage:(.items[0].snippet.defaultLanguage // "en")}}' \
+            '{id:.items[0].id,snippet:{title:.items[0].snippet.title,description:$description,tags:(.items[0].snippet.tags // []),categoryId:.items[0].snippet.categoryId,defaultLanguage:(.items[0].snippet.defaultLanguage // "en")}}' \
             before.json > update.json
+          jq -e --arg id "$VIDEO_ID" --arg title "$EXPECTED_TITLE" \
+            '.id == $id and .snippet.title == $title and (.snippet.categoryId | length > 0) and (.snippet.description | length > 0)' \
+            update.json >/dev/null || { echo "Safety gate failed: update resource must include the expected video ID, original title/category, and nonempty description."; exit 1; }
 
           CODE=$(curl -sS --retry 3 --retry-delay 2 --max-time 90 -o update_result.json -w "%{http_code}" \
             -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
             --data-binary @update.json \
-            "https://www.googleapis.com/youtube/v3/videos?part=snippet&id=$VIDEO_ID")
+            "https://www.googleapis.com/youtube/v3/videos?part=snippet")
           if [ "$CODE" != "200" ]; then
             echo "YouTube description correction failed: HTTP $CODE."
             # Print structured reason/domain fields only; never print OAuth tokens or request headers.
