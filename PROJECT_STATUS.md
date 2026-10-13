@@ -1,3 +1,14 @@
+## 2026-10-14 — Pipeline knowledge catalog and static integrity gate (PR pending)
+
+- Added `tools/pipeline_catalog.json` (14 stages, 21 workflow entries, 40 tool entries and 30 incident routes) to map intended stage responsibilities, evidence boundaries, quality gates and protected operations. This catalog is configuration knowledge, not proof those stages work end-to-end.
+- Added `tools/pipeline_health_check.py`, a read-only validator for required catalog structure, duplicate stage IDs/paths, repository file references, incident recovery fields, required safety protections, and the explicit distinction between static status and runtime proof.
+- Added offline regression tests for valid catalog, duplicate IDs, missing references, missing safety protections, false runtime claims, invalid uptime guarantees and path traversal.
+- Wired the catalog validator/tests into CI Workflow Guard and added catalog/checker/test paths to the existing self-healing workflow triggers.
+- **Verification status:** GitHub Actions checks have not yet run on this change. Do not mark the validator as CI-verified until the PR's exact-head checks pass. No production runtime, rendered MP4, upload or publication was touched.
+- **Current release status remains BLOCKED:** provider quota, D1 persistence/dedup, full rendered-video QA, and YouTube schedule read-back remain unverified. Cron remains best-effort and is not guaranteed 24/7.
+
+**Next exact action:** run CI Workflow Guard and Renderer Static Validation on the PR head, fix only evidence-backed failures, then merge only after both required checks pass.
+ 
 # PROJECT_STATUS.md - AI Tech Lab
 
 **Updated:** 2026-10-14 (PKT)  
