@@ -75,8 +75,8 @@ function nfEditorialTrendGate(items,categoryName){
 // Trigger the no-publishing GitHub-runner verification after the workflow was added.
 // Runtime status remains pending until the GitHub Actions log is inspected.
 
-// Cross-cutting provider hardening deployed in Main Worker v418:
-// nfGroqText parses Retry-After and x-ratelimit-reset-{tokens,requests}, including compound
-// durations such as 2m59.56s; HTTP 429 retry remains capped at one and timeout-bounded.
-// nfGenerateScript now invokes one evidence-locked rewrite for both <850 AND >1000 words;
-// no out-of-range script may pass QA. See docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md (v417 rollback).
+// Cross-cutting provider hardening deployed in Main Worker v419:
+// nfGroqText parses Retry-After and compound x-ratelimit-reset values; HTTP 429 retry stays capped at one.
+// nfGenerateScript repairs BOTH underlength and overlength drafts before the final 850–1000 word gate.
+// Research/claim/script prompt context and completion-token ceilings are bounded for Groq free-tier TPM resilience.
+// These changes never bypass evidence/voice/word QA; see docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md (v418 rollback).
