@@ -60,45 +60,6 @@ jobs:
           python -m py_compile tools/self_healing_agent.py
           python tools/self_healing_agent.py
 
-      - name: One-time Workers AI fallback connection test (does not apply patches)
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, 'Run one-time Workers AI fallback connectivity test')
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os, urllib.request, urllib.error, pathlib
-          source = pathlib.Path("tools/daily_content_research.py").read_text(encoding="utf-8")[:30000]
-          payload = {
-              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
-              "source_run_id": os.environ["GITHUB_RUN_ID"],
-              "failed_workflow": "Self-healing Workers AI smoke test",
-              "failed_job": "Connectivity-only test; returned patch will never be applied",
-              "target": "tools/daily_content_research.py",
-              "source": source,
-              "log": "Synthetic test only: no deterministic defect has been demonstrated. Do not invent a fix; NO_SAFE_PATCH is an acceptable response."
-          }
-          request = urllib.request.Request(
-              "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/self-heal/patch",
-              data=json.dumps(payload).encode("utf-8"),
-              headers={"Authorization": "Bearer " + os.environ["GITHUB_TOKEN"],
-                       "Content-Type": "application/json", "Accept": "application/json",
-                       "User-Agent": "AI-Tech-Lab-Self-Healing-Agent/1.0"},
-              method="POST")
-          try:
-              with urllib.request.urlopen(request, timeout=35) as response:
-                  result = json.loads(response.read().decode("utf-8"))
-          except urllib.error.HTTPError as exc:
-              print("Workers AI fallback HTTP failure:", exc.code, exc.read(1000).decode("utf-8", "replace"))
-              raise
-          if result.get("ok") is not True or result.get("provider") != "cloudflare_workers_ai" or not result.get("patch"):
-              raise RuntimeError("Workers AI fallback did not confirm inference.")
-          print("Workers AI fallback connected; provider=cloudflare_workers_ai; patch_returned=true; patch_applied=false.")
-          PY
-
       - name: Save machine-readable recovery report
         if: always()
         uses: actions/upload-artifact@v4
