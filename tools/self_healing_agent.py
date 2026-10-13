@@ -364,10 +364,30 @@ def extract_target_date(log):
     return ""
 
 
+
+def select_repair_target(run, log):
+    """Route known failure signatures to the responsible helper, never to a quality gate."""
+    text = str(log or "")
+    lower = text.lower()
+    if ("visual novelty gate blocked" in lower
+            or ("minimum_new_licensed_clips_required" in lower and "candidate_assets" in lower)):
+        return "tools/fetch_free_video.py"
+    if re.search(r"authenticated cloudflare ai fallback returned http\s+(408|425|429|500|502|503|504)\b", lower):
+        return "tools/ai_text_client.py"
+    if run.get("name") == "AI Tech Lab Automatic Daily Production Handoff" and (
+        "short failed quality gates" in lower
+        or "short expansion did not reach the required length" in lower
+        or ("script_words" in lower and "min" in lower and "short" in lower)
+    ):
+        return "tools/make_daily_short.py"
+    matches = sorted(path for path in PATCHABLE if path in text)
+    return matches[0] if len(matches) == 1 else None
+
 def attempt_patch(run, job, log):
     if not TOKEN:
         return False, "GitHub Actions token is unavailable; code auto-repair skipped."
-    targets = sorted(p for p in PATCHABLE if p in log)
+    selected_target = select_repair_target(run, log)
+    targets = [selected_target] if selected_target else sorted(p for p in PATCHABLE if p in log)
     # The dedicated E2E workflow has one fixed, isolated test target. When its failed
     # traceback proves that exact canary, ignore unrelated filenames included in setup
     # logs; keep the general production target rule strict.
