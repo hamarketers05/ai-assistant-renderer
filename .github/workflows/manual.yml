@@ -118,6 +118,19 @@ jobs:
           [[ "$CONTENT_FORMAT" == "LONG_VIDEO" || "$CONTENT_FORMAT" == "SHORT" ]] || { echo "Unsupported video format."; exit 1; }
           test -n "$INPUT_TITLE"
           test "${#INPUT_SCRIPT}" -ge 300
+          SCRIPT_WORDS=$(python3 -c 'import re,sys; print(len(re.findall(r"\\b[\\w\\x27-]+\\b", sys.argv[1])))' "$INPUT_SCRIPT")
+          if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
+            if [ "$SCRIPT_WORDS" -lt 850 ] || [ "$SCRIPT_WORDS" -gt 1000 ]; then
+              echo "SCRIPT LENGTH GATE BLOCKED: LONG_VIDEO requires 850-1000 spoken words (received $SCRIPT_WORDS); no narration or media jobs will run."
+              exit 1
+            fi
+          else
+            if [ "$SCRIPT_WORDS" -lt 100 ] || [ "$SCRIPT_WORDS" -gt 135 ]; then
+              echo "SCRIPT LENGTH GATE BLOCKED: SHORT requires 100-135 spoken words (received $SCRIPT_WORDS); no narration or media jobs will run."
+              exit 1
+            fi
+          fi
+          echo "Preflight script word-count passed: $SCRIPT_WORDS words ($CONTENT_FORMAT)."
           test -n "$INPUT_PUBLISH_AT" || { echo "SCHEDULE GATE: publish_at is required; refusing an unscheduled/private-only upload."; exit 1; }
           python3 - "$INPUT_PUBLISH_AT" <<'PY'
           import sys
@@ -306,6 +319,28 @@ jobs:
           test -s work/captions.srt
           test -s work/voice_edit_report.json
           cat work/voice_edit_report.json
+          .venv/bin/python - "$CONTENT_FORMAT" <<'PY'
+          import json, sys
+          from pathlib import Path
+          fmt = sys.argv[1]
+          report = json.loads(Path("work/voice_edit_report.json").read_text(encoding="utf-8"))
+          duration = float(report.get("edited_duration_seconds") or 0)
+          if fmt == "LONG_VIDEO":
+              # Final assembly adds about four seconds of transition effects; leave enough
+              # narration for the strict 300-364s final-master budget without rendering assets.
+              if not 296 <= duration <= 360:
+                  raise SystemExit(
+                      f"DURATION GATE BLOCKED: edited LONG_VIDEO narration is {duration:.2f}s; "
+                      "required 296-360s before final assembly. Increase/repair the script; no media render/upload."
+                  )
+          else:
+              if not 20 <= duration <= 56:
+                  raise SystemExit(
+                      f"DURATION GATE BLOCKED: edited SHORT narration is {duration:.2f}s; "
+                      "required 20-56s before final assembly. Correct the script; no media render/upload."
+                  )
+          print(f"Edited narration duration gate passed: {duration:.2f}s ({fmt}).")
+          PY
 
       - name: Apply optional topic-aware Rubber Band pitch shaping
         run: |
