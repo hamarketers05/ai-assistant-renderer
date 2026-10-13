@@ -39,8 +39,9 @@ jobs:
       - name: Test self-healing incident classifiers and repair safety
         run: |
           set -euo pipefail
-          python -m py_compile tools/self_healing_agent.py tools/test_self_healing_agent.py
+          python -m py_compile tools/self_healing_agent.py tools/test_self_healing_agent.py tools/self_healing_ml.py tools/test_self_healing_ml.py
           python tools/test_self_healing_agent.py
+          python tools/test_self_healing_ml.py
 
       - name: Smoke-test cinematic renderer components
         run: |
