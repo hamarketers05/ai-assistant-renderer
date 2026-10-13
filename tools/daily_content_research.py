@@ -341,8 +341,14 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
     if 600 <= revised_words <= 1000:
         script = revised
     hook_score = int(audit.get("score", 0) or 0)
+    try:
+        auditor_voice_score = int(audit.get("human_voice_score", 0) or 0)
+    except (TypeError, ValueError):
+        auditor_voice_score = 0
     if hook_score < 7:
         raise SystemExit(f"Groq hook review scored {hook_score}/10. No publish-ready script package was released.")
+    if auditor_voice_score < 7:
+        raise SystemExit(f"Independent human-voice audit scored {auditor_voice_score}/10. No publish-ready script package was released.")
     if not script or len(script) < 2500:
         raise SystemExit("Final script did not pass length/content validation.")
     human_voice_qa = evaluate_human_voice(script)
@@ -389,7 +395,8 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         "brand": "AI Tech Lab", "primary_ai": "Groq", "research_provider": "Tavily Search API",
         "trend_provider": "YouTube Data API v3", "trend_basis": topic, "title": title,
         "hook": str(audit.get("selected_hook", hooks[0] if hooks else ""))[:350],
-        "hook_audit": {"score": hook_score, "decision": str(audit.get("decision", "")),
+        "hook_audit": {"score": hook_score, "human_voice_score": auditor_voice_score,
+                       "decision": str(audit.get("decision", "")),
                        "corrections_made": audit.get("corrections_made", []),
                        "unsupported_claims_reported": audit.get("unsupported_claims", [])},
         "script_word_count": len(re.findall(r"\b[\w'-]+\b", script)), "script": script,
@@ -433,7 +440,8 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         "script_words": package["script_word_count"], "hook_score": hook_score,
         "trend_signals": len(trends), "usable_tavily_sources": len(sources),
         "editorial_category": topic["category"], "rotation_category": rotation["category"],
-        "human_voice_score": human_voice_qa["score"], "tool_improvement_scout": scout_status,
+        "human_voice_score": human_voice_qa["score"], "independent_voice_audit_score": auditor_voice_score,
+        "tool_improvement_scout": scout_status,
         "agent_report": "work/mini_agent_execution_report.json",
         "source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]),
         "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"]),
