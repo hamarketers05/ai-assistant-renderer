@@ -332,7 +332,7 @@ def attempt_patch(run, job, log):
         cmd(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
         cmd(["git", "commit", "-m", msg])
         cmd(["git", "fetch", "origin", "main"], timeout=60)
-        if cmd(["git", "rev-parse", "HEAD"]).strip() != cmd(["git", "rev-parse", "origin/main"]).strip():
+        if cmd(["git", "rev-parse", "HEAD^"]).strip() != cmd(["git", "rev-parse", "origin/main"]).strip():
             raise RuntimeError("main advanced during diagnosis; stale patch not pushed.")
         cmd(["git", "push", "origin", "HEAD:main"], timeout=90)
         try:
