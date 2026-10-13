@@ -51,6 +51,7 @@ def main() -> None:
         Path("work/music_report.json"),
         Path("work/opencv_visual_qa.json"),
         Path("work/rendered_scene_assets_report.json"),
+        Path("work/flux_generation_report.json"),
     ]
     missing = [str(p) for p in required_paths if not p.is_file()]
     if not final_video.is_file() or final_video.stat().st_size < 100_000:
@@ -67,6 +68,7 @@ def main() -> None:
     music = read_json(Path("work/music_report.json"))
     visual_qa = read_json(Path("work/opencv_visual_qa.json"))
     scene_assets = read_json(Path("work/rendered_scene_assets_report.json"))
+    flux_report = read_json(Path("work/flux_generation_report.json"))
     reuse = read_json(Path("work/asset_reuse_report.json"))
     evidence = read_json(Path("work/evidence_charts_report.json"))
     stereo = read_json(Path("work/stereo_3d_report.json"))
@@ -82,6 +84,8 @@ def main() -> None:
     evidence_charts_used = int(scene_assets.get("evidence_charts_used", 0))
     hud_overlays_applied = int(scene_assets.get("transparent_hud_overlay_applied_count", 0))
     stock_scene_count = int(scene_assets.get("licensed_stock_broll_scene_count", 0))
+    flux_generated_count = max(0, int(flux_report.get("generated_count", 0)))
+    flux_used_scene_count = max(0, int(scene_assets.get("cloudflare_flux_image_scene_count", 0)))
     if voice.get("status") != "passed":
         raise SystemExit("Editing manifest blocked: automated voice-editing QA did not pass.")
     if scenes.get("exact_word_timing") is not True or scene_count < 8:
@@ -127,7 +131,7 @@ def main() -> None:
         {"tool": "Pinned Rec.709 Kodak 2383 D55 LUT", "status": "used" if sbs_lut_used else "not_applicable", "purpose": "integrity-verified LUT transform in the SBS conversion stage", "integrity_verified": sbs_lut_used, "rights_note": "The existing source repository's commercial license was not independently verified; checksum integrity is not proof of usage rights."},
         {"tool": "Evidence-supported charts", "status": "used" if evidence_charts_used > 0 else "skipped", "chart_count": evidence_charts_used, "generated_chart_count": len(evidence_charts_generated), "unused_chart_count": max(0, len(evidence_charts_generated) - evidence_charts_used), "reason": "only source-backed charts with a topic/number match to the scene are included; no statistics are invented"},
         {"tool": "Commercial-use stock clips", "status": "used", "source_manifest_entries": licensed_clips, "providers": provider_counts, "note": "Only entries passing the separate license and relevance gates are eligible for delivery."},
-        {"tool": "FLUX.1 [schnell]", "status": "skipped", "reason": "Official weights are Apache-2.0, but this standard GitHub-hosted CPU job has no attached GPU; the 12B-parameter model is not reliable for a zero-cost per-video CPU render. Existing original Pillow art and licensed B-roll remain the fallback."},
+        {"tool": "Cloudflare Workers AI FLUX.1 [schnell]", "status": "used" if flux_used_scene_count > 0 else "skipped", "purpose": "generate topic-matched 1920x1080 stills through the authenticated Cloudflare AI binding; actual use is counted from rendered scenes", "model": flux_report.get("model", "@cf/black-forest-labs/flux-1-schnell"), "images_generated": flux_generated_count, "scenes_actually_using_flux": flux_used_scene_count, "max_images_per_render": 6, "free_quota_note": "Cloudflare Workers AI includes 10,000 Neurons/day on Free; requests fall back on quota/capacity errors. Usage above the included allocation may be billed on a Paid plan.", "license": flux_report.get("license", "Apache-2.0"), "license_url": flux_report.get("license_url", "https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"), "skip_reason": None if flux_used_scene_count > 0 else (flux_report.get("fallback_reason") or flux_report.get("reason") or "No generated FLUX still was needed/accepted for a final scene; original Pillow art/licensed B-roll remained active.")},
         {"tool": "ComfyUI + Stable Video Diffusion / AnimateDiff", "status": "skipped", "reason": "GPU-heavy model runtimes and large checkpoints are not a reliable fit for the current free hosted runner. FFmpeg motion is active instead; no paid inference/API is used."},
         {"tool": "Auto-Editor", "status": "skipped", "reason": "The existing word-timestamped voice editor handles pauses and captions together; a second silence-cut pass would desynchronize verified word timings."},
         {"tool": "Demucs", "status": "not_applicable", "reason": "Voice narration and the original synthesized music are separate clean tracks, so no mixed audio needs stem separation."},
@@ -163,6 +167,8 @@ def main() -> None:
         "visual_assets": {
             "planned_voice_aligned_scenes": scene_count,
             "generated_topic_matched_images": generated_scene_images,
+            "cloudflare_flux_images_generated": flux_generated_count,
+            "cloudflare_flux_images_used_in_final_scenes": flux_used_scene_count,
             "transparent_hud_overlays_generated": generated_hud_overlays,
             "transparent_hud_overlays_applied": hud_overlays_applied,
             "evidence_charts_generated": len(evidence_charts_generated),
