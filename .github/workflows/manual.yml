@@ -118,7 +118,7 @@ jobs:
           [[ "$CONTENT_FORMAT" == "LONG_VIDEO" || "$CONTENT_FORMAT" == "SHORT" ]] || { echo "Unsupported video format."; exit 1; }
           test -n "$INPUT_TITLE"
           test "${#INPUT_SCRIPT}" -ge 300
-          SCRIPT_WORDS=$(python3 -c 'import re,sys; print(len(re.findall(r"\\b[\\w\\x27-]+\\b", sys.argv[1])))' "$INPUT_SCRIPT")
+          SCRIPT_WORDS=$(python3 -c 'import re,sys; print(len(re.findall(r"\b[\w-]+\b", sys.argv[1])))' "$INPUT_SCRIPT")
           if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
             if [ "$SCRIPT_WORDS" -lt 850 ] || [ "$SCRIPT_WORDS" -gt 1000 ]; then
               echo "SCRIPT LENGTH GATE BLOCKED: LONG_VIDEO requires 850-1000 spoken words (received $SCRIPT_WORDS); no narration or media jobs will run."
