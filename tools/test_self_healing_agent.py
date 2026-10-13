@@ -71,6 +71,8 @@ def main():
     )
     assert quota_issue and quota_issue["code"] == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED"
     assert "never enable billing" in quota_issue["safe_recovery"]
+    rate_issue = agent.classify_known_infrastructure_failure({"name": "AI Tech Lab Daily Research and Script"}, "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover.")
+    assert rate_issue and rate_issue["code"] == "GROQ_RATE_LIMITED"
 
     short_script = agent.classify_renderer_input_quality_failure(
         {"name": "AI Assistant Renderer"},
