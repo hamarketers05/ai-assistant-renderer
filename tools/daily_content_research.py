@@ -594,50 +594,108 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
     title = re.sub(r"\s+", " ", str(draft.get("title", "")).strip())[:100]
     script = re.sub(r"\r\n?", "\n", str(draft.get("script", "")).strip())
     words = len(re.findall(r"\b[\w'-]+\b", script))
-    # A short first draft is recoverable: add a separate evidence-locked section rather than
-    # asking the small free fallback model to rewrite the entire script at once.
+    # Workers AI may under-run a requested full script. Try one fact-locked rewrite, then add a distinct useful middle section.
     if title and (words < 700 or words > 950):
-        print(f"Initial script draft is {words} words; requesting one bounded evidence-locked expansion.")
+        print(f"Initial script draft is {words} words; requesting one bounded length repair.")
         try:
-            expansion = groq_json(
-                """You are an evidence-first editor for AI Tech Lab, a US-audience technology channel.
-                Do NOT rewrite or summarize the existing script. Return JSON with one key named
-                inserted_material. It must contain exactly four distinct spoken-narration paragraphs,
-                each about 85–110 words, for roughly 340–440 words total. These paragraphs will be
-                inserted just before the existing closing paragraph, so they must flow from the current
-                narration into its original ending. Do not repeat the hook, existing explanations, or CTA.
-                Add specific human value: a realistic viewer decision scenario, a practical step-by-step
-                evaluation framework, meaningful limitations/trade-offs, and what evidence a viewer should
-                watch next. Use ONLY supplied source evidence for factual claims. No invented metrics,
-                release dates, quotes, product tests, personal experience, or unsupported capabilities.
-                Label opinion and forecasts clearly. Keep natural spoken US English, no headings, no bullets,
-                no production directions, and no filler. The addition itself must be at least 280 words.
+            repaired = groq_json(
+                """You are a careful long-form script editor for AI Tech Lab, a US-audience technology channel.
+                Repair the supplied narration toward 750-850 spoken words. Preserve its thesis and supported facts.
+                Use ONLY the supplied source evidence for factual specifics. Do not invent numbers, dates, quotes,
+                product capabilities, tests, or lived experience. Improve practical viewer value, trade-offs,
+                limitations, a concrete scenario, and the takeaway. Natural spoken US English, no filler.
+                Return JSON with only title and script.
                 """ + NATURAL_VOICE_GUIDANCE,
-                json.dumps({"title": title, "existing_script": script, "topic": topic_name,
+                json.dumps({"title": title, "script": script, "topic": topic_name,
                             "editorial_angle": angle, "source_evidence": evidence_context},
                            ensure_ascii=False),
-                max_tokens=3000, temperature=0.15)
-            inserted_material = re.sub(r"\r\n?", "\n", str(expansion.get("inserted_material", "")).strip())
-            added_words = len(re.findall(r"\b[\w'-]+\b", inserted_material))
-            paragraphs = [p.strip() for p in re.split(r"\n\s*\n", script) if p.strip()]
-            if len(paragraphs) >= 2:
-                expanded_script = "\n\n".join(paragraphs[:-1] + [inserted_material, paragraphs[-1]])
+                max_tokens=3300, temperature=0.15)
+            repaired_title = re.sub(r"\s+", " ", str(repaired.get("title", "")).strip())[:100]
+            repaired_script = re.sub(r"\r\n?", "\n", str(repaired.get("script", "")).strip())
+            repaired_words = len(re.findall(r"\b[\w'-]+\b", repaired_script))
+            if repaired_title and 450 <= repaired_words <= 1000 and len(repaired_script) >= 2200:
+                title, script, words = repaired_title, repaired_script, repaired_words
+                draft["script"] = script
+                print(f"Bounded rewrite accepted for repair; current script has {words} words.")
             else:
-                sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", script) if x.strip()]
-                if len(sentences) >= 4:
-                    expanded_script = " ".join(sentences[:-2]) + "\n\n" + inserted_material + "\n\n" + " ".join(sentences[-2:])
-                else:
-                    expanded_script = script.rstrip() + "\n\n" + inserted_material
-            expanded_words = len(re.findall(r"\b[\w'-]+\b", expanded_script))
-            if 700 <= expanded_words <= 1000 and added_words >= 200 and len(expanded_script) >= 2500:
-                script, words = expanded_script, expanded_words
-                print(f"Evidence-locked expansion accepted: {words} total words; {added_words} added words.")
-            else:
-                print(f"Evidence-locked expansion not accepted (base={words}, added={added_words}, total={expanded_words}); original length gate remains active.")
+                print(f"Bounded rewrite not accepted ({repaired_words} words); original script retained.")
         except Exception as repair_error:
-            print("Evidence-locked expansion failed (" + type(repair_error).__name__ + "); original length gate remains active.")
-    if not title or words < 600 or words > 1000:
-        raise SystemExit(f"Script failed word-count/title gate ({words} words; title present={bool(title)}).")
+            print("Bounded rewrite failed (" + type(repair_error).__name__ + "); original draft retained.")
+
+    if title and words < 700:
+        print(f"Script still short ({words} words); requesting an evidence-locked practical middle segment.")
+        segment_result = groq_json(
+            """Write ONE ADDITIVE MIDDLE SEGMENT for the supplied six-minute US English YouTube explainer.
+            Return JSON with exactly one key: segment. Target 320-400 spoken words. Do not rewrite or summarize
+            the existing script. The segment will be inserted after the opening and before the conclusion.
+            It must add genuinely new viewer value: a concrete everyday/work/business scenario, a usable
+            decision framework or next steps, relevant trade-offs and limitations, and a cautious forecast or
+            opinion clearly labelled as analysis when appropriate. Use ONLY supplied source evidence for facts.
+            Do not invent statistics, quotes, capabilities, dates, hands-on tests, or lived experience. Avoid
+            repeating the existing script. Use natural spoken American English and smooth transitions; no heading,
+            bullet list, CTA, or production notes. Write the whole segment, not an outline.
+            """ + NATURAL_VOICE_GUIDANCE,
+            json.dumps({"title": title, "topic": topic_name, "editorial_angle": angle,
+                        "existing_script": script, "source_evidence": evidence_context},
+                       ensure_ascii=False),
+            max_tokens=1800, temperature=0.2)
+        segment = re.sub(r"\r\n?", "\n", str(segment_result.get("segment", "")).strip())
+        segment_words = len(re.findall(r"\b[\w'-]+\b", segment))
+        if 150 <= segment_words <= 450:
+            paragraphs = [p.strip() for p in re.split(r"\n\s*\n", script) if p.strip()]
+            insert_at = min(2, len(paragraphs))
+            candidate_parts = paragraphs[:insert_at] + [segment] + paragraphs[insert_at:]
+            candidate = "\n\n".join(candidate_parts)
+            candidate_words = len(re.findall(r"\b[\w'-]+\b", candidate))
+            if candidate_words > 1000:
+                segment_sentences = re.split(r"(?<=[.!?])\s+", segment)
+                kept, running = [], 0
+                base_words = len(re.findall(r"\b[\w'-]+\b", script))
+                for sentence in segment_sentences:
+                    sentence_words = len(re.findall(r"\b[\w'-]+\b", sentence))
+                    if base_words + running + sentence_words > 950:
+                        break
+                    kept.append(sentence)
+                    running += sentence_words
+                segment = " ".join(kept).strip()
+                candidate_parts = paragraphs[:insert_at] + ([segment] if segment else []) + paragraphs[insert_at:]
+                candidate = "\n\n".join(candidate_parts)
+                candidate_words = len(re.findall(r"\b[\w'-]+\b", candidate))
+            if 700 <= candidate_words <= 1000:
+                script, words = candidate, candidate_words
+                draft["script"] = script
+                print(f"Practical middle segment accepted; script now has {words} words.")
+            elif candidate_words < 700:
+                print(f"Middle segment brought the script to {candidate_words} words; requesting one small evidence-locked bridge.")
+                bridge_result = groq_json(
+                    """Return JSON with exactly one key: segment. Write a concise additional narration segment of
+                    120-180 words that follows the supplied script naturally and adds one practical implication,
+                    limitation, or viewer next step that is supported by the supplied evidence. Do not repeat the
+                    existing script or add unsupported facts. Natural US English, no heading or CTA.
+                    """ + NATURAL_VOICE_GUIDANCE,
+                    json.dumps({"title": title, "topic": topic_name, "existing_script": candidate,
+                                "source_evidence": evidence_context}, ensure_ascii=False),
+                    max_tokens=900, temperature=0.15)
+                bridge = re.sub(r"\r\n?", "\n", str(bridge_result.get("segment", "")).strip())
+                bridge_words = len(re.findall(r"\b[\w'-]+\b", bridge))
+                if 60 <= bridge_words <= 240:
+                    bridge_parts = [p.strip() for p in re.split(r"\n\s*\n", candidate) if p.strip()]
+                    bridge_parts.insert(min(insert_at + 1, len(bridge_parts)), bridge)
+                    candidate = "\n\n".join(bridge_parts)
+                    candidate_words = len(re.findall(r"\b[\w'-]+\b", candidate))
+                    if 700 <= candidate_words <= 1000:
+                        script, words = candidate, candidate_words
+                        draft["script"] = script
+                        print(f"Bridge segment accepted; script now has {words} words.")
+                    else:
+                        print(f"Bridge segment did not reach the required word range ({candidate_words}); script not expanded further.")
+                else:
+                    print(f"Bridge segment invalid ({bridge_words} words); no unsupported text will be added.")
+        else:
+            print(f"Practical middle segment invalid ({segment_words} words); no unsupported text will be added.")
+
+    if not title or words < 700 or words > 1000:
+        raise SystemExit(f"Script failed six-minute word-count/title gate ({words} words; title present={bool(title)}).")
     title_similarity = title_similarity_ratio(title, learning.get("last_title", ""))
     if learning.get("last_title") and title_similarity >= 0.62:
         raise SystemExit("Generated title is too similar to the previous delivered title (Jaccard=" + str(title_similarity) + "); no duplicate package was released.")
