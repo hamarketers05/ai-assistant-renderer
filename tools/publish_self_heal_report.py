@@ -67,7 +67,8 @@ def main() -> int:
                      "/" + str(result.get("health_probes_total", "?")) + ".")
                 return 0
         except urllib.error.HTTPError as exc:
-            last_error = "HTTP " + str(exc.code)
+            detail = exc.read(1200).decode("utf-8", "replace").replace("\\n", " ")[:900]
+            last_error = "HTTP " + str(exc.code) + (": " + detail if detail else "")
             if exc.code in (429, 500, 502, 503, 504) and attempt < 2:
                 time.sleep(2 * (attempt + 1))
                 request = urllib.request.Request(URL, data=payload, headers={
