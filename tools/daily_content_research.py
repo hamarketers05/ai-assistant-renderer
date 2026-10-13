@@ -150,7 +150,7 @@ def worker_youtube_trending_fallback():
             return
         url = str(item.get("url", item.get("source_url", "")) or "").strip()
         video_id = video_id_from_url(url)
-        title = re.sub(r"\\s+", " ", str(item.get("title", "") or "")).strip()
+        title = re.sub(r"\s+", " ", str(item.get("title", "") or "")).strip()
         if not video_id or not title or video_id in seen:
             return
         seen.add(video_id)
@@ -172,7 +172,7 @@ def worker_youtube_trending_fallback():
             "title": title[:220],
             "channel": str(item.get("channel", item.get("publisher", "")) or "")[:100],
             "published_at": str(item.get("published_at", item.get("published_date", "")) or ""),
-            "description_excerpt": re.sub(r"\\s+", " ", str(item.get("content", item.get("description", "")) or ""))[:260],
+            "description_excerpt": re.sub(r"\s+", " ", str(item.get("content", item.get("description", "")) or ""))[:260],
             "duration_seconds": round(duration_seconds(str(item.get("duration", ""))), 1) if str(item.get("duration", "")).startswith("PT") else 0,
             "view_count": views,
             "likes": likes,
@@ -237,7 +237,7 @@ def youtube_trending(api_key, access_token=""):
                 "title": str(snippet.get("title", ""))[:220],
                 "channel": str(snippet.get("channelTitle", ""))[:100],
                 "published_at": snippet.get("publishedAt", ""),
-                "description_excerpt": re.sub(r"\\s+", " ", str(snippet.get("description", "")))[:260],
+                "description_excerpt": re.sub(r"\s+", " ", str(snippet.get("description", "")))[:260],
                 "duration_seconds": round(duration_seconds(item.get("contentDetails", {}).get("duration", "")), 1),
                 "view_count": views, "likes": int(stats.get("likeCount", 0) or 0),
                 "url": "https://www.youtube.com/watch?v=" + video_id})
