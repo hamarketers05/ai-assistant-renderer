@@ -61,6 +61,7 @@ jobs:
           fi
           ACCESS_TOKEN=$(jq -er '.access_token | select(type == "string" and length > 20)' work/youtube_token.json)
           echo "::add-mask::$ACCESS_TOKEN"
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
           echo "Short-lived YouTube authorization obtained."
 
       - name: Independently verify video through YouTube Data API v3
