@@ -29,6 +29,42 @@ def main():
         "Unknown failure mentioning tools/fetch_free_video.py and tools/asset_reuse_guard.py"
     ) is None
 
+    # Regression tests for recurring production failures: classify safely, do not
+    # fabricate credentials, bypass QA, or try paid providers.
+    midas_issue = agent.classify_known_infrastructure_failure(
+        {"name": "Validate MiDaS SBS Pipeline"},
+        "MiDaS activation report: KeyError: 'Authorization'"
+    )
+    assert midas_issue and midas_issue["code"] == "PYTORCH_HUB_ANONYMOUS_GITHUB_API_LIMIT"
+    assert "Never print the token" in midas_issue["safe_recovery"]
+
+    tier_issue = agent.classify_known_infrastructure_failure(
+        {"name": "AI Assistant Renderer"},
+        "Vecteezy API plan was not positively identified as Free; Skipping Vecteezy downloads to prevent unexpected charges."
+    )
+    assert tier_issue and tier_issue["code"] == "VECTEEZY_FREE_TIER_UNVERIFIED"
+    assert "paid endpoints" in tier_issue["safe_recovery"]
+
+    flux_issue = agent.classify_known_infrastructure_failure(
+        {"name": "AI Assistant Renderer"},
+        "FLUX generation stopped safely: Image service HTTP 429; generated_count=0"
+    )
+    assert flux_issue and flux_issue["code"] == "FREE_IMAGE_ENDPOINT_RATE_LIMIT"
+    assert "paid image services" in flux_issue["safe_recovery"]
+
+    short_script = agent.classify_renderer_input_quality_failure(
+        {"name": "AI Assistant Renderer"},
+        'CONTENT_FORMAT=LONG_VIDEO\n"planned_visual_scenes": 49'
+    )
+    assert short_script and short_script["code"] == "LONG_FORM_SCRIPT_UNDERLENGTH"
+    assert "Do not modify scene_director.py" in short_script["safe_recovery"]
+
+    short_duration = agent.classify_renderer_input_quality_failure(
+        {"name": "AI Assistant Renderer"},
+        "DURATION GATE BLOCKED: edited LONG_VIDEO narration is 243.85s"
+    )
+    assert short_duration and short_duration["code"] == "RENDERER_NARRATION_DURATION_GATE"
+
     malformed_counts = """--- a/tools/self_healing_canary.py
 +++ b/tools/self_healing_canary.py
 @@ -9,9 +9,9 @@ def answer():
