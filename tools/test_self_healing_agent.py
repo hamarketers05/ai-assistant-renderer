@@ -7,6 +7,14 @@ import self_healing_agent as agent
 
 
 def main():
+    assert agent.is_expected_research_quality_gate_block(
+        {"name": "Verify Cloudflare Free-Source Research"},
+        "SAFE BLOCK: sources were retrieved, but no cross-checked claim passed; verified_claims=[]"
+    ) is True
+    assert agent.is_expected_research_quality_gate_block(
+        {"name": "AI Tech Lab Daily Research and Script"},
+        "SAFE BLOCK: sources were retrieved, but no cross-checked claim passed; verified_claims=[]"
+    ) is False
     assert agent.is_retired_diagnostic_workflow({"name": "One-time Main Worker Groq Proxy Probe"}) is True
     assert agent.is_retired_diagnostic_workflow({"name": "Temporary Cloudflare Oct 15 Research Smoke Test"}) is True
     assert agent.is_retired_diagnostic_workflow({"name": "AI Assistant Renderer"}) is False
