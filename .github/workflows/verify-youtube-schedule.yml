@@ -121,9 +121,9 @@ jobs:
             echo ""
             echo "- YouTube Data API v3: **PASS**"
             echo "- Privacy: **private**"
-            echo "- Scheduled publish (UTC): `$EXPECTED_PUBLISH_AT`"
+            echo "- Scheduled publish (UTC): $EXPECTED_PUBLISH_AT"
             echo "- D1 synchronization: **PASS**"
-            echo "- Video ID: `$VIDEO_ID`"
+            echo "- Video ID: $VIDEO_ID"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Archive verification report
