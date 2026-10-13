@@ -150,8 +150,8 @@ jobs:
           test -n "$WORKER_TOKEN"
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_KEY"
-          test -n "${{ secrets.VECTEEZY_API_KEY }}"
-          test -n "${{ secrets.VECTEEZY_ACCOUNT_ID }}"
+          # Vecteezy is an optional source. The downloader independently confirms the account is Free
+          # before calling resource/download endpoints; missing or unverified access must use free fallbacks.
           printf '%s' "$INPUT_SCRIPT" > work/script.txt
           echo "Configuration validation passed."
 
@@ -427,7 +427,9 @@ jobs:
           Path("work/asset_sources.jsonl").write_text("", encoding="utf-8")
 
           if not API_KEY or not ACCOUNT_ID:
-              raise SystemExit("Vecteezy credentials are required.")
+              print("Vecteezy credentials are absent; safely skipping this optional provider.")
+              print("Continue with Wikimedia Commons and original locally generated assets; do not request paid access.")
+              raise SystemExit(0)
 
           def api_get(url):
               request = urllib.request.Request(
