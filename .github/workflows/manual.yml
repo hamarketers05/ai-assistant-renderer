@@ -180,7 +180,7 @@ jobs:
             [[ "$INPUT_AUDIO_URL" =~ ^ai-tech-lab/[0-9]+/kokoro[.]mp3$ ]] || { echo "INPUT_AUDIO_URL must be an object path like ai-tech-lab/123/kokoro.mp3; full signed URLs are rejected."; exit 1; }
             HASH_PATH="${INPUT_AUDIO_URL%.mp3}.script.sha256"
             curl -fsS --retry 2 --retry-delay 2 --max-time 60 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$HASH_PATH" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/approved_script_sha256.txt
-            APPROVED_SCRIPT_SHA=$(cat work/approved_script_sha256.txt | cut -d " " -f1)
+            APPROVED_SCRIPT_SHA=$(cut -d " " -f1 work/approved_script_sha256.txt)
             [ "$APPROVED_SCRIPT_SHA" = "$SCRIPT_SHA256" ] || { echo "VOICE APPROVAL GATE BLOCKED: stored voice preview was made from a different script."; exit 1; }
             curl -fsS --retry 2 --retry-delay 2 --max-time 120 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$INPUT_AUDIO_URL" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/kokoro_upload.mp3
             test -s work/kokoro_upload.mp3
@@ -280,7 +280,7 @@ jobs:
             echo "## Voice audio approval required"
             echo "The Kokoro preview and automated audio-quality report are saved in the artifact above."
             echo "No production render or YouTube upload ran. Review the audio, then reuse this exact object path:"
-            echo "`$(cat work/kokoro_audio_object_path.txt)`"
+            printf 'Object path: %s\n' "$(cat work/kokoro_audio_object_path.txt)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Request production manifest
