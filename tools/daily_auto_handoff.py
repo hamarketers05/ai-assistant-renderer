@@ -122,7 +122,7 @@ def main():
         return
 
     effective_date = str(long_result.get("slot_date") or starts)
-    category = str(long_result.get("category") or "")
+    category = str(long_result.get("category") or editorial_category)
     short_req = make_request(short, common_sources, "SHORT", effective_date, category=category)
     short_result = request_json(WORKER_URL + "/content-create", short_req, GITHUB_TOKEN)
     if str(short_result.get("slot_date") or effective_date) != effective_date:
