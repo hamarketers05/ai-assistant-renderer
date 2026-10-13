@@ -255,8 +255,12 @@ def attempt_patch(run, job, log):
                         "--fixed-strings", "--grep", f"path={target}"]).strip()
     if recent_patch:
         return False, "This file already received an automatic repair in the last 24 hours; preventing repeated AI patch loops."
-    if cmd(["git", "status", "--porcelain"]).strip():
-        return False, "Checkout was not clean; refusing to mix changes."
+    # The controller owns the untracked work/ directory for logs/reports; ignore only
+    # those generated artifacts, while still rejecting any unrelated working-tree changes.
+    dirty = [line for line in cmd(["git", "status", "--porcelain"]).splitlines()
+             if not line[3:].replace("\\\\", "/").startswith("work/")]
+    if dirty:
+        return False, "Checkout has unrelated changes; refusing to mix changes: " + "; ".join(dirty[:4])[:220]
     prompt = {
         "failed_workflow": run.get("name"), "failed_run_id": run.get("id"),
         "failed_job": job.get("name"), "one_allowed_file": target,
