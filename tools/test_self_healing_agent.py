@@ -52,6 +52,17 @@ def main():
     assert flux_issue and flux_issue["code"] == "FREE_IMAGE_ENDPOINT_RATE_LIMIT"
     assert "paid image services" in flux_issue["safe_recovery"]
 
+    # Regression: optional Groq being absent is not a credential failure when its configured
+    # Cloudflare fallback returned a transient 502; unrelated "Missing..." text in bundled job
+    # logs must not suppress the agent's bounded retry of the failed research run.
+    fallback_502_log = (
+        "Groq key absent; authenticated Cloudflare Workers AI fallback is enabled. "
+        "Authenticated Cloudflare AI fallback returned HTTP 502; Groq primary was unavailable. "
+        "Missing existing WORKER_AUTH_TOKEN repository secret."
+    )
+    assert agent.classify_configuration_failure(fallback_502_log) is None
+    assert agent.is_transient(fallback_502_log) is True
+
     short_script = agent.classify_renderer_input_quality_failure(
         {"name": "AI Assistant Renderer"},
         'CONTENT_FORMAT=LONG_VIDEO\n"planned_visual_scenes": 49'
