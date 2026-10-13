@@ -1,6 +1,11 @@
 name: AI Tech Lab Autonomous Self-Healing Agent
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/self_healing_agent.py"
+      - ".github/workflows/ai-self-healing-agent.yml"
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
@@ -33,9 +38,9 @@ jobs:
 
       - name: Run autonomous self-healing controller
         env:
-          GITHUB_TOKEN: \${{ github.token }}
-          GITHUB_REPOSITORY: \${{ github.repository }}
-          GROQ_API_KEY: \${{ secrets.GROQ_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GROQ_TEXT_MODEL: openai/gpt-oss-20b
         run: |
           set -euo pipefail
@@ -46,7 +51,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-tech-lab-self-heal-\${{ github.run_id }}
+          name: ai-tech-lab-self-heal-${{ github.run_id }}
           path: work/self_healing_report.json
           if-no-files-found: warn
           retention-days: 7
