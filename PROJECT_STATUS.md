@@ -3,24 +3,23 @@
 **Updated:** 2026-10-14 (PKT)  
 **Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
 **Branch:** main  
-**Reviewed code commit:** 980bf963c305031c45dbf940b44dafd678576d5e  
+**Reviewed code commit:** 8b3cfc17aded1fef1c45e644cac07e3896bde80d  
 **Current release status:** **BLOCKED — end-to-end content generation and publishing are not yet verified.** No paid billing enabled, no QA gates bypassed, and this session did not publish/upload content.
 
-**Updated:** 2026-10-14 (PKT)  
-**Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
-**Branch:** main  
-**Reviewed code commit:** 38848242bea84e45c27a7f1abd0ed3cb9fc8f49f  
-**Current release status:** **BLOCKED — end-to-end content generation and publishing are not yet verified.** No paid billing enabled, no QA gates bypassed, and no content was published in this model-coverage change.
 
-## 2026-10-14 — ML incident model v2 coverage candidate (CI verification pending)
+## 2026-10-14 — Self-healing ML v2 merged and CI-verified
 
-- Expanded supervised incident corpus from 50 to **150 curated training examples** and from 20 to **80 held-out evaluation examples**, covering **30 incident classes** across provider quotas/rate limits, code/import faults, regression tests, workflow configuration, dependencies, rendering and video integrity, audio/caption QA, asset licensing, storage, YouTube quota/upload/duplicate/scheduling, D1 dedup/state, source-claim mismatch, JSON/schema validation, queue failures, Worker deployments and invalid LLM output.
-- Bumped classifier version to `incident-nb-v2`; added class-by-class accuracy, macro accuracy, unclassified prediction count, per-class support and train/holdout class-coverage plus normalized-duplicate-leakage checks. Regression tests now require >=150 train examples, >=80 holdout examples, 30+ classes and the configured accuracy targets.
-- All ML predictions and advisory descriptions remain **diagnostic/advisory only**. They do not authorize credentials changes, risky repairs, workflow/Worker release, upload, scheduling, or bypass of QA. Unknown and low-confidence incidents remain unclassified. The model cannot guarantee repair of every unknown failure, and model confidence is not calibrated.
-- This is a **branch candidate**, not yet merged or CI-verified. The 150/80 corpus counts, label coverage and zero normalized text overlap were checked while building the candidate, but the model's new training/evaluation gates and its actual holdout metrics must be verified by GitHub Actions before considering the model v2 change passed. Do not treat the 100% coverage claim as universal problem coverage.
-- Branch: `feat/self-healing-ml-coverage-20261014`. No production Worker code, credentials, database schema, billing or publishing behavior was changed in this candidate.
+- **Merged to main:** PR [#11](https://github.com/hamarketers05/ai-assistant-renderer/pull/11), merge commit `8b3cfc17aded1fef1c45e644cac07e3896bde80d`. Only the existing repository was used; no duplicate repository was created.
+- **Training corpus:** 240 curated, balanced incident examples (8 for each of 30 classes); separate 80-example holdout split; runtime split checks require every class on both sides and reject normalized exact-text leakage. The corpus contains reviewed/synthetic examples based on known application and pipeline failure families, not every possible failure on the internet or an unlimited live production incident dataset.
+- **Measured holdout results:** accuracy **93.75% (75/80)**; macro accuracy **94.44%**; classification coverage **98.75% (79/80)**; selective accuracy **94.94% (75/79 classified cases)**. One case was left unclassified and 4 others were misclassified; the held-out evaluation report records the remaining errors for review. These are metrics on this small curated holdout, not a universal reliability guarantee.
+- **Incident coverage:** 30 classes across API rate limits and quotas, database quota/state, source evidence and factual claims, script length/audit, code syntax/import, test regressions, workflow configuration, dependencies, render timeout, media integrity, caption/audio QA, asset licensing, disk space, storage, YouTube quota/upload/duplicate/schedule verification, queues, Worker deployments, JSON/schema failures and invalid model output.
+- **Model:** `incident-nb-v2`, Multinomial Naive Bayes with word/bigram features. It is trained from the version-controlled labelled corpus on each self-healing run; this is not an online-learning model or a fine-tuned general coding LLM. Report confidence remains explicitly **uncalibrated**.
+- **Safety:** predictions and per-class advisories remain diagnostic only. They do **not** authorize arbitrary code edits, credential changes, deployment, billing changes, publication, duplicate uploads, QA bypasses or release decisions. Existing deterministic rules/allowlists and CI gates remain authoritative; unknown failures must remain unresolved/fail-closed rather than be blindly “fixed”.
+- **Verified checks:** [CI Workflow Guard run 38461653102](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38461653102) **passed** and [Renderer Static Validation run 38461652880](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38461652880) **passed** on code commit `d991da4e05706b3c714f0f83430b81bd3d8ad395). CI's 240-example holdout metrics were recorded in [run 38461443615](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38461443615); the classifier and corpus were unchanged in the later report-metadata-only commit checked by the two final runs.
+- **Post-merge checks:** main's [CI Workflow Guard 38461964096](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38461964096), [Renderer Static Validation 38461964089](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38461964089), [Self-Healing E2E Repair Test 38461964370](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38461964370) and [Autonomous Self-Healing Agent 38461964380](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38461964380) were queued immediately after merge; their eventual results must be checked before claiming those main-branch runs passed.
+- **Release remains BLOCKED:** this model change did not establish end-to-end trend-to-script generation, D1 state/dedup after quota recovery, production Kokoro narration/audio QA, actual MP4 playback review, paired Short generation, Supabase checksum read-back, YouTube upload/scheduling read-back or Analytics verification. Workers AI error 4006 and prior Groq 429 remain external capacity blockers; no paid billing was enabled and no publishing occurred.
 
-**Next exact action:** run PR CI/static validation for model v2, inspect actual per-class holdout metrics and regression logs, then merge only if all checks pass; keep release status blocked until content pipeline E2E verification is complete.
+**Next exact action:** verify all four post-merge main workflow runs, then resume only the no-publishing validator when free provider capacity permits; do not publish until the full content package and schedule read-back pass.
 
 ---
 
