@@ -1233,6 +1233,36 @@ jobs:
           test -s work/thumbnail_brief.json
           .venv/bin/python tools/make_premium_thumbnail.py --title-file work/title.txt --brief-file work/thumbnail_brief.json --output "$THUMBNAIL"
           convert "$THUMBNAIL" -sharpen 0x0.7 -quality 94 "output/thumbnail_${CONTENT_ID}.processed.jpg"
+          test -s "output/thumbnail_${CONTENT_ID}.processed.jpg"
+          .venv/bin/python - "$THUMBNAIL" "output/thumbnail_${CONTENT_ID}.processed.jpg" <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          from PIL import Image
+
+          source, processed = map(Path, sys.argv[1:3])
+          source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+          processed_hash = hashlib.sha256(processed.read_bytes()).hexdigest()
+          if source_hash == processed_hash:
+              raise SystemExit("ImageMagick did not change the thumbnail bytes; tool application is unverified.")
+          with Image.open(processed) as im:
+              size = list(im.size)
+              im.verify()
+          if size != [1280, 720]:
+              raise SystemExit(f"ImageMagick output dimensions are invalid: {size}")
+          report = {
+              "status": "used",
+              "tool": "ImageMagick convert",
+              "operation": "sharpen 0x0.7 and quality 94 JPEG finish",
+              "input": str(source),
+              "output": str(processed),
+              "input_sha256": source_hash,
+              "output_sha256": processed_hash,
+              "dimensions": size,
+              "output_changed": True,
+          }
+          Path("work/thumbnail_imagemagick_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+          print(json.dumps({"status": report["status"], "dimensions": size, "output_changed": True}))
+          PY
           mv "output/thumbnail_${CONTENT_ID}.processed.jpg" "$THUMBNAIL"
           test -s "$VIDEO"
           test -s "$THUMBNAIL"
