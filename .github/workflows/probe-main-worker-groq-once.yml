@@ -38,3 +38,20 @@ jobs:
             echo "MAIN_WORKER_GROQ_PROXY=FAIL"
             exit 1
           fi
+
+      - name: Verify Cloudflare-native source research (no content/upload)
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$WORKER_URL/admin/research-self-test?brand=AI_TECH_LAB&q=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("latest AI agent research and product announcements in the United States"))')"
+          code=$(curl -sS --max-time 180 -o research.json -w "%{http_code}" \
+            -H "Authorization: Bearer $WORKER_AUTH_TOKEN" "$URL")
+          echo "CLOUDFLARE_RESEARCH_HTTP=$code"
+          if [ "$code" != "200" ]; then
+            jq '{ok,error,detail}' research.json 2>/dev/null || true
+            echo "CLOUDFLARE_RESEARCH=FAIL"
+            exit 1
+          fi
+          jq '{ok,research_id,evidence_count,verified_claim_count,source_coverage,google_trends_api_status,google_trends_rss_status,warnings,topic_count:(.recommended_topics|length)}' research.json
+          jq -e '.ok == true and .checks.research_record_saved == true and .checks.at_least_three_sources == true and .checks.two_independent_publishers == true and .checks.at_least_one_cross_checked_claim == true' research.json >/dev/null
+          echo "CLOUDFLARE_RESEARCH=PASS"
