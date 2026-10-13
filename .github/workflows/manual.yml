@@ -885,6 +885,13 @@ jobs:
             echo "No topic-specific 3D hero is required for this title."
           fi
 
+      - name: Prepare transparent HUD and evidence-graph overlays for matching scenes
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/compose_scene_overlays.py
+          test -s work/chart_overlay_report.json
+          cat work/chart_overlay_report.json
+
       - name: Render scenes
         run: |
           set -euo pipefail
@@ -923,6 +930,8 @@ jobs:
           chart_report = json.loads(Path("work/evidence_charts_report.json").read_text(encoding="utf-8"))
           chart_files = [Path(p) for p in (chart_report.get("charts_created") or []) if Path(p).is_file()]
           chart_details = {Path(item.get("path", "")).name: item for item in (chart_report.get("chart_details") or []) if isinstance(item, dict) and item.get("path")}
+          overlay_report = json.loads(Path("work/chart_overlay_report.json").read_text(encoding="utf-8"))
+          chart_overlay_map = {str(item.get("scene")): item for item in (overlay_report.get("chart_assignments") or []) if isinstance(item, dict) and item.get("scene")}
           used_chart_names = set()
           chart_uses = []
           rendered_asset_records = []
@@ -960,28 +969,30 @@ jobs:
               target = Path(f"scenes/scene_{scene}.mp4")
               graphic = Path(f"assets/generated_scene_{scene}.png") if Path(f"assets/generated_scene_{scene}.png").exists() else Path(f"assets/generated_{(i % 6) + 1}.png")
               flux_graphic = Path(f"assets/flux_scene_{scene}.png")
-              chart_selected = False
-              chart_name = ""
+              free_media_graphic = Path(f"assets/free_media_scene_{scene}.jpg")
               scene_text = " ".join(str(x) for x in row[4:7])
-              for candidate_path in chart_files:
-                  if candidate_path.name in used_chart_names:
-                      continue
-                  detail = chart_details.get(candidate_path.name, {})
-                  if chart_matches(scene_text, detail):
-                      graphic = candidate_path
-                      chart_selected = True
-                      chart_name = candidate_path.name
-                      used_chart_names.add(chart_name)
-                      chart_uses.append({"scene": scene, "chart": chart_name, "title": str(detail.get("title") or ""), "source_url": str(detail.get("source_url") or "")})
-                      break
+              chart_meta = chart_overlay_map.get(scene)
+              chart_selected = bool(chart_meta)
+              chart_name = str((chart_meta or {}).get("chart") or "")
+              if chart_selected:
+                  used_chart_names.add(chart_name)
+                  chart_uses.append({
+                      "scene": scene, "chart": chart_name,
+                      "title": str(chart_meta.get("title") or ""),
+                      "source_url": str(chart_meta.get("source_url") or ""),
+                      "overlay_path": str(chart_meta.get("overlay_path") or "")
+                  })
 
               resize = shot_filter(i)
               has_stock = stock.exists() and stock.stat().st_size > 10000
-              has_flux = (not chart_selected) and (not has_stock) and flux_graphic.is_file()
+              has_flux = (not has_stock) and flux_graphic.is_file()
+              has_external_image = (not has_stock) and (not has_flux) and free_media_graphic.is_file()
               if has_flux:
                   graphic = flux_graphic
-              if not chart_selected and has_stock:
-                  overlay = Path(f"assets/scene_overlay_{scene}.png")
+              elif has_external_image:
+                  graphic = free_media_graphic
+              if has_stock:
+                  overlay = Path(f"assets/composite_overlay_scene_{scene}.png")
                   if overlay.exists():
                       run([
                           "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
@@ -1008,15 +1019,46 @@ jobs:
                       "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                   ])
 
+              # Charts are always transparent overlays, never replacement backgrounds.
+              # The normal Pillow scene art already contains its own HUD-style labels, so only
+              # the chart is composited over that specific primary visual when relevant.
+              if not has_stock:
+                  overlay_to_apply = None
+                  if has_flux or has_external_image:
+                      candidate_overlay = Path(f"assets/composite_overlay_scene_{scene}.png")
+                      if candidate_overlay.is_file():
+                          overlay_to_apply = candidate_overlay
+                  elif chart_selected:
+                      candidate_overlay = Path(f"assets/chart_overlay_scene_{scene}.png")
+                      if candidate_overlay.is_file():
+                          overlay_to_apply = candidate_overlay
+                  if overlay_to_apply is not None:
+                      temp_target = target.with_name(target.stem + "_overlay.mp4")
+                      run([
+                          "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                          "-i", str(target), "-loop", "1", "-framerate", "30", "-i", str(overlay_to_apply),
+                          "-t", str(duration), "-filter_complex",
+                          f"[0:v]setsar=1[base];[1:v]scale={width}:{height},format=rgba[ov];[base][ov]overlay=x=0:y=0:shortest=1,format=yuv420p[v]",
+                          "-map", "[v]", "-an", "-c:v", "libx264", "-preset", "veryfast",
+                          "-crf", "23", "-pix_fmt", "yuv420p", str(temp_target)
+                      ])
+                      temp_target.replace(target)
+
               if not target.exists() or target.stat().st_size < 1000:
                   raise SystemExit(f"Scene render failed: {scene}")
 
+              primary_asset = stock if has_stock else (flux_graphic if has_flux else (free_media_graphic if has_external_image else graphic))
+              has_hud_overlay = bool((has_stock or has_flux or has_external_image) and Path(f"assets/scene_overlay_{scene}.png").is_file())
+              has_chart_overlay = bool(chart_selected and Path(f"assets/chart_overlay_scene_{scene}.png").is_file())
               rendered_asset_records.append({
                   "scene": scene,
-                  "asset_type": "evidence_chart" if chart_selected else ("licensed_stock_broll" if has_stock else ("cloudflare_flux_image" if has_flux else "python_pillow_scene")),
+                  "primary_asset": str(primary_asset),
+                  "asset_type": "licensed_stock_broll" if has_stock else ("cloudflare_flux_image" if has_flux else ("free_commercial_image" if has_external_image else "python_pillow_scene")),
                   "evidence_chart": chart_name or None,
                   "flux_image_used": bool(has_flux),
-                  "hud_overlay_applied": bool((not chart_selected) and has_stock and Path(f"assets/scene_overlay_{scene}.png").is_file()),
+                  "external_source_image_used": bool(has_external_image),
+                  "hud_overlay_applied": has_hud_overlay,
+                  "chart_overlay_applied": has_chart_overlay,
                   "color_grade": "FFmpeg cinematic contrast/teal-warm balance/soft grain",
                   "motion": "Ken Burns/slow drift on scene imagery",
               })
@@ -1041,11 +1083,15 @@ jobs:
               "evidence_chart_files_generated": len(chart_files),
               "evidence_charts_used": len(chart_uses),
               "evidence_charts_unused": max(0, len(chart_files) - len(chart_uses)),
+              "chart_overlay_applied_count": sum(1 for x in rendered_asset_records if x["chart_overlay_applied"]),
               "chart_uses": chart_uses,
               "licensed_stock_broll_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "licensed_stock_broll"),
               "cloudflare_flux_image_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "cloudflare_flux_image"),
+              "external_source_image_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "free_commercial_image"),
               "python_pillow_scene_count": sum(1 for x in rendered_asset_records if x["asset_type"] == "python_pillow_scene"),
               "transparent_hud_overlay_applied_count": sum(1 for x in rendered_asset_records if x["hud_overlay_applied"]),
+              "video_resolution": f"{width}x{height}",
+              "chart_policy": "Data charts were composited as transparent overlays only; the selected image/video remains the primary scene.",
               "scenes": rendered_asset_records,
           }, indent=2, ensure_ascii=False), encoding="utf-8")
           print(json.dumps({"rendered_scenes": len(rendered_asset_records), "charts_used": len(chart_uses), "flux_images_used": sum(1 for x in rendered_asset_records if x["asset_type"] == "cloudflare_flux_image"), "hud_overlays_applied": sum(1 for x in rendered_asset_records if x["hud_overlay_applied"])}))
