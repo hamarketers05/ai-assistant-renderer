@@ -8,9 +8,14 @@ on:
         required: true
         type: string
       audio_url:
-        description: "Legacy compatibility only; ignored. Kokoro generates the narration automatically."
+        description: "Optional Supabase Storage object path for a previously previewed Kokoro MP3, e.g. ai-tech-lab/123/kokoro.mp3. Full signed URLs are not accepted."
         required: false
         type: string
+      voice_audio_approved:
+        description: "Manual release gate: set true only after listening to the voice-preview artifact for this exact script."
+        required: true
+        type: boolean
+        default: false
       content_format:
         description: "AI Tech Lab video format"
         required: true
@@ -72,6 +77,8 @@ jobs:
       CONTENT_FORMAT: ${{ inputs.content_format }}
       INPUT_TITLE: ${{ inputs.title }}
       INPUT_SCRIPT: ${{ inputs.script }}
+      INPUT_AUDIO_URL: ${{ inputs.audio_url }}
+      VOICE_AUDIO_APPROVED: ${{ inputs.voice_audio_approved }}
       INPUT_DESCRIPTION: ${{ inputs.description }}
       INPUT_TAGS: ${{ inputs.tags }}
       INPUT_PUBLISH_AT: ${{ inputs.publish_at }}
