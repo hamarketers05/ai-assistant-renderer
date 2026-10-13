@@ -345,6 +345,25 @@ def request_patch_model(prompt, system, run, target):
         return None, "", (groq_problem + " " if groq_problem else "") + "Cloudflare Workers AI fallback failed: " + type(exc).__name__
 
 
+
+def extract_target_date(log):
+    """Preserve an explicitly requested US publish date when restarting a failed research run."""
+    # Read only explicit dispatch/runtime target fields; do not infer from timestamps or unrelated dates.
+    patterns = (
+        r"(?m)^\s*TARGET_DATE\s*:\s*['\"]?(\d{4}-\d{2}-\d{2})\b",
+        r"(?i)\b--target-date\s+['\"]?(\d{4}-\d{2}-\d{2})\b",
+        r"(?i)\btarget_date\s*[:=]\s*['\"]?(\d{4}-\d{2}-\d{2})\b",
+    )
+    for pattern in patterns:
+        for candidate in reversed(re.findall(pattern, str(log or ""))):
+            try:
+                datetime.strptime(candidate, "%Y-%m-%d")
+                return candidate
+            except ValueError:
+                continue
+    return ""
+
+
 def attempt_patch(run, job, log):
     if not TOKEN:
         return False, "GitHub Actions token is unavailable; code auto-repair skipped."
@@ -435,6 +454,8 @@ def attempt_patch(run, job, log):
             cmd([sys.executable, target, "--self-test"], timeout=90)
         elif target == "tools/self_healing_canary.py":
             cmd([sys.executable, target, "--self-test"], timeout=30)
+        elif target == "tools/self_healing_agent.py":
+            cmd([sys.executable, "tools/test_self_healing_agent.py"], timeout=30)
         elif target == "tools/generate_flux_images.py":
             cmd([sys.executable, target, "--self-test", "--output", "work/flux_self_test_report.json"], timeout=90)
         cmd([sys.executable, "-m", "compileall", "-q", "tools"], timeout=90)
@@ -456,10 +477,13 @@ def attempt_patch(run, job, log):
         try:
             workflow_name = str(run.get("name", ""))
             if workflow_name == "AI Tech Lab Daily Research and Script":
-                dispatch("daily-content-research.yml")
+                target_date = extract_target_date(log)
+                dispatch_inputs = {"target_date": target_date} if target_date else None
+                dispatch("daily-content-research.yml", dispatch_inputs)
                 resumed = "daily-content-research.yml"
                 REPORT["actions"].append({"action": "resume_pipeline_after_patch", "workflow": resumed,
-                    "reason": "Research helper was repaired, locally validated and committed; fresh research run started."})
+                    "target_date_preserved": target_date or None,
+                    "reason": "Research helper was repaired, locally validated and committed; fresh research run started with the explicit target date preserved when present."})
             elif workflow_name == "AI Tech Lab Autonomous Self-Healing Agent":
                 dispatch("ai-self-healing-agent.yml")
                 resumed = "ai-self-healing-agent.yml"
