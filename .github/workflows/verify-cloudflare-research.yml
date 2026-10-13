@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 8
     env:
       WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+# Main Worker trims both configured and supplied bearer tokens before comparing.
       WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
       RESEARCH_QUERY: ${{ inputs.query || 'AI agent security incidents unauthorized internet access and safety evaluations' }}
     steps:
