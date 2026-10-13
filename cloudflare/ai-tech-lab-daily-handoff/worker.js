@@ -3,7 +3,9 @@ export default {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
     if (url.pathname === "/health" && request.method === "GET") {
-      return Response.json({ ok: true, status: "online", worker: "ai-tech-lab-daily-handoff", d1_binding: !!env.DB });
+      let d1Binding = false;
+      try { if (env.DB) { const check = await env.DB.prepare("SELECT 1 AS ok").first(); d1Binding = Number(check && check.ok) === 1; } } catch (_) {}
+      return Response.json({ ok: true, status: "online", worker: "ai-tech-lab-daily-handoff", d1_binding: d1Binding });
     }
     if (url.pathname === "/self-heal/report" && request.method === "POST") {
       try { return await receiveSelfHealReport(request, env); }
