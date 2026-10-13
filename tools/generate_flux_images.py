@@ -111,7 +111,10 @@ def pick_scenes(rows: list[list[str]], limit: int) -> list[list[str]]:
         # Stock clips are already motion footage and are preferred when available. Spend AI
         # inference only on scenes that would otherwise use the local static illustration.
         stock = Path("assets") / f"scene_{scene_id}.mp4"
+        licensed_image = Path("assets") / f"free_media_scene_{scene_id}.jpg"
         if stock.is_file() and stock.stat().st_size > 10_000:
+            continue
+        if licensed_image.is_file() and licensed_image.stat().st_size > 10_000:
             continue
         candidates.append(row)
     if len(candidates) <= limit:
