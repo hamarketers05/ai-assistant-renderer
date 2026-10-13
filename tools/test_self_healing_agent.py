@@ -93,6 +93,13 @@ def main():
     assert length_gate_issue and length_gate_issue["code"] == "CLOUDFLARE_SCRIPT_LENGTH_REPAIR_GATE"
     assert "v418 now requests one evidence-locked rewrite" in length_gate_issue["safe_recovery"]
     assert "never waive" in length_gate_issue["safe_recovery"]
+    audit_schema_issue = agent.classify_known_infrastructure_failure(
+        {"name": "Verify Cloudflare Trend Script (No Publishing)"},
+        "HTTP 422: stage=natural_script_audit; Independent Groq QA did not approve script; no package released.",
+    )
+    assert audit_schema_issue and audit_schema_issue["code"] == "CLOUDFLARE_NATURAL_AUDIT_NEEDS_ARTIFACT_DIAGNOSIS"
+    assert "Inspect the matching validation artifact" in audit_schema_issue["safe_recovery"]
+    assert "Never normalize an explicit approved=false" in audit_schema_issue["safe_recovery"]
     rate_issue = agent.classify_known_infrastructure_failure({"name": "AI Tech Lab Daily Research and Script"}, "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover.")
     assert rate_issue and rate_issue["code"] == "GROQ_RATE_LIMITED"
     assert "Retry-After/reset window" in rate_issue["safe_recovery"]
