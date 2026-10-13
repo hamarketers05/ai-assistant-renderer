@@ -258,7 +258,9 @@ def attempt_patch(run, job, log):
     # The controller owns the untracked work/ directory for logs/reports; ignore only
     # those generated artifacts, while still rejecting any unrelated working-tree changes.
     dirty = [line for line in cmd(["git", "status", "--porcelain"]).splitlines()
-             if not line[3:].replace("\\\\", "/").startswith("work/")]
+             if not (line[3:].replace("\\\\", "/").startswith("work/")
+                     or "__pycache__/" in line[3:].replace("\\\\", "/")
+                     or line[3:].endswith(".pyc"))]
     if dirty:
         return False, "Checkout has unrelated changes; refusing to mix changes: " + "; ".join(dirty[:4])[:220]
     prompt = {
