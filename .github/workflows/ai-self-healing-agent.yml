@@ -19,6 +19,7 @@ on:
       - "Renderer Static Validation"
       - "Verify Daily Handoff Endpoint (No Upload)"
       - "Midas SBS Validation"
+      - "Self-Healing E2E Repair Test"
     types: [completed]
   workflow_dispatch:
 
