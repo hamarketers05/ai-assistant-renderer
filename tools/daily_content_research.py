@@ -583,7 +583,7 @@ def main():
 
     evidence_context = [{"title": s["title"], "url": s["url"], "date": s["published_date"], "publisher": s.get("publisher", ""), "evidence": s["content"]} for s in sources]
     draft = groq_json(
-        """You are the lead English-language YouTube scriptwriter for AI Tech Lab (USA audience). Use ONLY supplied evidence for factual specifics; never invent numbers, quotes, product capabilities, release dates, or market claims. Explain uncertainty and limitations. Create a fresh 6-minute explainer in the assigned editorial category, not a paraphrase. HUMAN VALUE REQUIREMENT: every video must help a real viewer understand or decide something useful. Identify the target viewer's real question, explain why the development matters in everyday life/work/business, include at least one concrete scenario or decision framework, state practical next steps or what to watch for, explain meaningful trade-offs/limitations, and end with a specific takeaway rather than a generic summary. Do not invent hands-on experience or claim the channel tested a tool unless the supplied evidence proves it. Keep advice proportional to evidence and distinguish facts, analysis, opinion, and forecasts. Return JSON keys: title, script, description, tags (array), hook_candidates (array of 3), claims (array of {claim, source_urls, confidence}), visual_direction (array of {section, visual, movement, overlay}), and chapters (array of {label, approximate_position}). Script must be spoken narration only, 700-900 words, US English, a specific hook, clear story arc, varied sentences, accessible but intelligent, concrete evidence-based examples, balanced caveats and concise CTA. No unsupported superlatives. Do not add production instructions inside narration.
+        """You are the lead English-language YouTube scriptwriter for AI Tech Lab (USA audience). Use ONLY supplied evidence for factual specifics; never invent numbers, quotes, product capabilities, release dates, or market claims. Explain uncertainty and limitations. Create a fresh 6-minute explainer in the assigned editorial category, not a paraphrase. HUMAN VALUE REQUIREMENT: every video must help a real viewer understand or decide something useful. Identify the target viewer's real question, explain why the development matters in everyday life/work/business, include at least one concrete scenario or decision framework, state practical next steps or what to watch for, explain meaningful trade-offs/limitations, and end with a specific takeaway rather than a generic summary. Do not invent hands-on experience or claim the channel tested a tool unless the supplied evidence proves it. Keep advice proportional to evidence and distinguish facts, analysis, opinion, and forecasts. Return JSON keys: title, script, description, tags (array), hook_candidates (array of 3), claims (array of {claim, source_urls, confidence}), visual_direction (array of {section, visual, movement, overlay}), and chapters (array of {label, approximate_position}). Script must be spoken narration only, 850-950 words, US English, a specific hook, clear story arc, varied sentences, accessible but intelligent, concrete evidence-based examples, balanced caveats and concise CTA. No unsupported superlatives. Do not add production instructions inside narration.
 
 PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not a generic AI summary bot. Make this video's analysis recognizably original, with unique predictions where the evidence supports them, reasoned hot takes, clearly labelled personal opinions, and cautious futuristic theories when useful. Clearly distinguish opinions and forecasts from verified facts; never invent numbers, quotations, hands-on tests, or human lived experience. Use conversational professional voice, varied sentence lengths, contractions where natural, vivid analogies, specific stakes, and transitions that advance the story. Do not manufacture personal experience. Avoid the same sentence opener repeated three or more times, generic AI hype, list-reading, unnecessary signposting, empty filler, and phrases from the natural-voice guidance.
 
@@ -595,12 +595,12 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
     script = re.sub(r"\r\n?", "\n", str(draft.get("script", "")).strip())
     words = len(re.findall(r"\b[\w'-]+\b", script))
     # Workers AI may under-run a requested full script. Try one fact-locked rewrite, then add a distinct useful middle section.
-    if title and (words < 700 or words > 950):
+    if title and (words < 850 or words > 1000):
         print(f"Initial script draft is {words} words; requesting one bounded length repair.")
         try:
             repaired = groq_json(
                 """You are a careful long-form script editor for AI Tech Lab, a US-audience technology channel.
-                Repair the supplied narration toward 750-850 spoken words. Preserve its thesis and supported facts.
+                Repair the supplied narration toward 850-950 spoken words. Preserve its thesis and supported facts.
                 Use ONLY the supplied source evidence for factual specifics. Do not invent numbers, dates, quotes,
                 product capabilities, tests, or lived experience. Improve practical viewer value, trade-offs,
                 limitations, a concrete scenario, and the takeaway. Natural spoken US English, no filler.
@@ -613,7 +613,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
             repaired_title = re.sub(r"\s+", " ", str(repaired.get("title", "")).strip())[:100]
             repaired_script = re.sub(r"\r\n?", "\n", str(repaired.get("script", "")).strip())
             repaired_words = len(re.findall(r"\b[\w'-]+\b", repaired_script))
-            if repaired_title and 450 <= repaired_words <= 1000 and len(repaired_script) >= 2200:
+            if repaired_title and 800 <= repaired_words <= 1000 and len(repaired_script) >= 4500:
                 title, script, words = repaired_title, repaired_script, repaired_words
                 draft["script"] = script
                 print(f"Bounded rewrite accepted for repair; current script has {words} words.")
@@ -622,7 +622,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
         except Exception as repair_error:
             print("Bounded rewrite failed (" + type(repair_error).__name__ + "); original draft retained.")
 
-    if title and words < 700:
+    if title and words < 850:
         print(f"Script still short ({words} words); requesting an evidence-locked practical middle segment.")
         segment_result = groq_json(
             """Write ONE ADDITIVE MIDDLE SEGMENT for the supplied six-minute US English YouTube explainer.
@@ -661,7 +661,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
                 candidate_parts = paragraphs[:insert_at] + ([segment] if segment else []) + paragraphs[insert_at:]
                 candidate = "\n\n".join(candidate_parts)
                 candidate_words = len(re.findall(r"\b[\w'-]+\b", candidate))
-            if 700 <= candidate_words <= 1000:
+            if 850 <= candidate_words <= 1000:
                 script, words = candidate, candidate_words
                 draft["script"] = script
                 print(f"Practical middle segment accepted; script now has {words} words.")
@@ -683,7 +683,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
                     bridge_parts.insert(min(insert_at + 1, len(bridge_parts)), bridge)
                     candidate = "\n\n".join(bridge_parts)
                     candidate_words = len(re.findall(r"\b[\w'-]+\b", candidate))
-                    if 700 <= candidate_words <= 1000:
+                    if 850 <= candidate_words <= 1000:
                         script, words = candidate, candidate_words
                         draft["script"] = script
                         print(f"Bridge segment accepted; script now has {words} words.")
@@ -694,7 +694,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
         else:
             print(f"Practical middle segment invalid ({segment_words} words); no unsupported text will be added.")
 
-    if not title or words < 700 or words > 1000:
+    if not title or words < 850 or words > 1000:
         raise SystemExit(f"Script failed six-minute word-count/title gate ({words} words; title present={bool(title)}).")
     title_similarity = title_similarity_ratio(title, learning.get("last_title", ""))
     if learning.get("last_title") and title_similarity >= 0.62:
@@ -705,7 +705,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
         hooks = [script.split(".")[0].strip()]
 
     audit = groq_json(
-        """You are an independent fact-checking editor and human-voice editor. Review the complete script against only the supplied source evidence. Return JSON keys: score (integer 1-10), human_voice_score (integer 1-10), selected_hook (one concise opening line), revised_script (complete spoken script, 650-950 words), unsupported_claims (array of exact unsupported claims), corrections_made (array), robotic_signals (array of specific issues), natural_phrasing_changes (array), decision (PASS or REVISE). Improve the first 15 seconds and transitions, preserve supported facts and natural American English, and revise the narration rather than merely describing problems. Remove or qualify unsupported claims. Never invent evidence. Audit HUMAN VALUE too: the narration must answer a real viewer question, explain practical consequences, include a concrete scenario or usable decision framework, cover meaningful trade-offs/limitations, and provide a specific takeaway or next step. Replace generic recap with useful analysis where needed; never fabricate personal experience, hands-on tests, facts, or outcomes.
+        """You are an independent fact-checking editor and human-voice editor. Review the complete script against only the supplied source evidence. Return JSON keys: score (integer 1-10), human_voice_score (integer 1-10), selected_hook (one concise opening line), revised_script (complete spoken script, 850-1000 words), unsupported_claims (array of exact unsupported claims), corrections_made (array), robotic_signals (array of specific issues), natural_phrasing_changes (array), decision (PASS or REVISE). Improve the first 15 seconds and transitions, preserve supported facts and natural American English, and revise the narration rather than merely describing problems. Remove or qualify unsupported claims. Never invent evidence. Audit HUMAN VALUE too: the narration must answer a real viewer question, explain practical consequences, include a concrete scenario or usable decision framework, cover meaningful trade-offs/limitations, and provide a specific takeaway or next step. Replace generic recap with useful analysis where needed; never fabricate personal experience, hands-on tests, facts, or outcomes.
 
 Preserve a recognizable editorial point of view and natural spoken rhythm. Vary sentence lengths and openings, use contractions when appropriate, prefer specific concrete language, and avoid canned openings, repeated transitions, inflated certainty, empty hype, fake lived experience, and robotic list-reading. Use a reasoned hot take and a clearly framed forecast only when supported. Distinguish factual claims from commentary.
 
@@ -716,8 +716,8 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         max_tokens=3300, temperature=0.15)
     revised = re.sub(r"\r\n?", "\n", str(audit.get("revised_script", "")).strip())
     revised_words = len(re.findall(r"\b[\w'-]+\b", revised))
-    if 700 <= revised_words <= 1000:
-        script = revised
+    if 850 <= revised_words <= 1000:
+        script, words = revised, revised_words
     hook_score = int(audit.get("score", 0) or 0)
     try:
         auditor_voice_score = int(audit.get("human_voice_score", 0) or 0)
@@ -727,7 +727,7 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         raise SystemExit(f"Groq hook review scored {hook_score}/10. No publish-ready script package was released.")
     if auditor_voice_score < 7:
         raise SystemExit(f"Independent human-voice audit scored {auditor_voice_score}/10. No publish-ready script package was released.")
-    if not script or len(script) < 2500:
+    if not script or words < 850 or words > 1000 or len(script) < 4500:
         raise SystemExit("Final script did not pass length/content validation.")
     human_voice_qa = evaluate_human_voice(script)
     if human_voice_qa["score"] < 62:
