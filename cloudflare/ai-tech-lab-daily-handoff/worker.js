@@ -153,7 +153,7 @@ async function receiveSelfHealReport(request, env) {
   const reportDate = /^\d{4}-\d{2}-\d{2}/.test(safeReport.started_at) ? safeReport.started_at.slice(0, 10) : new Date().toISOString().slice(0, 10);
   const summary = "Self-healing run " + runId + ": " + status + "; worker probes " + health.filter(x => x.ok).length + "/" + health.length + "; actions " + actions.length + "; unresolved " + unresolved.length + ".";
   const statements = [
-    env.DB.prepare("INSERT INTO automation_reports(report_type,report_date,body,status,sent_to) VALUES(?,?,?,?,?)").bind("SELF_HEALING_AGENT", reportDate, serialized, status, "HA DIGITAL AGENCY dashboard / D1"),
+    env.DB.prepare("INSERT INTO automation_reports(report_type,report_date,body,status,sent_to) VALUES(?,?,?,?,?) ON CONFLICT(report_type,report_date) DO UPDATE SET body=excluded.body,status=excluded.status,sent_to=excluded.sent_to,created_at=CURRENT_TIMESTAMP").bind("SELF_HEALING_AGENT", reportDate, serialized, status, "HA DIGITAL AGENCY dashboard / D1"),
     env.DB.prepare("INSERT INTO system_logs(level,component,message) VALUES(?,?,?)").bind(status === "HEALTHY" ? "INFO" : "WARN", "SELF_HEALING_AGENT", summary),
     env.DB.prepare("INSERT OR IGNORE INTO assistant_schedule_runs(run_key,run_type,ran_at) VALUES(?,?,CURRENT_TIMESTAMP)").bind(runKey, "SELF_HEALING_AGENT"),
     env.DB.prepare("INSERT INTO system_health(component,status,response_ms,error_message,last_check) VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(component) DO UPDATE SET status=excluded.status,response_ms=excluded.response_ms,error_message=excluded.error_message,last_check=CURRENT_TIMESTAMP").bind("self-healing-agent", status, null, unresolved.length ? unresolved.slice(0, 3).join(" | ").slice(0, 800) : null)
