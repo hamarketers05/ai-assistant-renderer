@@ -1,6 +1,9 @@
 name: AI Tech Lab Daily Research and Script
 
 on:
+  push:
+    paths:
+      - ".github/run-once/daily-research-oct15.txt"
   schedule:
     - cron: "0 14 * * *"
   workflow_dispatch:
@@ -25,17 +28,19 @@ concurrency:
 jobs:
   research-and-script:
     name: US YouTube trends to sourced script
+    if: ${{ github.event_name != 'push' || github.event.head_commit.message == 'RUN-AI-TECH-LAB-OCT15-ONCE' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+      WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       GITHUB_TOKEN: ${{ github.token }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       SEED_TOPIC: ${{ inputs.seed_topic }}
-      TARGET_DATE: ${{ inputs.target_date }}
+      TARGET_DATE: ${{ inputs.target_date || (github.event_name == 'push' && github.event.head_commit.message == 'RUN-AI-TECH-LAB-OCT15-ONCE' && '2026-10-15') || '' }}
       GROQ_TEXT_MODEL: openai/gpt-oss-20b
     steps:
       - name: Checkout repository
@@ -50,9 +55,13 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$WORKER_AUTH_TOKEN" || { echo "Missing existing WORKER_AUTH_TOKEN repository secret."; exit 1; }
-          test -n "$TAVILY_API_KEY" || { echo "Missing TAVILY_API_KEY repository secret."; exit 1; }
-          if [ -z "$GROQ_API_KEY" ]; then echo "Groq key absent; authenticated Cloudflare Workers AI fallback is enabled."; fi
           test -n "$GITHUB_TOKEN"
+          if [ -n "$TAVILY_API_KEY" ]; then
+            echo "Direct Tavily key is configured."
+          else
+            echo "GitHub Tavily secret is absent; the existing Cloudflare main Worker research proxy will use its TAVILY_API_KEY binding."
+          fi
+          if [ -z "$GROQ_API_KEY" ]; then echo "Groq key absent; authenticated Cloudflare Workers AI fallback is enabled."; fi
           python -m pip install --disable-pip-version-check numpy pillow
           python tools/mini_agents.py --self-test
 
