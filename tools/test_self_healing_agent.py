@@ -8,6 +8,7 @@ import self_healing_agent as agent
 
 def main():
     assert agent.is_retired_diagnostic_workflow({"name": "One-time Main Worker Groq Proxy Probe"}) is True
+    assert agent.is_retired_diagnostic_workflow({"name": "Temporary Cloudflare Oct 15 Research Smoke Test"}) is True
     assert agent.is_retired_diagnostic_workflow({"name": "AI Assistant Renderer"}) is False
     assert agent.extract_target_date("TARGET_DATE: 2026-10-15") == "2026-10-15"
     assert agent.extract_target_date("TARGET_DATE: ") == ""
