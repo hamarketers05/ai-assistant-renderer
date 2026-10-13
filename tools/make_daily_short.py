@@ -64,6 +64,7 @@ def main():
     }
     body = json.dumps({
         "model": MODEL, "temperature": 0.25, "max_tokens": 850,
+        "response_format": {"type": "json_object"},
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": json.dumps(user, ensure_ascii=False)}],
     }).encode()
@@ -74,7 +75,12 @@ def main():
     if not data or not data.get("choices"):
         raise SystemExit("AI provider returned no Short completion.")
     provider = str(data.get("provider", "groq"))
-    result = parse_json(data["choices"][0]["message"]["content"])
+    try:
+        result = parse_json(data["choices"][0]["message"]["content"])
+    except (KeyError, IndexError, TypeError, ValueError, RuntimeError) as exc:
+        raise SystemExit("Short AI response was not valid JSON; no Short was released. Details: " + type(exc).__name__) from None
+    if not isinstance(result, dict):
+        raise SystemExit("Short AI response was not a JSON object; no Short was released.")
     short_title = re.sub(r"\s+", " ", str(result.get("title", "")).strip())[:85]
     short_text = re.sub(r"\r\n?", "\n", str(result.get("script", "")).strip())
     words = len(re.findall(r"\b[\w'-]+\b", short_text))
