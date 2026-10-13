@@ -48,11 +48,6 @@ on:
         description: "Optional UTC publish time"
         required: false
         type: string
-      skip_groq_review:
-        description: "Skip Groq final AI/vision review for this run only; other technical, license, 3D and upload checks remain mandatory."
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -301,6 +296,7 @@ jobs:
       - name: Apply optional topic-aware Rubber Band pitch shaping
         run: |
           set -euo pipefail
+          mkdir -p work
           if command -v rubberband >/dev/null 2>&1; then
             LOWER_TITLE=$(printf '%s %s' "$INPUT_TITLE" "$INPUT_SCRIPT" | tr '[:upper:]' '[:lower:]')
             if [[ "$LOWER_TITLE" =~ (security|risk|privacy|serious|safety) ]]; then
@@ -320,14 +316,28 @@ jobs:
               raise SystemExit("Pitch stage changed narration duration unexpectedly.")
           PY
               mv work/voice_pitch.wav work/voice_edited.wav
+              .venv/bin/python - "$PITCH" "$ORIGINAL_SECONDS" "$PITCHED_SECONDS" <<'PY'
+          import json,sys
+          from pathlib import Path
+          pitch,original,pitched=sys.argv[1:]
+          Path("work/rubberband_report.json").write_text(json.dumps({
+              "status":"used","pitch_semitones":float(pitch),
+              "original_duration_seconds":round(float(original),3),
+              "pitched_duration_seconds":round(float(pitched),3),
+              "duration_preserved":abs(float(original)-float(pitched))<=0.5,
+          },indent=2)+"\n",encoding="utf-8")
+          PY
               echo "Validated subtle topic-aware pitch shaping."
             else
               rm -f work/voice_pitch.wav
+              printf '%s\n' '{"status":"skipped","reason":"Rubber Band command failed; unmodified voice retained."}' > work/rubberband_report.json
               echo "Rubber Band failed; retaining clean narration."
             fi
           else
+            printf '%s\n' '{"status":"skipped","reason":"Rubber Band CLI unavailable on the free hosted runner; clean narration retained."}' > work/rubberband_report.json
             echo "Rubber Band unavailable; retaining clean narration."
           fi
+          test -s work/rubberband_report.json
 
 
       - name: Build sentence-by-sentence visual direction
@@ -935,6 +945,14 @@ jobs:
           used_chart_names = set()
           chart_uses = []
           rendered_asset_records = []
+          if is_short:
+              overlay_target_count = min(len(rows), min(10, max(4, round(len(rows) / 3))))
+          else:
+              overlay_target_count = min(len(rows), min(30, max(25, round(len(rows) / 3))))
+          overlay_indices = {
+              min(len(rows) - 1, (index * len(rows)) // overlay_target_count)
+              for index in range(overlay_target_count)
+          } if rows and overlay_target_count > 0 else set()
           stop_words = set("the and for with from into that this these those then than have has had are was were can could will would should about after before your you our their they them its how what when where why which while explain explained latest trend news future technology".split())
 
           def meaningful_terms(value):
@@ -974,6 +992,12 @@ jobs:
               chart_meta = chart_overlay_map.get(scene)
               chart_selected = bool(chart_meta)
               chart_name = str((chart_meta or {}).get("chart") or "")
+              composite_overlay_path = Path(f"assets/composite_overlay_scene_{scene}.png")
+              scene_overlay_path = Path(f"assets/scene_overlay_{scene}.png")
+              chart_overlay_path = Path(f"assets/chart_overlay_scene_{scene}.png")
+              should_apply_overlay = i in overlay_indices or chart_selected
+              hud_overlay_applied = bool(should_apply_overlay and composite_overlay_path.is_file() and scene_overlay_path.is_file())
+              chart_overlay_applied = bool(should_apply_overlay and chart_selected and composite_overlay_path.is_file() and chart_overlay_path.is_file())
               if chart_selected:
                   used_chart_names.add(chart_name)
                   chart_uses.append({
@@ -992,8 +1016,8 @@ jobs:
               elif has_external_image:
                   graphic = free_media_graphic
               if has_stock:
-                  overlay = Path(f"assets/composite_overlay_scene_{scene}.png")
-                  if overlay.exists():
+                  overlay = composite_overlay_path
+                  if overlay.is_file() and (hud_overlay_applied or chart_overlay_applied):
                       run([
                           "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(stock),
                           "-loop", "1", "-framerate", "30", "-i", str(overlay),
@@ -1019,19 +1043,15 @@ jobs:
                       "-crf", "23", "-pix_fmt", "yuv420p", str(target)
                   ])
 
-              # Charts are always transparent overlays, never replacement backgrounds.
-              # The normal Pillow scene art already contains its own HUD-style labels, so only
-              # the chart is composited over that specific primary visual when relevant.
+              # Apply transparent HUD composites to generated art, FLUX, downloads and charts alike.
+              # Source-backed data graphics stay transparent overlays over the selected primary visual.
               if not has_stock:
                   overlay_to_apply = None
-                  if has_flux or has_external_image:
-                      candidate_overlay = Path(f"assets/composite_overlay_scene_{scene}.png")
-                      if candidate_overlay.is_file():
-                          overlay_to_apply = candidate_overlay
-                  elif chart_selected:
-                      candidate_overlay = Path(f"assets/chart_overlay_scene_{scene}.png")
-                      if candidate_overlay.is_file():
-                          overlay_to_apply = candidate_overlay
+                  if hud_overlay_applied or chart_overlay_applied:
+                      if composite_overlay_path.is_file():
+                          overlay_to_apply = composite_overlay_path
+                      elif chart_overlay_applied and chart_overlay_path.is_file():
+                          overlay_to_apply = chart_overlay_path
                   if overlay_to_apply is not None:
                       temp_target = target.with_name(target.stem + "_overlay.mp4")
                       run([
@@ -1048,8 +1068,6 @@ jobs:
                   raise SystemExit(f"Scene render failed: {scene}")
 
               primary_asset = stock if has_stock else (flux_graphic if has_flux else (free_media_graphic if has_external_image else graphic))
-              has_hud_overlay = bool((has_stock or has_flux or has_external_image) and Path(f"assets/composite_overlay_scene_{scene}.png").is_file() and Path(f"assets/scene_overlay_{scene}.png").is_file())
-              has_chart_overlay = bool(chart_selected and Path(f"assets/chart_overlay_scene_{scene}.png").is_file())
               rendered_asset_records.append({
                   "scene": scene,
                   "primary_asset": str(primary_asset),
@@ -1057,8 +1075,8 @@ jobs:
                   "evidence_chart": chart_name or None,
                   "flux_image_used": bool(has_flux),
                   "external_source_image_used": bool(has_external_image),
-                  "hud_overlay_applied": has_hud_overlay,
-                  "chart_overlay_applied": has_chart_overlay,
+                  "hud_overlay_applied": hud_overlay_applied,
+                  "chart_overlay_applied": chart_overlay_applied,
                   "color_grade": "FFmpeg cinematic contrast/teal-warm balance/soft grain",
                   "motion": "Ken Burns/slow drift on scene imagery",
               })
@@ -1353,7 +1371,6 @@ jobs:
           PY
 
       - name: Groq router reviews rendered video, visual match, audio assets and thumbnail
-        if: inputs.skip_groq_review != true
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GROQ_TEXT_MODEL: openai/gpt-oss-20b
@@ -1368,28 +1385,6 @@ jobs:
           test -s work/video_review_metrics.json
           jq '{review_status,decision,overall_score,blocking_issues,top_improvements}' work/video_review_report.json
 
-      - name: Record user-authorized Groq review skip
-        if: inputs.skip_groq_review == true
-        run: |
-          set -euo pipefail
-          jq -n --arg content_id "$CONTENT_ID" '{
-            content_id: $content_id,
-            review_status: "skipped",
-            decision: "SKIPPED_USER_AUTHORIZED",
-            reviewer: "Groq final video/vision review",
-            user_authorized_skip: true,
-            blocking_issues: [],
-            top_improvements: ["No AI/vision review was performed. Run the Groq review on a future pass if you need that additional assurance."],
-            note: "Groq final AI review skipped at user request. Remaining automated technical, footage-license, 3D, thumbnail, schedule and YouTube verification gates remain mandatory."
-          }' > work/video_review_report.json
-          jq -n '{
-            review_status: "skipped",
-            reviewer: "Groq final video/vision review",
-            user_authorized_skip: true,
-            ai_vision_approval: false
-          }' > work/video_review_metrics.json
-          cat work/video_review_report.json
-
       - name: Save video artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -1399,6 +1394,7 @@ jobs:
             output/thumbnail_${{ inputs.content_id }}.jpg
             work/asset_sources.jsonl
             work/voice_edit_report.json
+            work/rubberband_report.json
             work/kokoro_tts_report.json
             work/kokoro_audio_quality.json
             work/kokoro_voice.wav
@@ -1432,7 +1428,6 @@ jobs:
           retention-days: 7
 
       - name: Persist final QA feedback for the next video
-        if: inputs.skip_groq_review != true
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
@@ -1466,22 +1461,17 @@ jobs:
           fi
 
       - name: Block upload if final quality review found critical issues
-        env:
-          SKIP_GROQ_REVIEW: ${{ inputs.skip_groq_review }}
         run: |
           set -euo pipefail
           test -s work/video_review_report.json
           STATUS=$(jq -r '.review_status // "failed"' work/video_review_report.json)
           DECISION=$(jq -r '.decision // "BLOCK"' work/video_review_report.json)
-          if [ "$STATUS" = "skipped" ] && [ "$DECISION" = "SKIPPED_USER_AUTHORIZED" ] && [ "$SKIP_GROQ_REVIEW" = "true" ]; then
-            echo "NOTICE: Groq final AI/vision review was skipped at the user's request. No AI/vision approval is claimed."
-            echo "Continuing only to the remaining mandatory technical, licensed-footage, 3D and YouTube verification gates."
-          elif [ "$STATUS" != "completed" ] || [ "$DECISION" = "BLOCK" ]; then
+          if [ "$STATUS" != "completed" ] || [[ "$DECISION" != "PASS" && "$DECISION" != "IMPROVE" ]]; then
             jq '{review_status,decision,blocking_issues,top_improvements}' work/video_review_report.json
-            echo "UPLOAD BLOCKED: final review failed or returned BLOCK."
+            echo "UPLOAD BLOCKED: final Groq video/vision review is missing, failed, skipped, or returned a non-accepted decision."
             exit 1
           else
-            echo "Final video review accepted: $DECISION."
+            echo "Final video/vision review accepted: $DECISION."
           fi
 
       - name: Require script-relevant licensed footage before upload

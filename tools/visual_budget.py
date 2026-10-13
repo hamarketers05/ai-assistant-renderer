@@ -65,8 +65,35 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
     overlay_count = hud_count + chart_count
     elements = scene_count + overlay_count + captions
     flux_used = sum(1 for row in scene_rows if row.get("flux_image_used"))
-    vecteezy = len({str(row.get("asset_id")) for row in source_rows
-                    if str(row.get("provider") or "").lower() == "vecteezy" and row.get("asset_id") is not None})
+
+    def norm_path(value: Any) -> str:
+        return str(value or "").replace("\\", "/").lstrip("./")
+
+    # Count only eligible Vecteezy clips actually selected as rendered primary visuals.
+    scene_by_id = {str(row.get("scene")): row for row in scene_rows if row.get("scene") is not None}
+    vecteezy_ids: set[str] = set()
+    for source in source_rows:
+        if str(source.get("provider") or "").strip().lower() != "vecteezy":
+            continue
+        label = str(source.get("license_label") or "").strip().lower()
+        source_url = str(source.get("source_url") or "")
+        creator = str(source.get("creator") or "").strip()
+        asset_id = str(source.get("asset_id") or "").strip()
+        scene_id = str(source.get("scene") or "")
+        rendered = scene_by_id.get(scene_id)
+        if not rendered or rendered.get("asset_type") != "licensed_stock_broll":
+            continue
+        if norm_path(rendered.get("primary_asset")) != norm_path(source.get("asset_path")):
+            continue
+        if label not in {"free", "free license"} or source.get("commercial_use_allowed") is not True:
+            continue
+        if not creator or not source_url.startswith("https://") or "vecteezy.com" not in source_url.lower():
+            continue
+        if not asset_id:
+            continue
+        vecteezy_ids.add(asset_id)
+    vecteezy = len(vecteezy_ids)
+
     native_hd = video.get("width") == 1920 and video.get("height") == 1080
     duration = float(video.get("duration_seconds") or 0)
     checks = {
@@ -77,14 +104,18 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
         "at_least_100_timeline_visual_elements": elements >= min_elements,
         "six_flux_images_actually_used": flux_used >= 6,
         "ten_vecteezy_assets_verified": vecteezy >= 10,
+        "at_least_25_hud_overlays_applied": hud_count >= 25,
         "every_rendered_scene_has_primary_asset_record": scene_count > 0 and len(primary_assets) == scene_count,
     }
     return {
         "status": "passed" if all(checks.values()) else "blocked",
         "content_format_target": "6-minute Full HD AI Tech Lab long video",
         "video": video,
-        "source_targets": {"cloudflare_flux_actual_scene_uses": {"target": 6, "actual": flux_used},
-                           "vecteezy_verified_assets": {"target": 10, "actual": vecteezy}},
+        "source_targets": {
+            "cloudflare_flux_actual_scene_uses": {"target": 6, "actual": flux_used},
+            "vecteezy_verified_assets_actually_rendered": {"target": 10, "actual": vecteezy},
+            "hud_overlay_placements": {"target_minimum": 25, "actual": hud_count},
+        },
         "visual_counts": {
             "rendered_scene_placements": scene_count,
             "unique_primary_visual_assets": len(unique_assets),
@@ -97,22 +128,41 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
         },
         "checks": checks,
         "upload_blocked_if_any_check_fails": True,
-        "counting_policy": "Primary images/video scenes, separately rendered HUD/chart overlays and timed caption cues are reported separately; scene transitions do not inflate the visual-element count.",
+        "counting_policy": "Only primary assets recorded on rendered scenes count as unique. Vecteezy counts only when the exact Free License asset, source, creator and asset path match a rendered licensed stock scene. HUD/chart placements count only when the renderer records that compositing occurred; captions remain separately reported.",
     }
 
 
 def self_test() -> None:
-    scenes = [{"primary_asset": f"assets/generated_scene_{i}.png",
-               "hud_overlay_applied": i < 20, "chart_overlay_applied": i < 3,
-               "flux_image_used": i < 6} for i in range(90)]
-    sources = [{"provider": "Vecteezy", "asset_id": str(i)} for i in range(10)]
+    scenes = []
+    sources = []
+    for i in range(90):
+        asset = f"assets/scene_{i}.mp4" if i < 10 else f"assets/generated_scene_{i}.png"
+        asset_type = "licensed_stock_broll" if i < 10 else "python_pillow_scene"
+        scenes.append({
+            "scene": str(i), "primary_asset": asset, "asset_type": asset_type,
+            "hud_overlay_applied": i < 30, "chart_overlay_applied": i < 3,
+            "flux_image_used": 10 <= i < 16,
+        })
+        if i < 10:
+            sources.append({
+                "provider": "Vecteezy", "asset_id": str(i), "scene": str(i),
+                "asset_path": asset, "license_label": "Free License",
+                "commercial_use_allowed": True, "source_url": f"https://www.vecteezy.com/video/{i}",
+                "creator": f"CI creator {i}",
+            })
     report = evaluate(scenes, sources, 25, {"width": 1920, "height": 1080, "duration_seconds": 360})
     if report["status"] != "passed":
         raise SystemExit(f"Visual budget self-test failed: {report}")
+    unused_scenes = [dict(row, asset_type="python_pillow_scene", primary_asset=f"assets/generated_scene_{i}.png")
+                     for i, row in enumerate(scenes)]
+    unused = evaluate(unused_scenes, sources, 25, {"width": 1920, "height": 1080, "duration_seconds": 360})
+    if unused["checks"]["ten_vecteezy_assets_verified"] is not False:
+        raise SystemExit("Visual budget incorrectly counted unrendered Vecteezy sources.")
     bad = evaluate(scenes[:20], sources[:2], 2, {"width": 1280, "height": 720, "duration_seconds": 80})
     if bad["status"] != "blocked":
         raise SystemExit("Visual budget fail-closed test failed.")
     print(json.dumps({"status": "self_test_passed", "positive_case": report["visual_counts"],
+                      "unused_sources_blocked": True,
                       "negative_case": "low visual count, source quota and non-HD are blocked"}))
 
 
@@ -139,7 +189,7 @@ def main() -> None:
             "upload_blocked_if_any_check_fails": False,
         }
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.output).write_text(json.dumps(short_report, indent=2)+"\\n", encoding="utf-8")
+        Path(args.output).write_text(json.dumps(short_report, indent=2)+"\n", encoding="utf-8")
         print(json.dumps(short_report))
         return
     scene_report = read_json(Path("work/rendered_scene_assets_report.json"))

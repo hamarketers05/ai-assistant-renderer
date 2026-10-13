@@ -152,7 +152,7 @@ jobs:
           print("Free-media licensing, graph overlays and visual-budget fail-closed self-tests passed.")
 
           budget_code = Path("tools/visual_budget.py").read_text(encoding="utf-8")
-          for marker in ('"rendered_scene_count_between_70_and_90"', '"at_least_70_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"native_full_hd_output"'):
+          for marker in ('"rendered_scene_count_between_70_and_90"', '"at_least_70_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"at_least_25_hud_overlays_applied"', '"native_full_hd_output"'):
               if marker not in budget_code:
                   raise SystemExit(f"Strict long-video visual budget missing: {marker}")
           media_code = Path("tools/fetch_free_media.py").read_text(encoding="utf-8")
@@ -177,6 +177,10 @@ jobs:
           if not all(names.index(left) < names.index(right) for left, right in zip(kokoro_names, kokoro_names[1:])):
               raise SystemExit("Kokoro generation and QA must precede scene timing and rendering.")
           workflow_source = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
+          if "skip_groq_review" in workflow_source or "Record user-authorized Groq review skip" in workflow_source:
+              raise SystemExit("Final Groq video/vision QA must run on every production video; skip bypass is forbidden.")
+          if "work/video_review_report.json" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
+              raise SystemExit("Per-video editing manifest must require actual Groq review evidence.")
           audio_url_expr = "AUDIO_URL: " + "$" + "{{ inputs.audio_url }}"
           if "APPROVED VOICE GATE" in workflow_source or audio_url_expr in workflow_source or "Fetch and validate approved narration" in workflow_source:
               raise SystemExit("Renderer must not require a manually approved voice or supplied audio URL.")
@@ -362,6 +366,8 @@ jobs:
               raise SystemExit(f"Voice-aligned 3-4 second scene cadence did not pass: {scene}")
           n = int(scene["planned_visual_scenes"])
           Path("work/voice_edit_report.json").write_text(json.dumps({"status":"passed", "timestamped_words":120}),encoding="utf-8")
+          Path("work/rubberband_report.json").write_text(json.dumps({"status":"skipped","reason":"Static fixture does not process narration pitch."}),encoding="utf-8")
+          Path("work/video_review_report.json").write_text(json.dumps({"review_status":"completed","decision":"PASS","overall_score":10,"blocking_issues":[]}),encoding="utf-8")
           Path("work/transitions_report.json").write_text(json.dumps({"scenes":n,"transition":"alternating cinematic xfade","rendered_duration_seconds":60}),encoding="utf-8")
           Path("work/transition_sfx_report.json").write_text(json.dumps({"status":"generated","transition_count":n-1,"cue_lead_seconds":0.22,"source_license":"Original synthesized effects; no third-party audio samples."}),encoding="utf-8")
           Path("work/music_report.json").write_text(json.dumps({"status":"generated","source":"original_synthesized","uses_external_samples":False}),encoding="utf-8")

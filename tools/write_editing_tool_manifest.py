@@ -45,6 +45,8 @@ def main() -> None:
     thumb = Path(args.thumbnail) if args.thumbnail else None
     required_paths = [
         Path("work/voice_edit_report.json"),
+        Path("work/rubberband_report.json"),
+        Path("work/video_review_report.json"),
         Path("work/scene_director_report.json"),
         Path("work/transitions_report.json"),
         Path("work/transition_sfx_report.json"),
@@ -63,6 +65,8 @@ def main() -> None:
         raise SystemExit("Editing tool manifest blocked; required production evidence missing: " + ", ".join(missing))
 
     voice = read_json(Path("work/voice_edit_report.json"))
+    rubberband = read_json(Path("work/rubberband_report.json"))
+    video_review = read_json(Path("work/video_review_report.json"))
     scenes = read_json(Path("work/scene_director_report.json"))
     transitions = read_json(Path("work/transitions_report.json"))
     sfx = read_json(Path("work/transition_sfx_report.json"))
@@ -93,6 +97,10 @@ def main() -> None:
     is_short = args.format == "SHORT"
     if voice.get("status") != "passed":
         raise SystemExit("Editing manifest blocked: automated voice-editing QA did not pass.")
+    if rubberband.get("status") not in {"used", "skipped"}:
+        raise SystemExit("Editing manifest blocked: Rubber Band attempt/report is missing or invalid.")
+    if video_review.get("review_status") != "completed" or video_review.get("decision") not in {"PASS", "IMPROVE"}:
+        raise SystemExit("Editing manifest blocked: mandatory Groq video/vision review did not pass.")
     if is_short:
         if visual_coverage.get("status") not in {"not_applicable_short", "passed"}:
             raise SystemExit("Editing manifest blocked: Shorts visual-budget applicability report is missing.")
@@ -124,6 +132,8 @@ def main() -> None:
         {"tool": "Python/Pillow", "status": "used", "purpose": "original topic-specific graphics, HUD/lower-thirds, glow and premium 3D-pop-out thumbnail"},
         {"tool": "Kokoro-82M", "status": "used" if kokoro.get("quality_gate") == "passed" else "unverified", "purpose": "automatic American-English narration", "quality_gate": kokoro.get("quality_gate", "missing")},
         {"tool": "Faster-Whisper", "status": "used" if int(voice.get("timestamped_words", 0)) > 0 else "unverified", "purpose": "speech validation and word-timestamp alignment"},
+        {"tool": "Rubber Band pitch shaping", "status": rubberband.get("status"), "purpose": "attempted subtle, duration-preserving pitch shaping on every video", "pitch_semitones": rubberband.get("pitch_semitones"), "reason": rubberband.get("reason"), "duration_preserved": rubberband.get("duration_preserved")},
+        {"tool": "Groq video/vision final QA", "status": "used", "review_status": video_review.get("review_status"), "decision": video_review.get("decision"), "score": video_review.get("overall_score"), "blocking_issues": video_review.get("blocking_issues", [])},
         {"tool": "FFmpeg de-esser/compressor/loudness", "status": "used", "purpose": "speech cleanup, light sibilance control, compression and loudness normalization", "settings": "light de-esser; speech target -16 LUFS before final mix; final mix -14 LUFS"},
         {"tool": "FFmpeg slow stereo motion", "status": "used", "purpose": "subtle 0.08 Hz motion on the background-music bed only; speech remains centered", "settings": "75% modulation, 75% pulse-width (width=1.5 of max 2), 0.08 Hz; music is side-chain ducked under narration"},
         {"tool": "Voice-aligned scene director", "status": "used", "purpose": "clause-aware scene chunks driven by final narration word timestamps", "scene_count": scene_count, "average_scene_seconds": avg_scene_seconds},
