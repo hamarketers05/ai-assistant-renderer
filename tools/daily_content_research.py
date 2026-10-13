@@ -258,7 +258,7 @@ def tavily_search(key, query, include_domains=None):
     if key:
         payload = {
             "api_key": key, "query": query, "search_depth": "advanced", "topic": "general",
-            "max_results": 6, "include_answer": False, "include_raw_content": False}
+            "max_results": 10, "include_answer": False, "include_raw_content": False}
         if include_domains:
             payload["include_domains"] = include_domains
         result = request_json(TAVILY_API, payload, timeout=60)
@@ -437,7 +437,7 @@ def main():
 
     raw_results = []
     for query in queries:
-        raw_results.extend(tavily_search(tv_key, query))
+        raw_results.extend(tavily_search(tv_key, query, ["example.com", "github.com"]))
     sources = clean_sources(raw_results)
     if len(sources) < 4:
         raise SystemExit(f"Tavily returned only {len(sources)} usable HTTPS sources; at least four are required.")
