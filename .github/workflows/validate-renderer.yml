@@ -231,7 +231,7 @@ jobs:
               raise SystemExit("Daily US topic research schedule is missing.")
           required_research_stages = [
               "Checkout for the existing production handoff contract",
-              "Request category-verified trend research and natural script from Cloudflare",
+              "Request authentic category-aware research with bounded YouTube recovery and evergreen fallback",
               "Publish category-verified script package for automatic voice production",
           ]
           if not research_job or not all(x in research_names for x in required_research_stages):
