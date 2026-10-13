@@ -1,0 +1,52 @@
+name: AI Tech Lab Autonomous Self-Healing Agent
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+
+concurrency:
+  group: ai-tech-lab-self-healing
+  cancel-in-progress: false
+
+jobs:
+  self-heal:
+    name: Monitor, diagnose, safely recover and report
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout main with history for duplicate protection
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run autonomous self-healing controller
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          GROQ_API_KEY: \${{ secrets.GROQ_API_KEY }}
+          GROQ_TEXT_MODEL: openai/gpt-oss-20b
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/self_healing_agent.py
+          python tools/self_healing_agent.py
+
+      - name: Save machine-readable recovery report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-tech-lab-self-heal-\${{ github.run_id }}
+          path: work/self_healing_report.json
+          if-no-files-found: warn
+          retention-days: 7
