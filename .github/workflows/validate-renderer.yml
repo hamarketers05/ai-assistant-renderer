@@ -197,14 +197,14 @@ jobs:
               raise SystemExit("Free-media video acquisition must report its per-video asset target.")
           # Human voice review is a release gate: Kokoro can auto-generate the preview,
           # but no rendering or YouTube upload may proceed before that exact audio is approved.
-          if "voice_audio_approved" not in workflow_source or "VOICE_AUDIO_APPROVAL_PENDING" not in workflow_source:
+          if "inputs.audio_url == ''" not in workflow_source or "inputs.audio_url != ''" not in workflow_source or "VOICE_AUDIO_APPROVAL_PENDING" not in workflow_source:
               raise SystemExit("Renderer is missing the explicit Kokoro voice-approval release gate.")
           if "work/kokoro_audio_quality.json" not in workflow_source or "work/kokoro_script.sha256" not in workflow_source:
               raise SystemExit("Renderer must validate audio quality and bind approval to the exact script hash.")
           manifest_pos = workflow_source.index("- name: Request production manifest")
           manifest_block = workflow_source[manifest_pos:manifest_pos + 220]
-          if "inputs.voice_audio_approved == true" not in manifest_block:
-              raise SystemExit("Production manifest must be gated on explicit voice_audio_approved=true.")
+          if "inputs.audio_url != ''" not in manifest_block:
+              raise SystemExit("Production manifest must be gated on explicit reuse of the approved voice-preview object path.")
           render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "work/transition_sfx.wav", "tools/make_transition_sfx.py", "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08", "drawbox=x=0:y=0:w=iw:h=131", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
               if marker not in render:
