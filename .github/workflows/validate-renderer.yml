@@ -304,8 +304,8 @@ jobs:
                   raise SystemExit(f"Final video review implementation missing: {marker}")
           if "_LAST_GROQ_START" not in research_code or "61.0 -" not in research_code:
               raise SystemExit("Research Groq requests must be spaced to respect the free-tier token budget.")
-          if "Review these two actual sampled frames" not in router_code or 'sampled_frames"][:2]' not in router_code:
-              raise SystemExit("Vision review must keep sampled image tokens inside the free-tier budget.")
+          if "Review EIGHT actual sampled frames" not in router_code or 'for frame in frames["sampled_frames"]:' not in router_code or "visual_review_frame_count" not in router_code:
+              raise SystemExit("Vision review must inspect eight timeline-spread frames and record coverage.")
           if "contents: write" not in Path(".github/workflows/manual.yml").read_text(encoding="utf-8"):
               raise SystemExit("Persisting next-video QA feedback needs repository write permission.")
           if not Path("learning/latest_video_review.json").is_file():
