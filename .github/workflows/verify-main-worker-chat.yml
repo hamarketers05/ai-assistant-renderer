@@ -1,0 +1,65 @@
+name: Verify Main Worker Chat Route (No Publishing)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-main-worker-chat.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-main-chat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Confirm the correct command token exists without printing it
+        shell: bash
+        env:
+          HA_COMMAND_TOKEN: ${{ secrets.HA_COMMAND_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$HA_COMMAND_TOKEN" || { echo "::error::Repository secret HA_COMMAND_TOKEN is missing."; exit 1; }
+          echo "Correct main-Worker command token is configured."
+
+      - name: Test authenticated OpenAI-compatible chat endpoint
+        shell: bash
+        env:
+          HA_COMMAND_TOKEN: ${{ secrets.HA_COMMAND_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.error, urllib.request
+          url = "https://dark-sunset-a2a1.hamarketers05.workers.dev/v1/chat/completions"
+          token = os.environ["HA_COMMAND_TOKEN"]
+          body = {
+              "model": "openai/gpt-oss-20b",
+              "messages": [
+                  {"role": "system", "content": "Reply with the exact marker MAIN_WORKER_CHAT_PASS and nothing else."},
+                  {"role": "user", "content": "Return exactly MAIN_WORKER_CHAT_PASS."}
+              ],
+              "temperature": 0,
+              "max_tokens": 40
+          }
+          req = urllib.request.Request(
+              url, data=json.dumps(body).encode(),
+              headers={"Authorization": "Bearer " + token, "Content-Type": "application/json", "User-Agent": "AI-Tech-Lab-NoPublish-SmokeTest"},
+              method="POST"
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=40) as response:
+                  data = json.loads(response.read().decode("utf-8"))
+                  status = response.status
+          except urllib.error.HTTPError as exc:
+              detail = exc.read().decode("utf-8", "replace")[:400]
+              raise SystemExit(f"Main Worker chat returned HTTP {exc.code}: {detail}")
+          if status != 200:
+              raise SystemExit(f"Expected HTTP 200, got {status}")
+          content = str((data.get("choices") or [{}])[0].get("message", {}).get("content", "")).strip()
+          if "MAIN_WORKER_CHAT_PASS" not in content:
+              raise SystemExit("Authenticated chat returned no expected marker; response content is not logged.")
+          print(json.dumps({"test": "main_worker_openai_compatible_chat", "status": "PASS", "http_status": status, "response_chars": len(content)}))
+          print("MAIN_WORKER_CHAT_PASS: authenticated chat endpoint verified; no content rows, render jobs, uploads, or publishing were created.")
+          PY
