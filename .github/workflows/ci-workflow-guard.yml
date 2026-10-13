@@ -141,6 +141,12 @@ jobs:
           for i in range(0,1280,8):
               draw.line((i,0,1279-i//3,719),fill=(8+i%32,40+i%48,72+i%64),width=2)
           image.save("output/manifest-smoke.jpg",quality=90)
+          import hashlib
+          thumb_hash = hashlib.sha256(Path("output/manifest-smoke.jpg").read_bytes()).hexdigest()
+          Path("work/thumbnail_imagemagick_report.json").write_text(json.dumps({
+              "status":"used","input_sha256":"fixture-before-imagemagick",
+              "output_sha256":thumb_hash,"output_changed":True,"dimensions":[1280,720]
+          }),encoding="utf-8")
           PY
           python tools/write_editing_tool_manifest.py --content-id 9876 --format SHORT --stereo-output SBS --final-video output/manifest-smoke.mp4 --thumbnail output/manifest-smoke.jpg --output work/editing_tool_manifest.json
           python - <<'PY'
