@@ -53,13 +53,25 @@ jobs:
             -H "Content-Type: application/json" --data "$BODY" \
             "$WORKER_URL/editorial/trend-script")
           if [ "$CODE" = "200" ]; then
-            jq -e '.ok == true and .stage == "cloudflare_trend_script_ready" and (.trend_verification.distinct_video_count >= 3) and (.script_word_count >= 850 and .script_word_count <= 1000) and (.hook_audit.score >= 7 and .hook_audit.human_voice_score >= 7)' work-trend-script.json >/dev/null
-            echo "Full trend-to-script QA passed. No YouTube upload or renderer dispatch was started."
-          elif [ "$CODE" = "422" ] && jq -e '.stage == "youtube_category_trend_gate" and .trend_verification.distinct_video_count < 3' work-trend-script.json >/dev/null; then
-            echo "Route is reachable and failed closed because current trend data did not contain three distinct category-related videos. No script/publish action was started."
+            jq -e '
+              .ok == true and
+              .stage == "cloudflare_trend_script_ready" and
+              (.script_word_count >= 850 and .script_word_count <= 1000) and
+              (.hook_audit.score >= 7 and .hook_audit.human_voice_score >= 7) and
+              .qa.human_voice_audit == "PASS" and
+              (.qa.unsupported_current_claims // 0) == 0 and
+              (
+                (.trend_mode == "LIVE_TREND" and .trend_verification.gate == "PASS" and .trend_verification.distinct_video_count >= 3)
+                or
+                (.trend_mode == "SCHEDULED_ROTATION_FALLBACK" and .trend_verification.gate == "SCHEDULED_ROTATION_FALLBACK" and .trend_verification.fallback == "scheduled_category_evergreen_explainer" and .trend_verification.selected_current_trend == false and .qa.trend_category_gate == "SCHEDULED_ROTATION_FALLBACK")
+              ) and
+              (.state_store_mode == "D1_PERSISTED" or .state_store_mode == "D1_UNAVAILABLE_OR_WRITE_SKIPPED") and
+              (.category_rotation.date_us_eastern == .category_decision.date_us_eastern)
+            ' work-trend-script.json >/dev/null
+            echo "Trend or explicitly labelled evergreen script passed word-count, independent voice/hook and unsupported-current-claim QA. No YouTube upload or renderer dispatch was started."
           else
-            echo "Trend-to-script endpoint failed verification with HTTP $CODE."
-            jq '{ok,stage,error,detail,editorial_category,trend_verification,audit}' work-trend-script.json || true
+            echo "Trend-to-script endpoint or independent QA failed verification with HTTP $CODE."
+            jq '{ok,stage,error,detail,editorial_category,trend_mode,state_store_mode,trend_verification,hook_audit,qa}' work-trend-script.json || true
             exit 1
           fi
 
