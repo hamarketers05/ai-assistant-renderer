@@ -113,9 +113,17 @@ def is_transient(log):
 def classify_configuration_failure(log):
     """Classify missing credentials/configuration; retries cannot create secrets."""
     lower = log.lower()
-    missing_key = ("groq_api_key missing" in lower or
-                   ("groq_api_key" in lower and "missing" in lower) or
-                   "no api key" in lower or "api key is missing" in lower)
+    # A missing optional Groq primary is expected when authenticated Workers AI is configured.
+    # If the fallback itself returned a retryable 408/425/429/5xx, prioritize transient recovery;
+    # do not misclassify the unrelated word "missing" elsewhere in a bundled job log as a secret issue.
+    if re.search(r"authenticated cloudflare ai fallback returned http\\s+(408|425|429|500|502|503|504)\\b", lower):
+        return None
+    missing_key = (
+        "groq_api_key missing" in lower
+        or "groq_api_key is missing" in lower
+        or "no api key" in lower
+        or "api key is missing" in lower
+    )
     if not missing_key:
         return None
     if "thumbnail" in lower or "thumbnail brief" in lower:
