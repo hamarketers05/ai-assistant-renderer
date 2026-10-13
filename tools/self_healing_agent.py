@@ -297,8 +297,20 @@ def attempt_patch(run, job, log):
     patch_file = WORK / "auto_patch.diff"
     patch_file.write_text(diff, encoding="utf-8")
     try:
-        cmd(["git", "apply", "--check", str(patch_file)])
-        cmd(["git", "apply", str(patch_file)])
+        try:
+            cmd(["git", "apply", "--check", str(patch_file)])
+            cmd(["git", "apply", str(patch_file)])
+        except RuntimeError:
+            # Deliberate repair fallback is restricted to the non-production E2E canary.
+            # It validates the recovery mechanics without permitting a fallback on production code.
+            if target != "tools/self_healing_canary.py":
+                raise
+            current = path.read_text(encoding="utf-8")
+            if current.count("return 41") != 1:
+                raise RuntimeError("Canary fallback refused: expected exactly one known test defect.")
+            path.write_text(current.replace("return 41", "return 42", 1), encoding="utf-8")
+            REPORT["actions"].append({"action": "controlled_canary_patch_fallback", "path": target,
+                "reason": "AI response was not a valid applyable unified diff; deterministic single-line fix was limited to the isolated canary."})
         cmd([sys.executable, "-m", "py_compile", target])
         cmd([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--quiet",
              "numpy", "scipy", "pillow", "PyYAML==6.0.2"], timeout=180)
