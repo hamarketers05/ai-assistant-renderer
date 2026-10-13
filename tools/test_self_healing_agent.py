@@ -91,6 +91,26 @@ def main():
     assert "public RSS fallback" in tavily_issue["safe_recovery"]
     assert "Never upgrade" in tavily_issue["safe_recovery"]
 
+    # Research/handoff workflow repair allowlist is narrow and invariant-driven.
+    assert ".github/workflows/daily-content-research.yml" in agent.PATCHABLE
+    assert ".github/workflows/daily-auto-production.yml" in agent.PATCHABLE
+    assert ".github/workflows/manual.yml" not in agent.PATCHABLE
+    good_research_workflow = """name: Research
+env:
+  WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+  WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+run: /editorial/trend-script
+path: work/daily_content_package.json
+path: work/research_evidence.json
+artifact: ai-tech-lab-research-
+"""
+    assert agent.validate_allowlisted_workflow_text(".github/workflows/daily-content-research.yml", good_research_workflow) is True
+    assert agent.validate_allowlisted_workflow_text(".github/workflows/daily-content-research.yml", good_research_workflow + "\nTAVILY_API_KEY: secret") is False
+    assert agent.validate_allowlisted_workflow_text(".github/workflows/daily-auto-production.yml",
+        "workflow_run: workflow_dispatch: daily_content_package.json research_evidence.json content-create manual.yml/dispatches") is True
+    assert agent.validate_allowlisted_workflow_text(".github/workflows/daily-auto-production.yml",
+        "workflow_run: workflow_dispatch: daily_content_package.json tavily_evidence.json content-create manual.yml/dispatches") is False
+
     # Cloudflare editorial category rotation: seven-day US Eastern contract,
     # bounded safe diagnosis, and no automatic production Worker mutation.
     valid_rotation = {
