@@ -41,6 +41,7 @@ jobs:
           set -euo pipefail
           python -m py_compile tools/mini_agents.py tools/mini_agent_delivery_report.py tools/scene_director.py tools/render_transitions.py tools/make_transition_sfx.py tools/generate_flux_images.py tools/write_editing_tool_manifest.py tools/make_evidence_charts.py tools/generate_scene_art.py tools/fetch_free_video.py tools/fetch_free_media.py tools/compose_scene_overlays.py tools/visual_budget.py tools/asset_reuse_guard.py tools/daily_content_research.py tools/make_daily_short.py tools/daily_auto_handoff.py
           python tools/mini_agents.py --self-test
+          python tools/fetch_free_video.py --self-test
           mkdir -p work scenes output assets
           python tools/generate_flux_images.py --self-test --output work/flux_self_test_report.json
           python tools/fetch_free_media.py --self-test
