@@ -127,11 +127,22 @@ def get_failed_logs(run_id):
             _, raw = api("GET", f"/repos/{REPO}/actions/jobs/{job['id']}/logs", raw=True, timeout=60)
             if raw[:2] == b"PK":
                 with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                    for name in archive.namelist():
-                        if not name.endswith("/"):
-                            data = archive.read(name)
-                            parts.append(f"JOB {job.get('name')} / {name}\n" +
-                                         data.decode("utf-8", "replace")[-12000:])
+                    names = [name for name in archive.namelist() if not name.endswith("/")]
+                    failed_numbers = {
+                        int(step["number"]) for step in job.get("steps", [])
+                        if step.get("conclusion") == "failure" and str(step.get("number", "")).isdigit()
+                    }
+                    # Prefer only the failed step logs so successful final reporting steps do not
+                    # misidentify the file that actually crashed.
+                    selected = [
+                        name for name in names
+                        if (match := re.search(r"(?:^|/)(\d+)_.*\.txt$", name))
+                        and int(match.group(1)) in failed_numbers
+                    ]
+                    for name in (selected or names):
+                        data = archive.read(name)
+                        parts.append(f"JOB {job.get('name')} / {name}\n" +
+                                     data.decode("utf-8", "replace")[-12000:])
             else:
                 parts.append(f"JOB {job.get('name')}\n" + raw.decode("utf-8", "replace")[-12000:])
         except Exception as exc:
@@ -143,12 +154,17 @@ def select_target(log_text):
     # Never ask the model to change code for authentication, permissions, or rate-limit failures.
     if AUTH_OR_INFRA.search(log_text) or not CODE_ERROR.search(log_text):
         return None
-    if "tools/self_healing_agent.py" in log_text:
-        return "tools/self_healing_agent.py"
-    if "tools/publish_self_heal_report.py" in log_text:
-        return "tools/publish_self_heal_report.py"
-    if "tools/self_healing_rescue.py" in log_text:
-        return "tools/self_healing_rescue.py"
+    # Prefer the exact Python file named by the traceback, not filenames mentioned by successful steps.
+    frames = re.findall(r"File [\\\"']([^\\\"']+)[\\\"'], line \\d+", log_text)
+    for frame in reversed(frames):
+        normalized = frame.replace("\\\\", "/").removeprefix("./")
+        for target in PATCHABLE:
+            if normalized.endswith(target):
+                return target
+    # Syntax errors from py_compile may not produce a Traceback heading; match only explicit error lines.
+    for target in PATCHABLE:
+        if re.search(r"(?:File )?[\\\"']?" + re.escape(target) + r"[\\\"']?[, :]?[^\\n]{0,180}(?:SyntaxError|IndentationError)", log_text, re.I | re.S):
+            return target
     return None
 
 
