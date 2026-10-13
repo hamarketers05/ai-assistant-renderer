@@ -54,7 +54,7 @@ def probe_video(path: Path) -> dict[str, float | int]:
 
 
 def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]],
-             captions: int, video: dict[str, Any], *, min_unique: int = 70,
+             captions: int, video: dict[str, Any], *, min_unique: int = 80,
              min_elements: int = 100) -> dict[str, Any]:
     primary_assets = [str(row.get("primary_asset") or "").strip() for row in scene_rows]
     primary_assets = [x for x in primary_assets if x]
@@ -99,8 +99,8 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
     checks = {
         "native_full_hd_output": native_hd,
         "duration_in_5_to_6_minute_window": 300 <= duration <= 364,
-        "rendered_scene_count_between_70_and_90": 70 <= scene_count <= 90,
-        "at_least_70_unique_primary_visual_assets": len(unique_assets) >= min_unique,
+        "rendered_scene_count_between_80_and_90": 80 <= scene_count <= 90,
+        "at_least_80_unique_primary_visual_assets": len(unique_assets) >= min_unique,
         "at_least_100_timeline_visual_elements": elements >= min_elements,
         "six_flux_images_actually_used": flux_used >= 6,
         "ten_vecteezy_assets_verified": vecteezy >= 10,
@@ -128,7 +128,7 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
         },
         "checks": checks,
         "upload_blocked_if_any_check_fails": True,
-        "counting_policy": "Only primary assets recorded on rendered scenes count as unique. Vecteezy counts only when the exact Free License asset, source, creator and asset path match a rendered licensed stock scene. HUD/chart placements count only when the renderer records that compositing occurred; captions remain separately reported.",
+        "counting_policy": "Only primary assets recorded on rendered scenes count as unique. Long videos require 80–90 rendered visual scenes and at least 80 unique primary assets. Vecteezy counts only when the exact Free License asset, source, creator and asset path match a rendered licensed stock scene. HUD/chart placements count only when the renderer records that compositing occurred; captions remain separately reported.",
     }
 
 
@@ -258,7 +258,7 @@ def main() -> None:
     parser.add_argument("--format", choices=("LONG_VIDEO", "SHORT"), default="LONG_VIDEO")
     parser.add_argument("--video", default="")
     parser.add_argument("--output", default="work/visual_coverage_report.json")
-    parser.add_argument("--min-unique", type=int, default=70)
+    parser.add_argument("--min-unique", type=int, default=80)
     parser.add_argument("--min-elements", type=int, default=100)
     args = parser.parse_args()
     if args.self_test:
