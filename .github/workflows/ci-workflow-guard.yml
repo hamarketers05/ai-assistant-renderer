@@ -142,6 +142,24 @@ jobs:
           ], check=True)
           scene = json.loads(Path("work/scene_director_report.json").read_text(encoding="utf-8"))
           n = int(scene["planned_visual_scenes"])
+          if n < 4:
+              raise SystemExit(f"Scene-art fixture requires at least four planned scenes, got {n}")
+          subprocess.run(["python", "tools/generate_scene_art.py"], check=True)
+          source_art = Path("tools/generate_scene_art.py").read_text(encoding="utf-8")
+          if 'caption_text="\\n".join(caption_lines)' not in source_art or 'od.multiline_text((108,906),caption_text' not in source_art:
+              raise SystemExit("Lower-third wrapping regression: caption must be laid out as bounded multi-line text.")
+          for scene_id in (1, min(2,n), n):
+              for path in (Path(f"assets/generated_scene_{scene_id}.png"), Path(f"assets/scene_overlay_{scene_id}.png")):
+                  if not path.is_file() or path.stat().st_size < 10_000:
+                      raise SystemExit(f"Script-matched scene visual missing/too small: {path}")
+                  with Image.open(path) as visual:
+                      if visual.size != (1920,1080):
+                          raise SystemExit(f"Scene visual is not Full HD: {path} {visual.size}")
+                      visual.verify()
+          with Image.open("assets/scene_overlay_1.png") as overlay:
+              if overlay.mode != "RGBA" or overlay.getchannel("A").getbbox() is None:
+                  raise SystemExit("Transparent HUD overlay has no visible alpha content.")
+          print(f"Script-matched scene-art/overlay smoke test passed for {n} planned scenes.")
           fixtures = {
               "voice_edit_report.json": {"status":"passed","timestamped_words":120},
               "rubberband_report.json": {"status":"skipped","reason":"Static fixture does not alter voice pitch."},
