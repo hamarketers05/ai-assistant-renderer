@@ -82,6 +82,10 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
       GITHUB_RUN_ID: ${{ github.run_id }}
       GITHUB_REPOSITORY: ${{ github.repository }}
+      # Existing authenticated Main Worker provides Groq-primary inference to every AI stage.
+      # This avoids consuming the exhausted Workers AI free-neuron fallback for routine text tasks.
+      WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+      WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
 
     steps:
       - name: Checkout repository
