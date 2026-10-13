@@ -2,6 +2,7 @@
 """Create a fact-bound English YouTube Short from the daily researched long-form package."""
 from __future__ import annotations
 import json, os, re, sys, time, urllib.error, urllib.request
+from ai_text_client import chat_completion
 from pathlib import Path
 
 ROOT = Path("work")
@@ -23,8 +24,8 @@ def parse_json(text):
         text = "\n".join(lines).strip()
     obj = json.loads(text)
 def main():
-    if not KEY:
-        raise SystemExit("GROQ_API_KEY missing; no Short package created.")
+    if not KEY and not (os.getenv("GITHUB_TOKEN", "").strip() and os.getenv("GITHUB_RUN_ID", "").isdigit()):
+        raise SystemExit("Groq key and authenticated Cloudflare Workers AI fallback context are both missing.")
     package = load(ROOT / "daily_content_package.json")
     evidence = load(ROOT / "tavily_evidence.json")
     sources = evidence.get("sources", [])
@@ -55,34 +56,13 @@ def main():
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": json.dumps(user, ensure_ascii=False)}],
     }).encode()
-    data = None
-    for attempt in range(4):
-        req = urllib.request.Request(API, data=body, headers={
-            "Authorization": "Bearer " + KEY, "Content-Type": "application/json",
-            "Accept": "application/json", "User-Agent": "AI-Tech-Lab-Auto-Short/1.0"
-        })
-        try:
-            with urllib.request.urlopen(req, timeout=90) as response:
-                data = json.loads(response.read().decode("utf-8"))
-            break
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:500]
-            if attempt < 3 and (exc.code == 429 or exc.code >= 500):
-                try:
-                    wait = min(60, max(5, int(float(exc.headers.get("Retry-After", "15")))))
-                except ValueError:
-                    wait = 15
-                print(f"Groq temporary response {exc.code}; retrying after {wait}s.", flush=True)
-                time.sleep(wait)
-                continue
-            raise SystemExit(f"Groq Short generation failed safely: HTTP {exc.code}: {detail}") from None
-        except (urllib.error.URLError, TimeoutError) as exc:
-            if attempt < 3:
-                time.sleep(4 + attempt * 4)
-                continue
-            raise SystemExit(f"Groq Short request failed after retries: {type(exc).__name__}") from None
+    try:
+        data = chat_completion(json.loads(body.decode("utf-8")), ".github/workflows/daily-auto-production.yml", timeout=90)
+    except Exception as exc:
+        raise SystemExit(f"Short AI generation failed safely: {str(exc)[:300]}") from None
     if not data or not data.get("choices"):
-        raise SystemExit("Groq returned no Short completion.")
+        raise SystemExit("AI provider returned no Short completion.")
+    provider = str(data.get("provider", "groq"))
     result = parse_json(data["choices"][0]["message"]["content"])
     short_title = re.sub(r"\s+", " ", str(result.get("title", "")).strip())[:85]
     short_text = re.sub(r"\r\n?", "\n", str(result.get("script", "")).strip())
@@ -111,10 +91,10 @@ def main():
         "title": short_title, "script": short_text, "script_word_count": words,
         "description": description[:4900], "tags": normalized[:20],
         "sources": sources[:8], "derived_from_title": title,
-        "provider": "Groq", "qa": "passed",
+        "provider": ("Groq" if provider == "groq" else "Cloudflare Workers AI fallback"), "qa": "passed",
     }
     (ROOT / "short_content_package.json").write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"status": "passed", "title": short_title, "script_words": words, "source_count": len(sources)}))
+    print(json.dumps({"status": "passed", "provider": provider, "title": short_title, "script_words": words, "source_count": len(sources)}))
 
 if __name__ == "__main__":
     main()
