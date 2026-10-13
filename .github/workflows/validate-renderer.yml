@@ -181,6 +181,10 @@ jobs:
               raise SystemExit("Final Groq video/vision QA must run on every production video; skip bypass is forbidden.")
           if "work/video_review_report.json" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
               raise SystemExit("Per-video editing manifest must require actual Groq review evidence.")
+          if "count_rendered_stock_sources" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
+              raise SystemExit("Per-video manifest must count only license records matching rendered stock scenes.")
+          if "target_new_licensed_clips" not in Path("tools/fetch_free_video.py").read_text(encoding="utf-8"):
+              raise SystemExit("Free-media video acquisition must report its per-video asset target.")
           audio_url_expr = "AUDIO_URL: " + "$" + "{{ inputs.audio_url }}"
           if "APPROVED VOICE GATE" in workflow_source or audio_url_expr in workflow_source or "Fetch and validate approved narration" in workflow_source:
               raise SystemExit("Renderer must not require a manually approved voice or supplied audio URL.")
@@ -372,7 +376,15 @@ jobs:
           Path("work/transition_sfx_report.json").write_text(json.dumps({"status":"generated","transition_count":n-1,"cue_lead_seconds":0.22,"source_license":"Original synthesized effects; no third-party audio samples."}),encoding="utf-8")
           Path("work/music_report.json").write_text(json.dumps({"status":"generated","source":"original_synthesized","uses_external_samples":False}),encoding="utf-8")
           Path("work/opencv_visual_qa.json").write_text(json.dumps({"status":"passed","sample_frames":10}),encoding="utf-8")
-          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4}),encoding="utf-8")
+          fixture_scene_assets = [
+              {"scene":str(i),"primary_asset":f"assets/fixture_stock_{i}.mp4","asset_type":"licensed_stock_broll",
+               "hud_overlay_applied":i<3,"chart_overlay_applied":False,"flux_image_used":False}
+              if i < 4 else
+              {"scene":str(i),"primary_asset":f"assets/generated_scene_{i}.png","asset_type":"python_pillow_scene",
+               "hud_overlay_applied":False,"chart_overlay_applied":False,"flux_image_used":False}
+              for i in range(n)
+          ]
+          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4,"scenes":fixture_scene_assets}),encoding="utf-8")
           Path("work/flux_generation_report.json").write_text(json.dumps({"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback and makes no inference request","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"}),encoding="utf-8")
           Path("work/visual_coverage_report.json").write_text(json.dumps({"status":"not_applicable_short","content_id":"9876","reason":"Static validation uses a Shorts manifest fixture; long-video budget is independently self-tested."}),encoding="utf-8")
           Path("work/asset_reuse_report.json").write_text(json.dumps({"status":"validated","previous_video_reuse":False,"within_video_duplicates":False}),encoding="utf-8")
@@ -380,7 +392,12 @@ jobs:
           Path("work/stereo_3d_report.json").write_text(json.dumps({"status":"disabled"}),encoding="utf-8")
           Path("work/kokoro_audio_quality.json").write_text(json.dumps({"quality_gate":"passed"}),encoding="utf-8")
           Path("work/thumbnail_brief.json").write_text(json.dumps({"hook":"TEST HOOK"}),encoding="utf-8")
-          Path("work/asset_sources.jsonl").write_text("\n".join(json.dumps({"provider":"LicenseFixture", "scene":str(i), "source_url":"https://example.org/"+str(i), "creator":"CI fixture"}) for i in range(4)) + "\n",encoding="utf-8")
+          Path("work/asset_sources.jsonl").write_text("\n".join(json.dumps({
+              "provider":"Wikimedia Commons", "scene":str(i), "asset_id":"fixture-video-"+str(i),
+              "asset_path":f"assets/fixture_stock_{i}.mp4", "source_url":"https://commons.wikimedia.org/wiki/File:Fixture_"+str(i),
+              "creator":"CI fixture", "license_label":"CC BY 4.0", "license_url":"https://creativecommons.org/licenses/by/4.0/",
+              "commercial_use_allowed":True
+          }) for i in range(4)) + "\n",encoding="utf-8")
           Path("output/manifest-smoke.mp4").write_bytes(b"fixture" * 20000)
           from PIL import Image
           Image.new("RGB",(1280,720),(4,18,36)).save("output/manifest-smoke.jpg",quality=90)

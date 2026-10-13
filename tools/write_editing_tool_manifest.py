@@ -31,6 +31,53 @@ def count_asset_sources(path: Path) -> dict:
     return counts
 
 
+def count_rendered_stock_sources(source_path: Path, scene_assets: dict) -> dict[str, int]:
+    """Count source records that match real rendered stock-scene primary asset paths."""
+    def norm(value) -> str:
+        return str(value or "").replace("\\", "/").lstrip("./")
+
+    rendered = {
+        (str(row.get("scene") or ""), norm(row.get("primary_asset")))
+        for row in (scene_assets.get("scenes") or [])
+        if isinstance(row, dict) and row.get("asset_type") == "licensed_stock_broll"
+    }
+    counts: dict[str, int] = {}
+    if not source_path.is_file():
+        return counts
+    for line in source_path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        provider = str(row.get("provider") or "").strip()
+        scene_id = str(row.get("scene") or "")
+        if not provider or (scene_id, norm(row.get("asset_path"))) not in rendered:
+            continue
+        source_url = str(row.get("source_url") or "")
+        creator = str(row.get("creator") or "").strip()
+        if not source_url.startswith("https://") or not creator or row.get("commercial_use_allowed") is not True:
+            continue
+        label = str(row.get("license_label") or "").lower()
+        license_url = str(row.get("license_url") or "").lower()
+        if provider.lower() == "vecteezy":
+            if label.strip() not in {"free", "free license"} or "vecteezy.com" not in source_url.lower():
+                continue
+        elif provider == "Wikimedia Commons":
+            if any(term in (label + " " + license_url) for term in ("by-nc", "by-nd", "noncommercial", "non-commercial", "no derivatives")):
+                continue
+            if not any(term in (label + " " + license_url) for term in ("cc0", "public domain", "creativecommons.org/licenses/by/", "creativecommons.org/licenses/by-sa/", "creativecommons.org/publicdomain")):
+                continue
+        elif provider == "NASA Image and Video Library":
+            if "images.nasa.gov/details/" not in source_url or "nasa.gov/nasa-brand-center/images-and-media" not in license_url:
+                continue
+        else:
+            continue
+        counts[provider] = counts.get(provider, 0) + 1
+    return counts
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--content-id", required=True)
@@ -83,6 +130,7 @@ def main() -> None:
     kokoro = read_json(Path("work/kokoro_audio_quality.json"))
     thumbnail_brief = read_json(Path("work/thumbnail_brief.json"))
     provider_counts = count_asset_sources(Path("work/asset_sources.jsonl"))
+    stock_provider_counts = count_rendered_stock_sources(Path("work/asset_sources.jsonl"), scene_assets)
 
     scene_count = int(scenes.get("planned_visual_scenes", 0))
     transition_count = int(transitions.get("scenes", scene_count)) - 1
@@ -116,8 +164,8 @@ def main() -> None:
         raise SystemExit("Editing manifest blocked: original music track was not verified.")
     if reuse.get("status") != "validated" or reuse.get("previous_video_reuse") is not False:
         raise SystemExit("Editing manifest blocked: unique-media guard did not pass.")
-    if not visual_qa:
-        raise SystemExit("Editing manifest blocked: final visual QA report is absent.")
+    if visual_qa.get("status") != "passed":
+        raise SystemExit("Editing manifest blocked: OpenCV sampled-frame visual QA must explicitly pass.")
     if scene_assets.get("status") != "passed" or int(scene_assets.get("rendered_scene_count", -1)) != scene_count:
         raise SystemExit("Editing manifest blocked: actual rendered scene/source manifest is missing or incomplete.")
     if evidence_charts_used < 0 or evidence_charts_used > len(evidence_charts_generated):
@@ -125,11 +173,17 @@ def main() -> None:
 
     stereo_quality = stereo.get("quality_checks", {}) if isinstance(stereo.get("quality_checks"), dict) else {}
     sbs_lut_used = bool(stereo_quality.get("color_grade_applied") and stereo_quality.get("pinned_lut_integrity_verified"))
-    licensed_clips = sum(provider_counts.values())
+    licensed_clips = sum(stock_provider_counts.values())
     avg_scene_seconds = round(float(scenes.get("scene_duration_seconds", {}).get("mean", 0)), 2)
     tools = [
         {"tool": "FFmpeg", "status": "used", "purpose": "render, animate, transition, assemble, master and encode video/audio"},
         {"tool": "Python/Pillow", "status": "used", "purpose": "original topic-specific graphics, HUD/lower-thirds, glow and premium 3D-pop-out thumbnail"},
+        {"tool": "NumPy + SciPy", "status": "used" if music.get("status") == "generated" else "unverified", "purpose": "signal synthesis for original background music"},
+        {"tool": "Matplotlib", "status": "used" if evidence_charts_generated else "skipped", "purpose": "source-backed charts only", "charts_generated": len(evidence_charts_generated), "skip_reason": None if evidence_charts_generated else "No suitable source-linked numeric data was available; no statistics were invented."},
+        {"tool": "Pydub", "status": "used" if voice.get("status") == "passed" else "unverified", "purpose": "punctuation-aware narration pause editing and audio segment handling"},
+        {"tool": "Librosa", "status": "used" if voice.get("librosa_voice_enhancement") else "unverified", "purpose": "subtle voice-presence enhancement", "report": voice.get("librosa_voice_enhancement")},
+        {"tool": "OpenCV", "status": "used" if visual_qa.get("status") == "passed" else "failed", "purpose": "sample-frame visual QA, movement/black-frame checks", "sample_frames": visual_qa.get("sample_frames"), "mean_frame_difference": visual_qa.get("mean_frame_difference"), "active_sample_transition_ratio": visual_qa.get("active_sample_transition_ratio")},
+        {"tool": "ImageMagick", "status": "used" if thumb is not None else "unverified", "purpose": "final premium-thumbnail sharpening/finish", "thumbnail": str(thumb) if thumb else None},
         {"tool": "Kokoro-82M", "status": "used" if kokoro.get("quality_gate") == "passed" else "unverified", "purpose": "automatic American-English narration", "quality_gate": kokoro.get("quality_gate", "missing")},
         {"tool": "Faster-Whisper", "status": "used" if int(voice.get("timestamped_words", 0)) > 0 else "unverified", "purpose": "speech validation and word-timestamp alignment"},
         {"tool": "Rubber Band pitch shaping", "status": rubberband.get("status"), "purpose": "attempted subtle, duration-preserving pitch shaping on every video", "pitch_semitones": rubberband.get("pitch_semitones"), "reason": rubberband.get("reason"), "duration_preserved": rubberband.get("duration_preserved")},
@@ -137,6 +191,7 @@ def main() -> None:
         {"tool": "FFmpeg de-esser/compressor/loudness", "status": "used", "purpose": "speech cleanup, light sibilance control, compression and loudness normalization", "settings": "light de-esser; speech target -16 LUFS before final mix; final mix -14 LUFS"},
         {"tool": "FFmpeg slow stereo motion", "status": "used", "purpose": "subtle 0.08 Hz motion on the background-music bed only; speech remains centered", "settings": "75% modulation, 75% pulse-width (width=1.5 of max 2), 0.08 Hz; music is side-chain ducked under narration"},
         {"tool": "Voice-aligned scene director", "status": "used", "purpose": "clause-aware scene chunks driven by final narration word timestamps", "scene_count": scene_count, "average_scene_seconds": avg_scene_seconds},
+        {"tool": "Visual novelty/reuse guard", "status": reuse.get("status", "unverified"), "purpose": "prevent repeated assets within a video or across verified recent deliveries", "previous_video_reuse": reuse.get("previous_video_reuse"), "within_video_duplicates": reuse.get("within_video_duplicates")},
         {"tool": "Ken Burns / camera drift", "status": "used", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills", "settings": "generated stills zoom to 1.08; stock framing varies about 1.06-1.105 with slow x/y drift and subtle roll"},
         {"tool": "Cinematic color grade", "status": "used", "purpose": "restrained contrast/saturation, cool teal-blue shadows, warmer highlights, sharpening, soft vignette and subtle temporal grain", "settings": "contrast=1.10; saturation=1.10; gamma=1.015; cool shadows / warm highlights via colorbalance; unsharp=0.45; vignette=PI/5; noise=1.2 temporal"},
         {"tool": "Film grain", "status": "used", "purpose": "very light FFmpeg grain, kept subtle for technology detail"},
@@ -152,7 +207,7 @@ def main() -> None:
         {"tool": "Full-HD visual-budget gate", "status": "not_applicable" if is_short else "used", "gate_status": visual_coverage.get("status", "missing"), "visual_counts": visual_coverage.get("visual_counts", {}), "checks": visual_coverage.get("checks", {}), "blocked_upload_if_failed": not is_short},
         {"tool": "Free commercial-use image/video acquisition", "status": "used" if int(external_media.get("assets_downloaded", 0)) > 0 else "skipped", "providers": external_media.get("providers", {}), "assets_downloaded": external_media.get("assets_downloaded", 0), "report": "work/visual_media_report.json", "note": "Native Full HD sources required for downloaded stills; CC0/Public Domain/CC BY or explicitly permitted provider-specific items only."},
         {"tool": "Voice-aligned transparent graph overlays", "status": "used" if int(chart_overlay_report.get("evidence_charts_mapped_to_scenes", 0)) > 0 else "skipped", "charts_overlaid": chart_overlay_report.get("evidence_charts_mapped_to_scenes", 0), "scenes_considered": chart_overlay_report.get("scenes_considered", 0), "report": "work/chart_overlay_report.json"},
-        {"tool": "Commercial-use stock clips", "status": "used", "source_manifest_entries": licensed_clips, "providers": provider_counts, "note": "Only entries passing the separate license and relevance gates are eligible for delivery."},
+        {"tool": "Commercial-use stock clips", "status": "used" if licensed_clips >= 4 else "failed", "rendered_primary_clip_count": licensed_clips, "providers": stock_provider_counts, "note": "Counts only licensed source records whose exact asset path and scene match a rendered stock-b-roll primary visual."},
         {"tool": "Cloudflare Workers AI FLUX.1 [schnell]", "status": "used" if flux_used_scene_count > 0 else "skipped", "purpose": "generate topic-matched 1920x1080 stills through the authenticated Cloudflare AI binding; actual use is counted from rendered scenes", "model": flux_report.get("model", "@cf/black-forest-labs/flux-1-schnell"), "images_generated": flux_generated_count, "scenes_actually_using_flux": flux_used_scene_count, "max_images_per_render": 6, "free_quota_note": "Cloudflare Workers AI includes 10,000 Neurons/day on Free; requests fall back on quota/capacity errors. Usage above the included allocation may be billed on a Paid plan.", "license": flux_report.get("license", "Apache-2.0"), "license_url": flux_report.get("license_url", "https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"), "skip_reason": None if flux_used_scene_count > 0 else (flux_report.get("fallback_reason") or flux_report.get("reason") or "No generated FLUX still was needed/accepted for a final scene; original Pillow art/licensed B-roll remained active.")},
         {"tool": "ComfyUI + Stable Video Diffusion / AnimateDiff", "status": "skipped", "reason": "GPU-heavy model runtimes and large checkpoints are not a reliable fit for the current free hosted runner. FFmpeg motion is active instead; no paid inference/API is used."},
         {"tool": "Auto-Editor", "status": "skipped", "reason": "The existing word-timestamped voice editor handles pauses and captions together; a second silence-cut pass would desynchronize verified word timings."},

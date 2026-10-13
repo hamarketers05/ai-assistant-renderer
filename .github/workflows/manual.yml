@@ -523,7 +523,9 @@ jobs:
           search_calls = 0
           download_calls = 0
           max_search_calls = 18
-          max_downloads = 10
+          # Vecteezy API Free plan permits 500 downloads/month: budget 10 per long video
+          # and 6 per Short so one daily pair stays under 500 in a 31-day month.
+          max_downloads = 6 if os.getenv("CONTENT_FORMAT", "LONG_VIDEO").strip().upper() == "SHORT" else 10
           max_download_calls = 24
           query_pages = {}
 
@@ -1327,7 +1329,7 @@ jobs:
               if im.size != (1280, 720):
                   raise SystemExit(f"Thumbnail dimensions wrong: {im.size}.")
               im.verify()
-          report = {"format":fmt,"resolution":f"{width}x{height}","duration_seconds":round(duration,2),
+          report = {"status":"passed","format":fmt,"resolution":f"{width}x{height}","duration_seconds":round(duration,2),
                     "narration_seconds":round(audio_duration,2),"file_bytes":size,
                     "sample_frames":len(gray_frames),"almost_black_frame_ratio":round(black_ratio,3),
                     "active_sample_transition_ratio":round(active_ratio,3),"mean_frame_difference":round(mean_change,3),

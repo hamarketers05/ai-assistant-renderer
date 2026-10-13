@@ -9,6 +9,7 @@ API = "https://commons.wikimedia.org/w/api.php"
 UA = "AI-Tech-Lab-Renderer/1.0 (https://github.com/hamarketers05/ai-assistant-renderer)"
 MAX_SCENES, MAX_DOWNLOADS = 48, 8
 MIN_LICENSED_CLIPS = 4
+TARGET_CLIPS = 8
 MAX_BYTES = 80 * 1024 * 1024
 MIN_WIDTH, MIN_HEIGHT = 1920, 1080
 MAX_API_REQUESTS = 120
@@ -196,7 +197,7 @@ def main():
     stop_all = False
 
     for row in rows[:MAX_SCENES]:
-        if downloaded >= MIN_LICENSED_CLIPS or downloaded >= MAX_DOWNLOADS:
+        if downloaded >= TARGET_CLIPS or downloaded >= MAX_DOWNLOADS:
             break
         if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
             break
@@ -359,6 +360,7 @@ def main():
         "metadata_items_checked": checked,
         "clips_downloaded": downloaded,
         "minimum_new_licensed_clips_required": MIN_LICENSED_CLIPS,
+        "target_new_licensed_clips": TARGET_CLIPS,
         "scenes_without_licensed_footage": skipped,
         "api_requests": API_REQUESTS,
         "rate_limited": RATE_LIMITED,
