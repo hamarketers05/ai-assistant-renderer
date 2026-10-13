@@ -39,7 +39,12 @@ MAX_IMAGE_ASSETS = 18
 MAX_NASA_VIDEO_ASSETS = 3
 MAX_COMMONS_IMAGE_ASSETS = 10
 MAX_OPENVERSE_ASSETS = 4
+MIN_RELEVANCE = 0.50
 STOP = set("""about above after again also although among another any are around because been before being between both but could did does doing down during each few for from further get got had has having here how into its itself just more most much must near new nor now off once only other our out over own same says should since some such than that the their them then these thing those through too under until use used using very was were what when where which while who why will would you your newest latest future explain explained technology artificial intelligence""".split())
+# Broad catalogue vocabulary alone must not make an asset look story-relevant.
+# For example, a health-system training slide mentioning "data sharing" must not
+# be accepted for a Microsoft AI-chip explainer merely because it shares "data".
+GENERIC_MEDIA_TERMS = set("""data information info sharing share tutorial training presentation slides slide overview introduction guide manual file files image images video media content platform service services system systems device devices product products general basics basic technology digital computer computers computing hardware software network networks work working process workflow processes application applications tools tool research science report reports management example examples quality development using used use lab source sources""".split())
 API_COUNT = 0
 LAST_API_CALL = 0.0
 API_LIMIT = 95
@@ -95,11 +100,15 @@ def terms(text: str, limit: int = 8) -> list[str]:
 
 
 def relevance(scene_text: str, title: str, description: str) -> float:
-    wanted = set(terms(scene_text, 12))
-    got = set(terms(title + " " + description, 18))
-    if not wanted or not got:
+    # Match content-bearing terms only. Require at least two distinct shared
+    # topic terms; a single generic word (e.g. "data") is never a valid match.
+    wanted = set(terms(scene_text, 18)) - GENERIC_MEDIA_TERMS
+    got = set(terms(title + " " + description, 24)) - GENERIC_MEDIA_TERMS
+    if len(wanted) < 2 or len(got) < 2:
         return 0.0
     overlap = len(wanted & got)
+    if overlap < 2:
+        return 0.0
     return round(min(1.0, overlap / min(len(wanted), 6)), 3)
 
 
@@ -226,7 +235,7 @@ def fetch_commons_image(row: list[str], title: str, query: str) -> dict[str, Any
         source_url = str(info.get("descriptionurl") or "")
         desc = exif_field(info, "ImageDescription")
         score = relevance(" ".join(row[5:7]), file_title, desc)
-        if score < 0.25 or not https_url(file_url) or not source_url.startswith("https://commons.wikimedia.org/"):
+        if score < MIN_RELEVANCE or not https_url(file_url) or not source_url.startswith("https://commons.wikimedia.org/"):
             continue
         target = Path(f"assets/free_media_scene_{scene}.jpg")
         try:
@@ -289,7 +298,7 @@ def fetch_openverse_image(row: list[str], query: str) -> dict[str, Any] | None:
             continue
         creator = str(item.get("creator") or "").strip() or "Creator not listed; CC0/PD asset"
         score = relevance(" ".join(row[5:7]), str(item.get("title") or ""), str(item.get("title") or ""))
-        if score < 0.25:
+        if score < MIN_RELEVANCE:
             continue
         target = Path(f"assets/free_media_scene_{safe_scene(row[0])}.jpg")
         try:
@@ -344,7 +353,7 @@ def fetch_nasa_image(row: list[str], query: str, *, want_video: bool = False) ->
         title = str(metadata.get("title") or "")
         description = str(metadata.get("description") or metadata.get("description_508") or "")
         score = relevance(" ".join(row[5:7]), title, description)
-        if score < 0.25:
+        if score < MIN_RELEVANCE:
             continue
         nasa_id = str(metadata.get("nasa_id") or "")
         if not nasa_id:
@@ -431,7 +440,7 @@ def fetch_smithsonian_image(row: list[str], query: str, api_key: str) -> dict[st
         if not https_url(guid):
             guid = "https://www.si.edu/object/" + urllib.parse.quote(str(record.get("id") or ""), safe="")
         score = relevance(" ".join(row[5:7]), title, json.dumps(content.get("indexedStructured") or {}))
-        if score < 0.25:
+        if score < MIN_RELEVANCE:
             continue
         for media in media_items:
             url = str(media.get("content") or media.get("thumbnail") or "")
@@ -474,7 +483,9 @@ def main() -> None:
         ok, label, _, attribution = commons_license({"LicenseShortName": {"value": "CC BY 4.0"}, "LicenseUrl": {"value": "https://creativecommons.org/licenses/by/4.0/"}})
         blocked, _, _, _ = commons_license({"LicenseShortName": {"value": "CC BY-NC 4.0"}, "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-nc/4.0/"}})
         assert ok and label and attribution and not blocked
-        assert relevance("AI chip data center", "AI chip compute data center", "") >= 0.5
+        assert relevance("AI chip inference data center", "AI chip compute and inference processor", "") >= MIN_RELEVANCE
+        assert relevance("public health data sharing training", "Epi Info Training Series", "A training guide about sharing data") == 0.0
+        assert relevance("AI chip inference", "Medical database system training video", "Public health training slides") == 0.0
         assert not source_page_confirms_cc0("http://invalid.example")
         print(json.dumps({"status": "self_test_passed", "license_gate": "CC0/Public Domain/CC BY only; NC/ND/SA blocked", "image_resolution_gate": "native 1920x1080 minimum"}))
         return
@@ -561,6 +572,8 @@ def main() -> None:
         "image_assets_downloaded": image_count, "nasa_video_assets_downloaded": nasa_video_count,
         "providers": providers, "skipped": skipped,
         "native_resolution_requirement": "Source must be at least 1920x1080 before 16:9 normalization; smaller sources are rejected.",
+        "minimum_relevance_score": MIN_RELEVANCE,
+        "relevance_policy": "At least two distinct non-generic scene terms must match title/description; broad catalogue words such as data, training, information, system and presentation do not qualify by themselves.",
         "license_policy": "Wikimedia CC0/Public Domain/CC BY only (no NC/ND/SA); Openverse CC0/PD only with original source-page marker; Smithsonian explicit CC0/free-to-use only; NASA informational/editorial assets exclude explicit third-party rights/person/brand dependencies.",
         "optional_provider": "Smithsonian Open Access is queried only when SMITHSONIAN_API_KEY is configured; no key is required for Wikimedia, NASA or Openverse.",
         "output_resolution": "1920x1080",
