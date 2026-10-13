@@ -665,7 +665,7 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
                 script, words = candidate, candidate_words
                 draft["script"] = script
                 print(f"Practical middle segment accepted; script now has {words} words.")
-            elif candidate_words < 700:
+            elif candidate_words < 850:
                 print(f"Middle segment brought the script to {candidate_words} words; requesting one small evidence-locked bridge.")
                 bridge_result = groq_json(
                     """Return JSON with exactly one key: segment. Write a concise additional narration segment of
