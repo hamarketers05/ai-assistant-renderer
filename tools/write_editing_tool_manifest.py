@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -102,6 +103,7 @@ def main() -> None:
         Path("work/rendered_scene_assets_report.json"),
         Path("work/flux_generation_report.json"),
         Path("work/visual_coverage_report.json"),
+        Path("work/thumbnail_imagemagick_report.json"),
     ]
     missing = [str(p) for p in required_paths if not p.is_file()]
     if not final_video.is_file() or final_video.stat().st_size < 100_000:
@@ -110,6 +112,14 @@ def main() -> None:
         missing.append(str(thumb))
     if missing:
         raise SystemExit("Editing tool manifest blocked; required production evidence missing: " + ", ".join(missing))
+    if thumb is None:
+        raise SystemExit("Editing tool manifest blocked: final thumbnail is required to verify ImageMagick processing.")
+    thumb_hash = hashlib.sha256(thumb.read_bytes()).hexdigest()
+    if (imagemagick_report.get("status") != "used"
+            or imagemagick_report.get("output_changed") is not True
+            or imagemagick_report.get("dimensions") != [1280, 720]
+            or imagemagick_report.get("output_sha256") != thumb_hash):
+        raise SystemExit("Editing tool manifest blocked: ImageMagick processing report does not match the final thumbnail bytes.")
 
     voice = read_json(Path("work/voice_edit_report.json"))
     rubberband = read_json(Path("work/rubberband_report.json"))
@@ -129,6 +139,7 @@ def main() -> None:
     stereo = read_json(Path("work/stereo_3d_report.json"))
     kokoro = read_json(Path("work/kokoro_audio_quality.json"))
     thumbnail_brief = read_json(Path("work/thumbnail_brief.json"))
+    imagemagick_report = read_json(Path("work/thumbnail_imagemagick_report.json"))
     provider_counts = count_asset_sources(Path("work/asset_sources.jsonl"))
     stock_provider_counts = count_rendered_stock_sources(Path("work/asset_sources.jsonl"), scene_assets)
 
@@ -207,7 +218,7 @@ def main() -> None:
         {"tool": "Pydub", "status": "used" if voice.get("status") == "passed" else "unverified", "purpose": "punctuation-aware narration pause editing and audio segment handling"},
         {"tool": "Librosa", "status": "used" if voice.get("librosa_voice_enhancement") else "unverified", "purpose": "subtle voice-presence enhancement", "report": voice.get("librosa_voice_enhancement")},
         {"tool": "OpenCV", "status": "used" if visual_qa.get("status") == "passed" else "failed", "purpose": "sample-frame visual QA, movement/black-frame checks", "sample_frames": visual_qa.get("sample_frames"), "mean_frame_difference": visual_qa.get("mean_frame_difference"), "active_sample_transition_ratio": visual_qa.get("active_sample_transition_ratio")},
-        {"tool": "ImageMagick", "status": "used" if thumb is not None else "unverified", "purpose": "final premium-thumbnail sharpening/finish", "thumbnail": str(thumb) if thumb else None},
+        {"tool": "ImageMagick", "status": imagemagick_report.get("status", "failed"), "purpose": "final premium-thumbnail sharpening/finish", "thumbnail": str(thumb), "output_changed": imagemagick_report.get("output_changed"), "dimensions": imagemagick_report.get("dimensions"), "sha256_verified_against_final_thumbnail": imagemagick_report.get("output_sha256") == thumb_hash},
         {"tool": "Kokoro-82M", "status": "used" if kokoro.get("quality_gate") == "passed" else "unverified", "purpose": "automatic American-English narration", "quality_gate": kokoro.get("quality_gate", "missing")},
         {"tool": "Faster-Whisper", "status": "used" if int(voice.get("timestamped_words", 0)) > 0 else "unverified", "purpose": "speech validation and word-timestamp alignment"},
         {"tool": "Rubber Band pitch shaping", "status": rubberband.get("status"), "purpose": "attempted subtle, duration-preserving pitch shaping on every video", "pitch_semitones": rubberband.get("pitch_semitones"), "reason": rubberband.get("reason"), "duration_preserved": rubberband.get("duration_preserved")},
