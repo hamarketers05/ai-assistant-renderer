@@ -195,7 +195,7 @@ async function generateSelfHealPatch(request, env) {
     "tools/generate_music.py", "tools/groq_video_review.py",
     "tools/make_3d_hero_overlay.py", "tools/make_brand_assets.py",
     "tools/seo_metadata.py", "tools/voice_editor.py",
-    "tools/self_healing_canary.py", "tools/self_healing_canary_v2.py"
+    "tools/self_healing_canary.py"
   ]);
   const source = String(body.source || "");
   const log = String(body.log || "");
