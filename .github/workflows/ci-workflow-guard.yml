@@ -104,9 +104,9 @@ jobs:
               "music_report.json": {"status":"generated","source":"original_synthesized","uses_external_samples":False},
               "opencv_visual_qa.json": {"status":"passed","sample_frames":10},
               "rendered_scene_assets_report.json": {"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":4,"chart_overlay_applied_count":0,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":2,"python_pillow_scene_count":n-6,"scenes":[
-                  {"scene":str(i),"primary_asset":"assets/fixture_stock_"+str(i)+".mp4","asset_type":"licensed_stock_broll","flux_image_used":False,"hud_overlay_applied":True,"chart_overlay_applied":False}
+                  {"scene":str(i),"primary_asset":"assets/fixture_stock_"+str(i)+".mp4","asset_type":"licensed_stock_broll","flux_image_used":False,"hud_overlay_applied":True,"chart_overlay_applied":False,"color_grade":"FFmpeg cinematic contrast/teal-warm balance/soft grain","motion":"Ken Burns/slow drift on scene imagery"}
                   if i<4 else
-                  {"scene":str(i),"primary_asset":"assets/generated_scene_"+str(i)+".png","asset_type":"cloudflare_flux_image" if i in {4,5} else "python_pillow_scene","flux_image_used":i in {4,5},"hud_overlay_applied":False,"chart_overlay_applied":False}
+                  {"scene":str(i),"primary_asset":"assets/generated_scene_"+str(i)+".png","asset_type":"cloudflare_flux_image" if i in {4,5} else "python_pillow_scene","flux_image_used":i in {4,5},"hud_overlay_applied":False,"chart_overlay_applied":False,"color_grade":"FFmpeg cinematic contrast/teal-warm balance/soft grain","motion":"Ken Burns/slow drift on scene imagery"}
                   for i in range(n)]},
               "flux_generation_report.json": {"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback without calling Workers AI","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"},
               "asset_reuse_report.json": {"status":"validated","previous_video_reuse":False,"within_video_duplicates":False},
