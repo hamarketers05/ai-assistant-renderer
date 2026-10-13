@@ -110,11 +110,27 @@ def is_transient(log):
     return any(key in lower for key in TRANSIENT)
 
 def fetch_logs(job_id):
+    # Diagnose only the failed step where possible; successful report steps mention other files.
+    failed_numbers = set()
+    try:
+        _, job_data = api("GET", f"/repos/{REPO}/actions/jobs/{job_id}")
+        failed_numbers = {
+            int(step["number"]) for step in job_data.get("steps", [])
+            if step.get("conclusion") == "failure" and str(step.get("number", "")).isdigit()
+        }
+    except Exception:
+        pass
     _, raw = api("GET", f"/repos/{REPO}/actions/jobs/{job_id}/logs", raw=True, timeout=55)
     if raw.startswith(b"PK"):
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as z:
-                raw = b"\n".join(z.read(n) for n in z.namelist() if n.lower().endswith((".txt", ".log")))
+                names = [n for n in z.namelist() if n.lower().endswith((".txt", ".log"))]
+                selected = [
+                    n for n in names
+                    if (match := re.search(r"(?:^|/)([0-9]+)_.*\\.txt$", n))
+                    and int(match.group(1)) in failed_numbers
+                ]
+                raw = b"\n".join(z.read(n) for n in (selected or names))
         except (zipfile.BadZipFile, OSError):
             pass
     return raw.decode("utf-8", "replace")[-24000:]
