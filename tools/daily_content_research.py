@@ -594,36 +594,48 @@ PERSONAL PERSONA: Write like a distinctive, curious US technology analyst—not 
     title = re.sub(r"\s+", " ", str(draft.get("title", "")).strip())[:100]
     script = re.sub(r"\r\n?", "\n", str(draft.get("script", "")).strip())
     words = len(re.findall(r"\b[\w'-]+\b", script))
-    # A short first draft is recoverable: request one evidence-locked expansion before
-    # failing closed. Workers AI sometimes under-runs the requested 700–900 words.
+    # A short first draft is recoverable: add a separate evidence-locked section rather than
+    # asking the small free fallback model to rewrite the entire script at once.
     if title and (words < 700 or words > 950):
-        print(f"Initial script draft is {words} words; requesting one bounded length repair.")
+        print(f"Initial script draft is {words} words; requesting one bounded evidence-locked expansion.")
         try:
-            repaired = groq_json(
-                """You are a careful long-form script editor for AI Tech Lab, a US-audience technology channel.
-                Repair the supplied narration to 750–850 spoken words. This is a length-and-clarity repair,
-                not new research. Preserve the thesis and existing supported facts. Use ONLY the supplied
-                source evidence for factual specifics. Do not invent numbers, dates, quotes, tool capabilities,
-                product tests, or lived experience. Add useful explanation only where it follows from the
-                supplied evidence: one concrete viewer scenario, a practical decision framework, trade-offs,
-                limitations, and a specific takeaway. Clearly label opinion or forecast. Keep natural spoken
-                US English, strong hook, varied sentence lengths, no filler, no production instructions.
-                Return JSON with only title and script.
+            expansion = groq_json(
+                """You are an evidence-first editor for AI Tech Lab, a US-audience technology channel.
+                Do NOT rewrite or summarize the existing script. Return JSON with one key named
+                inserted_material. It must contain exactly four distinct spoken-narration paragraphs,
+                each about 85–110 words, for roughly 340–440 words total. These paragraphs will be
+                inserted just before the existing closing paragraph, so they must flow from the current
+                narration into its original ending. Do not repeat the hook, existing explanations, or CTA.
+                Add specific human value: a realistic viewer decision scenario, a practical step-by-step
+                evaluation framework, meaningful limitations/trade-offs, and what evidence a viewer should
+                watch next. Use ONLY supplied source evidence for factual claims. No invented metrics,
+                release dates, quotes, product tests, personal experience, or unsupported capabilities.
+                Label opinion and forecasts clearly. Keep natural spoken US English, no headings, no bullets,
+                no production directions, and no filler. The addition itself must be at least 280 words.
                 """ + NATURAL_VOICE_GUIDANCE,
-                json.dumps({"title": title, "script": script, "topic": topic_name,
+                json.dumps({"title": title, "existing_script": script, "topic": topic_name,
                             "editorial_angle": angle, "source_evidence": evidence_context},
                            ensure_ascii=False),
-                max_tokens=3300, temperature=0.15)
-            repaired_title = re.sub(r"\s+", " ", str(repaired.get("title", "")).strip())[:100]
-            repaired_script = re.sub(r"\r\n?", "\n", str(repaired.get("script", "")).strip())
-            repaired_words = len(re.findall(r"\b[\w'-]+\b", repaired_script))
-            if repaired_title and 700 <= repaired_words <= 1000 and len(repaired_script) >= 2500:
-                title, script, words = repaired_title, repaired_script, repaired_words
-                print(f"Length repair accepted: {words} spoken words.")
+                max_tokens=3000, temperature=0.15)
+            inserted_material = re.sub(r"\r\n?", "\n", str(expansion.get("inserted_material", "")).strip())
+            added_words = len(re.findall(r"\b[\w'-]+\b", inserted_material))
+            paragraphs = [p.strip() for p in re.split(r"\n\s*\n", script) if p.strip()]
+            if len(paragraphs) >= 2:
+                expanded_script = "\n\n".join(paragraphs[:-1] + [inserted_material, paragraphs[-1]])
             else:
-                print(f"Length repair not accepted ({repaired_words} words); original length gate remains active.")
+                sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", script) if x.strip()]
+                if len(sentences) >= 4:
+                    expanded_script = " ".join(sentences[:-2]) + "\n\n" + inserted_material + "\n\n" + " ".join(sentences[-2:])
+                else:
+                    expanded_script = script.rstrip() + "\n\n" + inserted_material
+            expanded_words = len(re.findall(r"\b[\w'-]+\b", expanded_script))
+            if 700 <= expanded_words <= 1000 and added_words >= 200 and len(expanded_script) >= 2500:
+                script, words = expanded_script, expanded_words
+                print(f"Evidence-locked expansion accepted: {words} total words; {added_words} added words.")
+            else:
+                print(f"Evidence-locked expansion not accepted (base={words}, added={added_words}, total={expanded_words}); original length gate remains active.")
         except Exception as repair_error:
-            print("Length-repair attempt failed (" + type(repair_error).__name__ + "); original length gate remains active.")
+            print("Evidence-locked expansion failed (" + type(repair_error).__name__ + "); original length gate remains active.")
     if not title or words < 600 or words > 1000:
         raise SystemExit(f"Script failed word-count/title gate ({words} words; title present={bool(title)}).")
     title_similarity = title_similarity_ratio(title, learning.get("last_title", ""))
