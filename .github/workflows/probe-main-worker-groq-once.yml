@@ -16,22 +16,32 @@ jobs:
     env:
       WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
       WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+      HA_COMMAND_TOKEN: ${{ secrets.HA_COMMAND_TOKEN }}
     steps:
       - name: Probe existing authenticated Main Worker text route (no secrets printed)
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$WORKER_AUTH_TOKEN"
           printf '%s' '{"model":"openai/gpt-oss-20b","messages":[{"role":"user","content":"Return only the JSON object {\"probe\":\"ok\"}."}],"max_tokens":30,"temperature":0,"response_format":{"type":"json_object"}}' > request.json
-          code=$(curl -sS --max-time 35 -o response.json -w "%{http_code}" \
-            -X POST "$WORKER_URL/v1/chat/completions" \
-            -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-binary @request.json)
-          if [ "$code" = "200" ] && jq -e '.choices[0].message.content' response.json >/dev/null; then
-            echo "MAIN_WORKER_GROQ_PROXY=USABLE"
-            jq '{provider,model,choices:[{message:{content:.choices[0].message.content}}]}' response.json
-          else
-            echo "MAIN_WORKER_GROQ_PROXY=NOT_USABLE HTTP=$code"
-            jq '{error:(.error.message // .error // "no completion")}' response.json 2>/dev/null || true
-          fi
+          probe() {
+            local label="$1" secret="$2"
+            if [ -z "$secret" ]; then
+              echo "$label=NOT_CONFIGURED"
+              return
+            fi
+            local code
+            code=$(curl -sS --max-time 35 -o response.json -w "%{http_code}" \
+              -X POST "$WORKER_URL/v1/chat/completions" \
+              -H "Authorization: Bearer $secret" \
+              -H "Content-Type: application/json" \
+              --data-binary @request.json)
+            if [ "$code" = "200" ] && jq -e '.choices[0].message.content' response.json >/dev/null; then
+              echo "$label=USABLE"
+              jq '{provider,model,choices:[{message:{content:.choices[0].message.content}}]}' response.json
+            else
+              echo "$label=NOT_USABLE HTTP=$code"
+              jq '{error:(.error.message // .error // "no completion")}' response.json 2>/dev/null || true
+            fi
+          }
+          probe WORKER_AUTH_TOKEN "$WORKER_AUTH_TOKEN"
+          probe HA_COMMAND_TOKEN "$HA_COMMAND_TOKEN"
