@@ -14,12 +14,14 @@ def load(path):
 
 def parse_json(text):
     text = str(text).strip()
-    text = re.sub(r"^\`\`\`(?:json)?\s*|\s*\`\`\`$", "", text, flags=re.I)
+    if text.startswith(chr(96) * 3):
+        lines = text.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip() == chr(96) * 3:
+            lines = lines[:-1]
+        text = "\\n".join(lines).strip()
     obj = json.loads(text)
-    if not isinstance(obj, dict):
-        raise ValueError("Groq response must be a JSON object")
-    return obj
-
 def main():
     if not KEY:
         raise SystemExit("GROQ_API_KEY missing; no Short package created.")
