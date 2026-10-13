@@ -1680,7 +1680,7 @@ jobs:
             work/flux_generation_report.json
             work/transition_sfx_report.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
       - name: Get YouTube access token
         if: steps.youtube_state.outputs.already_uploaded != 'true'
