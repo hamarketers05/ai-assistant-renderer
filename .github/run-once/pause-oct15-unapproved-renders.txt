@@ -1,1 +1,0 @@
-Pause unapproved October 15 render attempts.
