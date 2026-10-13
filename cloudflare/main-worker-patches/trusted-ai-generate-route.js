@@ -40,6 +40,6 @@ async function nfTrustedAiGenerate(request,env){
   const code=upstream===429?"GROQ_RATE_LIMITED":upstream===400?"GROQ_REQUEST_REJECTED_HTTP_400":upstream===401||upstream===403?"GROQ_CREDENTIAL_REJECTED":upstream===404?"GROQ_MODEL_NOT_FOUND":!env.GROQ_API_KEY?"GROQ_NOT_CONFIGURED":"GROQ_UPSTREAM_FAILED";
   const status=upstream===429?429:upstream>=500?503:502;
   await nfLog(env,"ERROR","TRUSTED_AI_PROXY",code+"; request failed without exposing credentials.");
-  return Response.json({ok:false,code,error:"Configured Groq primary could not complete this request."},{status,headers:{"Cache-Control":"no-store"}});
+  const headers={"Cache-Control":"no-store"};if(code==="GROQ_RATE_LIMITED")headers["Retry-After"]="61";return Response.json({ok:false,code,error:"Configured Groq primary could not complete this request."},{status,headers});
  }
 }
