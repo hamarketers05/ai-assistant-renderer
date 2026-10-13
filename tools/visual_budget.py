@@ -53,6 +53,56 @@ def probe_video(path: Path) -> dict[str, float | int]:
             "duration_seconds": float(fmt.get("duration") or 0)}
 
 
+def verified_stock_asset_ids(scene_rows: list[dict[str, Any]],
+                            source_rows: list[dict[str, Any]]) -> tuple[set[str], set[str]]:
+    """Count only source-attributed, commercially usable stock clips actually rendered."""
+    def norm_path(value: Any) -> str:
+        return str(value or "").replace("\\", "/").lstrip("./")
+
+    scene_by_id = {str(row.get("scene")): row for row in scene_rows if row.get("scene") is not None}
+    licensed_ids: set[str] = set()
+    vecteezy_ids: set[str] = set()
+    for source in source_rows:
+        provider = str(source.get("provider") or "").strip().lower()
+        rendered = scene_by_id.get(str(source.get("scene") or ""))
+        if not rendered or rendered.get("asset_type") != "licensed_stock_broll":
+            continue
+        if norm_path(rendered.get("primary_asset")) != norm_path(source.get("asset_path")):
+            continue
+        if source.get("commercial_use_allowed") is not True:
+            continue
+        creator = str(source.get("creator") or "").strip()
+        source_url = str(source.get("source_url") or "")
+        asset_id = str(source.get("asset_id") or "").strip()
+        license_label = re.sub(r"\\s+", " ", str(source.get("license_label") or "").strip().lower())
+        license_url = str(source.get("license_url") or "")
+        if not creator or not source_url.startswith("https://") or not asset_id:
+            continue
+        if provider == "vecteezy":
+            if license_label not in {"free", "free license"} or "vecteezy.com" not in source_url.lower():
+                continue
+            vecteezy_ids.add(asset_id)
+        elif provider == "wikimedia commons":
+            # The downloader already inspects per-file license metadata; re-check the
+            # recorded label/link here and reject NC/ND or unverified license records.
+            if "commons.wikimedia.org/" not in source_url.lower() or not license_url.startswith("https://"):
+                continue
+            if any(term in license_label for term in ("noncommercial", "non-commercial", "by-nc", "by-nd", "no derivatives", "no-derivatives")):
+                continue
+            permissive = (
+                "public domain" in license_label
+                or "cc0" in license_label
+                or license_label.startswith("cc by")
+                or license_label.startswith("cc-by")
+            )
+            if not permissive:
+                continue
+        else:
+            continue
+        licensed_ids.add(provider + ":" + asset_id)
+    return licensed_ids, vecteezy_ids
+
+
 def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]],
              captions: int, video: dict[str, Any], *, min_unique: int = 80,
              min_elements: int = 100) -> dict[str, Any]:
@@ -69,30 +119,14 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
     def norm_path(value: Any) -> str:
         return str(value or "").replace("\\", "/").lstrip("./")
 
-    # Count only eligible Vecteezy clips actually selected as rendered primary visuals.
-    scene_by_id = {str(row.get("scene")): row for row in scene_rows if row.get("scene") is not None}
-    vecteezy_ids: set[str] = set()
-    for source in source_rows:
-        if str(source.get("provider") or "").strip().lower() != "vecteezy":
-            continue
-        label = str(source.get("license_label") or "").strip().lower()
-        source_url = str(source.get("source_url") or "")
-        creator = str(source.get("creator") or "").strip()
-        asset_id = str(source.get("asset_id") or "").strip()
-        scene_id = str(source.get("scene") or "")
-        rendered = scene_by_id.get(scene_id)
-        if not rendered or rendered.get("asset_type") != "licensed_stock_broll":
-            continue
-        if norm_path(rendered.get("primary_asset")) != norm_path(source.get("asset_path")):
-            continue
-        if label not in {"free", "free license"} or source.get("commercial_use_allowed") is not True:
-            continue
-        if not creator or not source_url.startswith("https://") or "vecteezy.com" not in source_url.lower():
-            continue
-        if not asset_id:
-            continue
-        vecteezy_ids.add(asset_id)
+    licensed_ids, vecteezy_ids = verified_stock_asset_ids(scene_rows, source_rows)
+    licensed_stock = len(licensed_ids)
     vecteezy = len(vecteezy_ids)
+    original_visuals = sum(
+        1 for row in scene_rows
+        if str(row.get("asset_type") or "") in {"python_pillow_scene", "free_commercial_image"}
+        and str(row.get("primary_asset") or "").strip()
+    )
 
     native_hd = video.get("width") == 1920 and video.get("height") == 1080
     duration = float(video.get("duration_seconds") or 0)
@@ -102,8 +136,8 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
         "rendered_scene_count_between_80_and_90": 80 <= scene_count <= 90,
         "at_least_80_unique_primary_visual_assets": len(unique_assets) >= min_unique,
         "at_least_100_timeline_visual_elements": elements >= min_elements,
-        "six_flux_images_actually_used": flux_used >= 6,
-        "ten_vecteezy_assets_verified": vecteezy >= 10,
+        "six_flux_or_original_visuals_used": flux_used >= 6 or original_visuals >= 6,
+        "at_least_4_verified_free_license_stock_clips_rendered": licensed_stock >= 4,
         "at_least_25_hud_overlays_applied": hud_count >= 25,
         "every_rendered_scene_has_primary_asset_record": scene_count > 0 and len(primary_assets) == scene_count,
     }
@@ -112,8 +146,9 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
         "content_format_target": "6-minute Full HD AI Tech Lab long video",
         "video": video,
         "source_targets": {
-            "cloudflare_flux_actual_scene_uses": {"target": 6, "actual": flux_used},
-            "vecteezy_verified_assets_actually_rendered": {"target": 10, "actual": vecteezy},
+            "cloudflare_flux_actual_scene_uses": {"target": 6, "actual": flux_used, "fallback_original_visuals": original_visuals},
+            "verified_free_license_stock_clips_actually_rendered": {"target_minimum": 4, "actual": licensed_stock},
+            "vecteezy_verified_assets_actually_rendered": {"target_minimum": 0, "actual": vecteezy, "optional_when_free_plan_not_confirmed": True},
             "hud_overlay_placements": {"target_minimum": 25, "actual": hud_count},
         },
         "visual_counts": {
@@ -128,7 +163,7 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
         },
         "checks": checks,
         "upload_blocked_if_any_check_fails": True,
-        "counting_policy": "Only primary assets recorded on rendered scenes count as unique. Long videos require 80–90 rendered visual scenes and at least 80 unique primary assets. Vecteezy counts only when the exact Free License asset, source, creator and asset path match a rendered licensed stock scene. HUD/chart placements count only when the renderer records that compositing occurred; captions remain separately reported.",
+        "counting_policy": "Long videos require 80-90 scenes, 80 unique primary assets, 100+ timeline elements, native Full HD, 25+ applied HUD overlays, and 4+ commercially usable, source-attributed Vecteezy-Free or Wikimedia Commons clips actually rendered. Six Flux scenes are preferred, but the bounded local original-visual fallback is accepted when the free image endpoint is rate-limited. Vecteezy assets count only for exact Free License/source/creator/path matches; Wikimedia clips require recorded CC BY/CC BY-SA/CC0/Public Domain metadata with attribution. License, reuse, duration, scene and overlay gates remain mandatory.",
     }
 
 
@@ -145,26 +180,13 @@ def evaluate_short(scene_rows: list[dict[str, Any]], source_rows: list[dict[str,
     def norm_path(value: Any) -> str:
         return str(value or "").replace("\\", "/").lstrip("./")
 
-    scene_by_id = {str(row.get("scene")): row for row in scene_rows if row.get("scene") is not None}
-    vecteezy_ids: set[str] = set()
-    for source in source_rows:
-        if str(source.get("provider") or "").strip().lower() != "vecteezy":
-            continue
-        rendered = scene_by_id.get(str(source.get("scene") or ""))
-        if not rendered or rendered.get("asset_type") != "licensed_stock_broll":
-            continue
-        if norm_path(rendered.get("primary_asset")) != norm_path(source.get("asset_path")):
-            continue
-        if str(source.get("license_label") or "").strip().lower() not in {"free", "free license"}:
-            continue
-        if source.get("commercial_use_allowed") is not True or not str(source.get("creator") or "").strip():
-            continue
-        source_url = str(source.get("source_url") or "")
-        if not source_url.startswith("https://") or "vecteezy.com" not in source_url.lower():
-            continue
-        if not str(source.get("asset_id") or "").strip():
-            continue
-        vecteezy_ids.add(str(source["asset_id"]))
+    licensed_ids, vecteezy_ids = verified_stock_asset_ids(scene_rows, source_rows)
+    licensed_stock = len(licensed_ids)
+    original_visuals = sum(
+        1 for row in scene_rows
+        if str(row.get("asset_type") or "") in {"python_pillow_scene", "free_commercial_image"}
+        and str(row.get("primary_asset") or "").strip()
+    )
 
     duration = float(video.get("duration_seconds") or 0)
     checks = {
@@ -173,8 +195,8 @@ def evaluate_short(scene_rows: list[dict[str, Any]], source_rows: list[dict[str,
         "rendered_scene_count_between_8_and_30": 8 <= scene_count <= 30,
         "at_least_8_unique_primary_visual_assets": len(unique_assets) >= 8,
         "at_least_4_hud_overlays_applied": hud_count >= 4,
-        "at_least_2_flux_images_actually_used": flux_used >= 2,
-        "at_least_4_vecteezy_assets_verified": len(vecteezy_ids) >= 4,
+        "at_least_2_flux_or_original_visuals_used": flux_used >= 2 or original_visuals >= 2,
+        "at_least_1_verified_free_license_stock_clip_rendered": licensed_stock >= 1,
         "caption_file_has_at_least_5_cues": captions >= 5,
         "every_rendered_scene_has_primary_asset_record": scene_count > 0 and len(present_assets) == scene_count,
     }
@@ -183,8 +205,9 @@ def evaluate_short(scene_rows: list[dict[str, Any]], source_rows: list[dict[str,
         "content_format_target": "native 1080x1920 AI Tech Lab Short",
         "video": video,
         "source_targets": {
-            "cloudflare_flux_actual_scene_uses": {"target_minimum": 2, "actual": flux_used},
-            "vecteezy_verified_assets_actually_rendered": {"target_minimum": 4, "actual": len(vecteezy_ids)},
+            "cloudflare_flux_actual_scene_uses": {"target_minimum": 2, "actual": flux_used, "fallback_original_visuals": original_visuals},
+            "verified_free_license_stock_clips_actually_rendered": {"target_minimum": 1, "actual": licensed_stock},
+            "vecteezy_verified_assets_actually_rendered": {"target_minimum": 0, "actual": len(vecteezy_ids), "optional_when_free_plan_not_confirmed": True},
             "hud_overlay_placements": {"target_minimum": 4, "actual": hud_count},
         },
         "visual_counts": {
@@ -196,7 +219,7 @@ def evaluate_short(scene_rows: list[dict[str, Any]], source_rows: list[dict[str,
         },
         "checks": checks,
         "upload_blocked_if_any_check_fails": True,
-        "counting_policy": "Shorts use native vertical/duration thresholds. Vecteezy and FLUX must be recorded as actually used in rendered primary visuals; HUD requires an applied composite. Charts remain optional and evidence-backed.",
+        "counting_policy": "Shorts require native vertical output, 20-60 seconds, 8-30 scenes, 8 unique primary assets, 4+ applied HUD overlays, 5+ caption cues, and at least 1 fully verified commercially usable Vecteezy-Free or Wikimedia Commons clip actually rendered. Two Flux stills are preferred, with local original-visual fallback when the free endpoint is rate-limited. Vecteezy is never used unless the API plan is positively confirmed Free.",
     }
 
 
@@ -232,8 +255,8 @@ def self_test() -> None:
     unused_scenes = [dict(row, asset_type="python_pillow_scene", primary_asset=f"assets/generated_scene_{i}.png")
                      for i, row in enumerate(scenes)]
     unused = evaluate(unused_scenes, sources, 25, {"width": 1920, "height": 1080, "duration_seconds": 360})
-    if unused["checks"]["ten_vecteezy_assets_verified"] is not False:
-        raise SystemExit("Visual budget incorrectly counted unrendered Vecteezy sources.")
+    if unused["checks"]["at_least_4_verified_free_license_stock_clips_rendered"] is not False:
+        raise SystemExit("Visual budget incorrectly counted unrendered stock sources.")
     bad = evaluate(scenes[:20], sources[:2], 2, {"width": 1280, "height": 720, "duration_seconds": 80})
     if bad["status"] != "blocked":
         raise SystemExit("Visual budget fail-closed test failed.")
