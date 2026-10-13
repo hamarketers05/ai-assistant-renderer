@@ -1217,6 +1217,13 @@ jobs:
           test -s "$VIDEO"
           test -s "$THUMBNAIL"
 
+      - name: Enforce Full-HD six-minute visual budget before QA and upload
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/visual_budget.py --content-id "$CONTENT_ID" --format "$CONTENT_FORMAT" --video "output/AI_TECH_LAB_${CONTENT_ID}.mp4" --output work/visual_coverage_report.json
+          test -s work/visual_coverage_report.json
+          cat work/visual_coverage_report.json
+
       - name: QA rendered production
         run: |
           set -euo pipefail
@@ -1403,6 +1410,9 @@ jobs:
             work/flux_self_test_report.json
             work/flux_generation_report.json
             work/rendered_scene_assets_report.json
+            work/visual_coverage_report.json
+            work/visual_media_report.json
+            work/chart_overlay_report.json
             work/brand_assets_report.json
             work/seo_report.json
             work/video_review_report.json
