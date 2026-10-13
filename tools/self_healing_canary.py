@@ -8,7 +8,7 @@ import sys
 
 def answer():
     # Deliberately wrong for the isolated repair test; expected result is 42.
-    return 41
+    return 42
 
 def self_test():
     actual = answer()
