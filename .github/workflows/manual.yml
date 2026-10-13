@@ -173,9 +173,14 @@ jobs:
         run: |
           set -euo pipefail
           test -s work/script.txt
+          SCRIPT_SHA256=$(sha256sum work/script.txt | cut -d ' ' -f1)
           if [ -n "$INPUT_AUDIO_URL" ]; then
             [ "$VOICE_AUDIO_APPROVED" = "true" ] || { echo "A prior audio object can only be reused after voice_audio_approved=true."; exit 1; }
             [[ "$INPUT_AUDIO_URL" =~ ^ai-tech-lab/[0-9]+/kokoro[.]mp3$ ]] || { echo "INPUT_AUDIO_URL must be an object path like ai-tech-lab/123/kokoro.mp3; full signed URLs are rejected."; exit 1; }
+            HASH_PATH="${INPUT_AUDIO_URL%.mp3}.script.sha256"
+            curl -fsS --retry 2 --retry-delay 2 --max-time 60 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$HASH_PATH" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/approved_script_sha256.txt
+            APPROVED_SCRIPT_SHA=$(cat work/approved_script_sha256.txt | cut -d " " -f1)
+            [ "$APPROVED_SCRIPT_SHA" = "$SCRIPT_SHA256" ] || { echo "VOICE APPROVAL GATE BLOCKED: stored voice preview was made from a different script."; exit 1; }
             curl -fsS --retry 2 --retry-delay 2 --max-time 120 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$INPUT_AUDIO_URL" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/kokoro_upload.mp3
             test -s work/kokoro_upload.mp3
             ffmpeg -y -i work/kokoro_upload.mp3 -ar 44100 -ac 2 -c:a pcm_s16le voice.wav
