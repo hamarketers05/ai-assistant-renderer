@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       audio_url:
-        description: "Manual approval gate: leave empty to generate a voice preview; after listening and approving it, enter its exact Supabase object path, e.g. ai-tech-lab/123/kokoro.mp3. Full signed URLs are not accepted."
+        description: "Optional existing Kokoro MP3 object path. Leave empty to generate narration automatically; production continues only after audio quality checks pass. Full signed URLs are not accepted."
         required: false
         type: string
       content_format:
@@ -161,6 +161,7 @@ jobs:
           echo "Configuration validation passed."
 
       - name: Generate, master and validate Kokoro narration
+        id: voice_gate
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -177,7 +178,7 @@ jobs:
             curl -fsS --retry 2 --retry-delay 2 --max-time 120 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$INPUT_AUDIO_URL" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/kokoro_upload.mp3
             test -s work/kokoro_upload.mp3
             ffmpeg -y -i work/kokoro_upload.mp3 -ar 44100 -ac 2 -c:a pcm_s16le voice.wav
-            .venv/bin/python -c 'import json; from pathlib import Path; Path("work/kokoro_tts_report.json").write_text(json.dumps({"engine":"Kokoro-82M","voice":"af_heart","language":"American English","source":"previously generated preview reused after approval","sample_rate":44100,"manual_voice_required":True},indent=2),encoding="utf-8")'
+            .venv/bin/python -c 'import json; from pathlib import Path; Path("work/kokoro_tts_report.json").write_text(json.dumps({"engine":"Kokoro-82M","voice":"af_heart","language":"American English","source":"previously generated preview reused after approval","sample_rate":44100,"manual_voice_required":False},indent=2),encoding="utf-8")'
             echo "Reusing the exact previously previewed Kokoro MP3 after explicit approval."
           else
             .venv/bin/python tools/generate_kokoro_voice.py --script work/script.txt --output work/kokoro_voice.wav --voice af_heart --speed 1.0
@@ -193,7 +194,7 @@ jobs:
           audio=next((s for s in streams if s.get("codec_type")=="audio"),None)
           if not audio or int(audio.get("sample_rate",0))!=44100 or duration<30:
               raise SystemExit("Kokoro audio quality gate failed: missing audio, wrong sample rate, or narration shorter than 30 seconds.")
-          report={"engine":"Kokoro-82M","voice":"af_heart","post_processing":["high-pass 75 Hz","low-pass 12 kHz","light compression","EBU loudness normalization"],"duration_seconds":round(duration,2),"sample_rate":44100,"manual_voice_approval_required":True,"quality_gate":"passed"}
+          report={"engine":"Kokoro-82M","voice":"af_heart","post_processing":["high-pass 75 Hz","low-pass 12 kHz","light compression","EBU loudness normalization"],"duration_seconds":round(duration,2),"sample_rate":44100,"manual_voice_approval_required":False,"quality_gate":"passed"}
           Path("work/kokoro_audio_quality.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
           print(json.dumps(report))
           PY
@@ -244,10 +245,11 @@ jobs:
           fi
           [[ "$AUDIO_URL" == https://* ]] || { echo "Generated Kokoro audio URL is invalid."; exit 1; }
           echo "AUDIO_URL=$AUDIO_URL" >> "$GITHUB_ENV"
-          echo "Kokoro narration generated, mastered, validated and stored. Production requires explicit voice-audio approval."
+          echo "voice_ready=true" >> "$GITHUB_OUTPUT"
+          echo "Kokoro narration generated, mastered, uploaded and validated. Automatic production may continue only after the audio gate passed."
 
-      - name: Save Kokoro voice preview artifact for approval
-        if: ${{ inputs.audio_url == '' }}
+      - name: Save validated Kokoro voice artifact
+        if: ${{ inputs.audio_url == '' && steps.voice_gate.outputs.voice_ready == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-voice-preview-${{ inputs.content_id }}
@@ -262,21 +264,21 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Hold production until voice audio is manually approved
-        if: ${{ inputs.audio_url == '' }}
+      - name: Block production if Kokoro voice was not validated
+        if: ${{ inputs.audio_url == '' && steps.voice_gate.outputs.voice_ready != 'true' }}
         run: |
-          echo "VOICE_AUDIO_APPROVAL_PENDING: no rendering, final QA, or YouTube upload is allowed until this exact narration is approved."
-          echo "Listen to the uploaded ai-tech-lab-voice-preview artifact, then rerun with the same approved audio object path in the audio_url input."
+          echo "VOICE_AUDIO_GATE_BLOCKED: automatic narration did not pass validation; production remains blocked."
+          echo "Inspect the Kokoro step and automated audio-quality report, then fix the failed validation before retrying."
           echo "Approved audio object path: $(cat work/kokoro_audio_object_path.txt)"
           {
-            echo "## Voice audio approval required"
-            echo "The Kokoro preview and automated audio-quality report are saved in the artifact above."
-            echo "No production render or YouTube upload ran. Review the audio, then reuse this exact object path:"
+            echo "## Kokoro audio gate blocked production"
+            echo "The voice was not marked ready; automatic rendering and publishing remain blocked."
+            echo "No production render or YouTube upload ran because the Kokoro readiness output was absent."
             printf 'Object path: %s\n' "$(cat work/kokoro_audio_object_path.txt)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Request production manifest
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           WORKER_URL: ${{ vars.NEW_PRODUCTION_WORKER_URL }}
           WORKER_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
@@ -314,7 +316,7 @@ jobs:
             work/production_manifest.json >/dev/null
 
       - name: Prepare metadata and scene plan
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           jq -r '.seo.title // empty' work/production_manifest.json > work/manifest_title.txt
@@ -351,7 +353,7 @@ jobs:
           test -s work/scenes.tsv
 
       - name: Validate Kokoro narration before scene timing
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           test -s voice.wav
@@ -368,7 +370,7 @@ jobs:
           PY
 
       - name: Edit generated narration, add pauses and script cues, and generate captions
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           test -s voice.wav
@@ -402,7 +404,7 @@ jobs:
           PY
 
       - name: Apply optional topic-aware Rubber Band pitch shaping
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           mkdir -p work
@@ -450,7 +452,7 @@ jobs:
 
 
       - name: Build sentence-by-sentence visual direction
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
@@ -470,7 +472,7 @@ jobs:
           echo "Scene timing verified; long videos require 80–90 voice-aligned visual scenes."
 
       - name: Discover and download Vecteezy footage
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           VECTEEZY_API_KEY: ${{ secrets.VECTEEZY_API_KEY }}
           VECTEEZY_ACCOUNT_ID: ${{ secrets.VECTEEZY_ACCOUNT_ID }}
@@ -801,7 +803,7 @@ jobs:
           .venv/bin/python work/fetch_vecteezy.py
 
       - name: Find additional free, topic-matched Wikimedia Commons footage
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/fetch_free_video.py
@@ -809,7 +811,7 @@ jobs:
           cat work/commons_media_report.json
 
       - name: Discover licensed Full-HD commercially usable images and eligible NASA clips
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           SMITHSONIAN_API_KEY: ${{ secrets.SMITHSONIAN_API_KEY }}
         run: |
@@ -819,7 +821,7 @@ jobs:
           cat work/visual_media_report.json
 
       - name: Bootstrap visual history from recent verified production deliveries
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -883,7 +885,7 @@ jobs:
           test -s learning/used_visual_assets.json
 
       - name: Reject previously used or weakly matched visual assets
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/asset_reuse_guard.py --mode validate --content-id "$CONTENT_ID" --content-format "$CONTENT_FORMAT"
@@ -891,7 +893,7 @@ jobs:
           jq -e '.status == "validated" and .previous_video_reuse == false and .within_video_duplicates == false and .accepted_new_assets >= .minimum_new_licensed_clips_required' work/asset_reuse_report.json >/dev/null
 
       - name: Add stock creator and license attribution
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
@@ -931,7 +933,7 @@ jobs:
           PY
 
       - name: Create original graphics
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
@@ -979,7 +981,7 @@ jobs:
           PY
 
       - name: Generate only evidence-supported data charts
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/make_evidence_charts.py
@@ -987,14 +989,14 @@ jobs:
           cat work/evidence_charts_report.json
 
       - name: Generate script-matched illustrated scenes
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/generate_scene_art.py
           test "$(find assets -maxdepth 1 -name 'generated_scene_*.png' | wc -l)" -ge 4
 
       - name: Generate bounded topic-matched FLUX stills
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           WORKER_URL: ${{ vars.NEW_PRODUCTION_WORKER_URL }}
           WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
@@ -1022,7 +1024,7 @@ jobs:
           PY
 
       - name: Generate topic-matched 3D hero overlay
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/make_3d_hero_overlay.py work/title.txt assets/ai_security_3d_hero.png
@@ -1034,7 +1036,7 @@ jobs:
           fi
 
       - name: Prepare transparent HUD and evidence-graph overlays for matching scenes
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/compose_scene_overlays.py
@@ -1042,7 +1044,7 @@ jobs:
           cat work/chart_overlay_report.json
 
       - name: Render scenes
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
@@ -1267,7 +1269,7 @@ jobs:
           PY
 
       - name: Generate original topic-aware background score
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           VOICE_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 work/voice_edited.wav)
@@ -1276,7 +1278,7 @@ jobs:
           test -s work/music_report.json
 
       - name: Improve SEO title, description, tags, sources and chapters
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/seo_metadata.py
@@ -1303,7 +1305,7 @@ jobs:
           PY
 
       - name: Create AI Tech Lab branded intro and subscribe popup
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/make_brand_assets.py --format "$CONTENT_FORMAT" --outdir assets
@@ -1312,7 +1314,7 @@ jobs:
           test -s work/brand_assets_report.json
 
       - name: Assemble final video and thumbnail
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
@@ -1410,7 +1412,7 @@ jobs:
           test -s "$THUMBNAIL"
 
       - name: Enforce Full-HD six-minute visual budget before QA and upload
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python tools/visual_budget.py --content-id "$CONTENT_ID" --format "$CONTENT_FORMAT" --video "output/AI_TECH_LAB_${CONTENT_ID}.mp4" --output work/visual_coverage_report.json
@@ -1418,7 +1420,7 @@ jobs:
           cat work/visual_coverage_report.json
 
       - name: QA rendered production
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
@@ -1514,7 +1516,7 @@ jobs:
 
 
       - name: Verify narration, music, captions, and premium thumbnail assets
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           VIDEO="output/AI_TECH_LAB_${CONTENT_ID}.mp4"
@@ -1548,7 +1550,7 @@ jobs:
           PY
 
       - name: Groq primary / Workers AI fallback reviews rendered video, visual match, audio assets and thumbnail
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -1566,7 +1568,7 @@ jobs:
           jq '{review_status,decision,overall_score,blocking_issues,top_improvements}' work/video_review_report.json
 
       - name: Save video artifacts
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-${{ inputs.content_id }}
@@ -1610,7 +1612,7 @@ jobs:
           retention-days: 7
 
       - name: Persist final QA feedback for the next video
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         id: learning_feedback
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
@@ -1645,7 +1647,7 @@ jobs:
           fi
 
       - name: Block upload if final quality review found critical issues
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           test -s work/video_review_report.json
@@ -1660,7 +1662,7 @@ jobs:
           fi
 
       - name: Require script-relevant licensed footage before upload
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
@@ -1716,7 +1718,7 @@ jobs:
           PY
 
       - name: Check existing YouTube upload
-        if: ${{ inputs.audio_url != '' }}
+        if: ${{ inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true' }}
         id: youtube_state
         env:
           WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
@@ -1736,7 +1738,7 @@ jobs:
           echo "video_id=$(jq -r '.video_id // empty' work/state.json)" >> "$GITHUB_OUTPUT"
 
       - name: Install and activate MiDaS AI depth model for SBS
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' && inputs.stereo_output == 'SBS' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' && inputs.stereo_output == 'SBS' ) }}
         run: |
           set -euo pipefail
           .venv/bin/pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torchvision
@@ -1746,7 +1748,7 @@ jobs:
           echo "Pinned MiDaS AI model and dependencies installed, loaded and inference-tested. Final master is ready for FFmpeg SBS conversion."
 
       - name: Convert final master to 3D before YouTube upload
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' ) }}
         env:
           STEREO_OUTPUT: ${{ inputs.stereo_output }}
         run: |
@@ -1780,7 +1782,7 @@ jobs:
           echo "Only the verified stereoscopic output is eligible for YouTube upload."
 
       - name: Create per-video editing tool execution manifest
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         env:
           STEREO_OUTPUT: ${{ inputs.stereo_output }}
         run: |
@@ -1795,7 +1797,7 @@ jobs:
           cat work/editing_tool_manifest.json
 
       - name: Save editing manifest artifact
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-editing-manifest-${{ inputs.content_id }}
@@ -1810,7 +1812,7 @@ jobs:
           retention-days: 30
 
       - name: Save verified 3D upload artifact
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format == 'LONG_VIDEO' ) }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-3d-ready-${{ inputs.content_id }}
@@ -1824,7 +1826,7 @@ jobs:
           retention-days: 7
 
       - name: Get YouTube access token
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         env:
           WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
           WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
@@ -1844,7 +1846,7 @@ jobs:
           rm -f work/token.json
 
       - name: Prepare YouTube metadata and schedule
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         run: |
           set -euo pipefail
           .venv/bin/python - <<'PY'
@@ -1894,7 +1896,7 @@ jobs:
 
       - name: Upload video using YouTube Data API
         id: youtube_upload
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         run: |
           set -euo pipefail
           if [ "$CONTENT_FORMAT" = "LONG_VIDEO" ]; then
@@ -1937,7 +1939,7 @@ jobs:
           echo "video_id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
 
       - name: Record uploaded video and schedule
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         env:
           WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
           WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
@@ -1960,7 +1962,7 @@ jobs:
           fi
 
       - name: Set custom thumbnail
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format != 'SHORT' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' && inputs.content_format != 'SHORT' ) }}
         run: |
           set -euo pipefail
           VIDEO_ID="${{ steps.youtube_upload.outputs.video_id }}"
@@ -1975,7 +1977,7 @@ jobs:
           fi
 
       - name: Verify uploaded video with YouTube Data API v3
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         run: |
           set -euo pipefail
           VIDEO_ID="${{ steps.youtube_upload.outputs.video_id }}"
@@ -2007,7 +2009,7 @@ jobs:
           cat work/youtube_post_upload_review.json
 
       - name: Persist unique visual asset history after verified YouTube delivery
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
@@ -2041,7 +2043,7 @@ jobs:
           fi
 
       - name: Save final delivery verification report
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded != 'true' ) }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-delivery-${{ inputs.content_id }}
@@ -2059,12 +2061,12 @@ jobs:
           retention-days: 30
 
       - name: Report existing upload
-        if: ${{ inputs.audio_url != '' && ( steps.youtube_state.outputs.already_uploaded == 'true' ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( steps.youtube_state.outputs.already_uploaded == 'true' ) }}
         run: |
           echo "Content $CONTENT_ID already has video ID ${{ steps.youtube_state.outputs.video_id }}."
           echo "Duplicate upload skipped. Do not delete the old scheduled video."
       - name: Compile downstream mini-agent execution evidence
-        if: ${{ inputs.audio_url != '' && ( always() ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( always() ) }}
         env:
           ALREADY_UPLOADED: ${{ steps.youtube_state.outputs.already_uploaded }}
           EXISTING_VIDEO_ID: ${{ steps.youtube_state.outputs.video_id }}
@@ -2074,7 +2076,7 @@ jobs:
           python3 tools/mini_agent_delivery_report.py
 
       - name: Save final mini-agent execution reports
-        if: ${{ inputs.audio_url != '' && ( always() ) }}
+        if: ${{ (inputs.audio_url != '' || steps.voice_gate.outputs.voice_ready == 'true') && ( always() ) }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-mini-agents-${{ inputs.content_id }}
