@@ -96,9 +96,19 @@ def main():
     sources = evidence.get("sources", [])
     trend_basis = package.get("trend_basis") or {}
     trend_count = int(trend_basis.get("distinct_youtube_videos", 0) or 0)
+    trend_gate = str(trend_basis.get("gate") or "")
+    trend_fallback = str(trend_basis.get("fallback") or "")
+    selected_current_trend = trend_basis.get("selected_current_trend")
+    live_trend_ok = trend_gate == "PASS" and trend_count >= 3 and selected_current_trend is True
+    evergreen_fallback_ok = (
+        trend_gate == "SCHEDULED_ROTATION_FALLBACK"
+        and trend_fallback == "scheduled_category_evergreen_explainer"
+        and selected_current_trend is False
+        and (package.get("trend_verification") or {}).get("gate") == trend_gate
+    )
     category = str(package.get("editorial_category", "")).strip()
-    if not 850 <= long_words <= 1000 or len(str(package.get("script", ""))) < 4500 or hook_score < 7 or trend_count < 3 or not category:
-        raise SystemExit("Long-form quality/trend gate failed: require 850-1000 words, 4500+ script characters, hook score >=7, a category, and 3+ distinct category-related YouTube videos. Source links are retained as internal context but are not a separate release-count gate.")
+    if not 850 <= long_words <= 1000 or len(str(package.get("script", ""))) < 4500 or hook_score < 7 or not (live_trend_ok or evergreen_fallback_ok) or not category:
+        raise SystemExit("Long-form quality gate failed: require 850-1000 words, 4500+ script characters, hook score >=7, category, and either 3+ real category-related YouTube videos OR the explicit scheduled-category evergreen fallback. Fallback must not be described as a current trend.")
     if short.get("content_format") != "SHORT" or not 100 <= int(short.get("script_word_count", 0) or 0) <= 135 or short.get("qa") != "passed":
         raise SystemExit("Short-form QA failed; no content records or renderer runs were created.")
     next_slot_date = datetime.now(NY).date() + timedelta(days=1)
