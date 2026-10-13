@@ -88,3 +88,4 @@ jobs:
 # Recheck after final Workers AI model/vision input fix (2026-10-13).
 
 # Vision fallback uses a plain-text marker because providers may not honor strict JSON formatting for image inputs.
+# Targeted no-upload recheck after mini-agent and production QA wiring (2026-10-13).
