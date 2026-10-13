@@ -4,6 +4,7 @@ from __future__ import annotations
 import json, os, re, sys, time, urllib.error, urllib.request
 from ai_text_client import chat_completion
 from pathlib import Path
+from mini_agents import NATURAL_VOICE_GUIDANCE, evaluate_human_voice
 
 ROOT = Path("work")
 API = "https://api.groq.com/openai/v1/chat/completions"
@@ -37,15 +38,21 @@ def main():
         raise SystemExit("Long-form package failed input validation.")
     system = (
         "You write original English-language YouTube Shorts for a US audience. "
-        "Create a punchy 45-60 second short from the supplied long script only. "
-        "Do not invent facts, numbers, quotes, capabilities, or hands-on experience. "
-        "Use a sharp first-sentence hook, one clear takeaway, varied natural spoken rhythm, "
-        "and a concise CTA. Use US English. The script must be spoken narration only, "
-        "100-135 words. Return only JSON with title, script, description, tags. "
-        "Keep title under 85 characters, description under 4900 characters, and tags an array."
+        "Create a punchy 45-60 second short from the supplied long script only, in the same editorial category. "
+        "Do not invent facts, numbers, quotes, capabilities, statistics, or hands-on experience. "
+        "Do not simply compress the long script into a generic summary; build one small story around one surprising, "
+        "source-supported implication. Use a sharp natural hook, a clear narrative turn, a reasoned point of view, "
+        "varied sentence lengths, US-English contractions where natural, and a concise CTA. "
+        "No list-reading, canned intros, empty hype, repetitive transitions, or fake personal experience. "
+        "Narration only, 100-135 words. Return JSON with title, script, description, tags. "
+        "Keep title under 85 characters, description under 4900 characters, and tags an array.\n\n"
+        + NATURAL_VOICE_GUIDANCE
     )
     user = {
         "long_title": title,
+        "editorial_category": package.get("editorial_category", "AI News & Breakthroughs"),
+        "category_rotation": package.get("category_rotation", {}),
+        "human_voice_profile": package.get("human_voice_qa", {}),
         "long_script": script,
         "sources": [{"title": x.get("title", ""), "url": x.get("url", ""), "evidence": x.get("content", "")[:500]} for x in sources[:8]],
         "existing_description_with_source_links": str(package.get("description", ""))[:4500],
@@ -86,15 +93,21 @@ def main():
             normalized.append(item)
     if not short_title or not 100 <= words <= 135 or len(description) < 20:
         raise SystemExit(f"Short failed quality gates: title={bool(short_title)}, script_words={words}, description_chars={len(description)}.")
+    human_voice_qa = evaluate_human_voice(short_text)
+    if human_voice_qa["score"] < 55:
+        raise SystemExit("Short narration failed the natural-voice style gate (score " + str(human_voice_qa["score"]) + "/100); render was blocked.")
     output = {
         "brand": "AI Tech Lab", "target_audience": "United States", "content_format": "SHORT",
+        "editorial_category": package.get("editorial_category", ""),
+        "category_rotation": package.get("category_rotation", {}),
+        "human_voice_qa": human_voice_qa, "agent_policy_version": "1.0.0",
         "title": short_title, "script": short_text, "script_word_count": words,
         "description": description[:4900], "tags": normalized[:20],
         "sources": sources[:8], "derived_from_title": title,
         "provider": ("Groq" if provider == "groq" else "Cloudflare Workers AI fallback"), "qa": "passed",
     }
     (ROOT / "short_content_package.json").write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({"status": "passed", "provider": provider, "title": short_title, "script_words": words, "source_count": len(sources)}))
+    print(json.dumps({"status": "passed", "provider": provider, "title": short_title, "script_words": words, "source_count": len(sources), "human_voice_score": human_voice_qa["score"], "category": output["editorial_category"]}))
 
 if __name__ == "__main__":
     main()
