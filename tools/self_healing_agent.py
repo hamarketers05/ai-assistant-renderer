@@ -160,6 +160,39 @@ def classify_renderer_input_quality_failure(run, log):
         }
     return None
 
+def classify_known_infrastructure_failure(run, log):
+    """Recognize recurring infrastructure failures whose correct response is auth/config, not code edits."""
+    name = str(run.get("name") or "")
+    lower = str(log or "").lower()
+    if name == "Validate MiDaS SBS Pipeline" and (
+        "keyerror: 'authorization'" in lower or ("keyerror" in lower and '"authorization"' in lower)
+    ):
+        return {
+            "code": "PYTORCH_HUB_ANONYMOUS_GITHUB_API_LIMIT",
+            "root_cause": "PyTorch Hub failed pinned-model GitHub API validation anonymously; shared runner limits can surface as a misleading KeyError: 'Authorization'.",
+            "safe_recovery": "Bind the existing least-privilege GITHUB_TOKEN into the validation job environment, keep contents: read, and rerun the pinned MiDaS activation check. Never print the token or broaden permissions."
+        }
+    if name == "AI Assistant Renderer" and (
+        "vecteezy api plan was not positively identified as free" in lower
+        or "skipping vecteezy downloads to prevent unexpected charges" in lower
+    ):
+        return {
+            "code": "VECTEEZY_FREE_TIER_UNVERIFIED",
+            "root_cause": "The Vecteezy account/API response did not prove the Free plan, so its download endpoint was correctly not called.",
+            "safe_recovery": "Do not guess the plan or try paid endpoints. Use attributed Wikimedia Commons and original local visuals, keeping per-file license, reuse, scene-count and final-quality gates."
+        }
+    if name == "AI Assistant Renderer" and (
+        "image service http 429" in lower or
+        ("generated_count" in lower and '"generated_count": 0' in lower and "flux" in lower)
+    ):
+        return {
+            "code": "FREE_IMAGE_ENDPOINT_RATE_LIMIT",
+            "root_cause": "The free image-generation endpoint rate-limited the run and generated no Flux stills.",
+            "safe_recovery": "Use the original local scene-visual fallback, and proceed only if actual output visual QA passes. Do not loop retries or use paid image services."
+        }
+    return None
+
+
 def fetch_logs(job_id):
     # Diagnose only the failed step where possible; successful report steps mention other files.
     failed_numbers = set()
@@ -701,6 +734,21 @@ def analyze(runs):
             )
             # Invalid inputs are not transient infrastructure faults; no blind retry or
             # code patch of scene_director.py is safe here.
+            count += 1
+            continue
+        infrastructure_issue = classify_known_infrastructure_failure(run, joined)
+        if infrastructure_issue:
+            REPORT["actions"].append({
+                "action": "classified_known_infrastructure_failure",
+                "run_id": run.get("id"),
+                **infrastructure_issue
+            })
+            REPORT["unresolved"].append(
+                f"Run {run['id']} ({run.get('name')}): {infrastructure_issue['code']}. "
+                f"{infrastructure_issue['root_cause']} {infrastructure_issue['safe_recovery']}"
+            )
+            # Known auth/free-tier issues are repaired through constrained configuration
+            # or permitted fallback, never by speculative edits or paid retries.
             count += 1
             continue
         if run.get("name") in SAFE_RETRY and is_transient(joined):
