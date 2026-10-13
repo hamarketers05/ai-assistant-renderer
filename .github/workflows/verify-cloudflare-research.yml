@@ -1,4 +1,5 @@
 name: Verify Cloudflare Free-Source Research
+# Main Worker now conservatively cross-checks shared current headlines across independent publishers.
 
 on:
   push:
