@@ -101,6 +101,30 @@ def chat_completion(payload: dict, workflow_path: str, timeout: int = 90) -> dic
                     "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED: daily free quota is exhausted; "
                     "stop retries and do not switch to a paid provider."
                 ) from None
+            if error_code == "GROQ_RATE_LIMITED":
+                # Do not cascade from a rate-limited Groq primary into the already-exhausted
+                # Workers AI allowance. Honor Retry-After once, then fail closed.
+                try:
+                    delay = min(65, max(1, int(float(exc.headers.get("Retry-After", "61")))))
+                except (TypeError, ValueError):
+                    delay = 61
+                print(f"Main Worker Groq rate limit reached; waiting {delay}s for one bounded retry.")
+                time.sleep(delay)
+                try:
+                    retry_result = _post_json(
+                        main_url, payload, {"Authorization": "Bearer " + worker_token}, timeout
+                    )
+                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+                    raise RuntimeError(
+                        "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover; stopped after one "
+                        "Retry-After-aware retry and did not consume the exhausted Workers AI fallback."
+                    ) from None
+                if retry_result.get("ok") is True and retry_result.get("choices"):
+                    retry_result["provider"] = "main_worker_groq"
+                    return retry_result
+                raise RuntimeError(
+                    "GROQ_RATE_LIMITED: Main Worker retry returned no valid completion; no fallback loop started."
+                ) from None
             if exc.code in (401, 403):
                 raise RuntimeError(
                     f"Main Worker AI proxy rejected WORKER_AUTH_TOKEN (HTTP {exc.code}); "
