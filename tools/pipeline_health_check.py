@@ -87,8 +87,13 @@ def validate_catalog(catalog: Any, root: Path = ROOT) -> list[str]:
         if not isinstance(route, dict):
             errors.append(f"incident_routes[{index}] must be an object")
             continue
-        if not route.get("code") or not route.get("safe_recovery"):
-            errors.append(f"incident_routes[{index}] must define code and safe_recovery")
+        # The catalog intentionally uses human-readable labels and permitted_recovery;
+        # accept those canonical fields, while retaining compatibility with older
+        # code/safe_recovery records. A route must always name a recovery instruction.
+        route_id = route.get("code") or route.get("label")
+        recovery = route.get("safe_recovery") or route.get("permitted_recovery")
+        if not isinstance(route_id, str) or not route_id.strip() or not isinstance(recovery, str) or not recovery.strip():
+            errors.append(f"incident_routes[{index}] must define code/label and safe_recovery/permitted_recovery")
 
     protected = catalog.get("protected_operations", [])
     if isinstance(protected, list):
