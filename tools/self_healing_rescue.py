@@ -20,6 +20,7 @@ REPO = os.getenv("GITHUB_REPOSITORY", "hamarketers05/ai-assistant-renderer")
 TOKEN = os.getenv("GITHUB_TOKEN", "")
 GROQ_KEY = os.getenv("GROQ_API_KEY", "")
 MODEL = os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-20b")
+# Keep these names aligned with the trusted workflow/report allowlist in the daily-handoff Worker.
 AGENT_NAME = "AI Tech Lab Autonomous Self-Healing Agent"
 WATCHDOG_NAME = "AI Tech Lab Autonomous Self-Healing Watchdog"
 WORK = Path("work")
