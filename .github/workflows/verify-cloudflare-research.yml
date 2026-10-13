@@ -1,5 +1,6 @@
 name: Verify Cloudflare Free-Source Research
 # Script generation reuses this fresh verified D1 research record to avoid duplicate provider calls.
+# Writer prompt now explicitly requests one strict schema-valid JSON object.
 # Main Worker now conservatively cross-checks shared current headlines across independent publishers.
 
 on:
