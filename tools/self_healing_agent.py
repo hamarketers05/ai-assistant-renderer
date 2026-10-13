@@ -228,6 +228,19 @@ def classify_known_infrastructure_failure(run, log):
             "root_cause": "The Main Worker category-rotation contract or its deterministic regression checks failed; this may be a Worker-code regression or a date/category metadata mismatch.",
             "safe_recovery": "Retry the read-only rotation probes once, verify US Eastern date/index/next-category and the seven-day self-test, then open a deduplicated incident. Keep source/fact gates closed until checks recover. Do not deploy a Worker patch automatically, bypass research evidence checks, or switch to paid providers."
         }
+    if (
+        name == "Verify Cloudflare Trend Script (No Publishing)"
+        and (
+            "script length gate failed" in lower
+            or "length repair rejected:" in lower
+            or ("spoken words" in lower and "required 850" in lower and "1000" in lower)
+        )
+    ):
+        return {
+            "code": "CLOUDFLARE_SCRIPT_LENGTH_REPAIR_GATE",
+            "root_cause": "The live AI Tech Lab writer previously requested a rewrite only for drafts under 850 words, so an overlength draft (observed at 1048 words) reached the hard 850–1000-word gate without repair.",
+            "safe_recovery": "Main Worker v418 now requests one evidence-locked rewrite for either underlength (<850) or overlength (>1000) drafts, then rechecks 850–1000 words. Rerun the no-publishing validator only when a free text provider is available; never waive the word-count, factual-claim, hook or voice QA gates, and never retry publishing from this failure."
+        }
     live_groq_span_429 = (
         "fetch /openai/v1/chat/completions" in lower
         or "api.groq.com/openai/v1/chat/completions" in lower
