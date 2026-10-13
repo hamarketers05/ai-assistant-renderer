@@ -153,7 +153,8 @@ jobs:
           if not all(names.index(left) < names.index(right) for left, right in zip(kokoro_names, kokoro_names[1:])):
               raise SystemExit("Kokoro generation and QA must precede scene timing and rendering.")
           workflow_source = Path(".github/workflows/manual.yml").read_text(encoding="utf-8")
-          if "APPROVED VOICE GATE" in workflow_source or "AUDIO_URL: ${{ inputs.audio_url }}" in workflow_source or "Fetch and validate approved narration" in workflow_source:
+          audio_url_expr = "AUDIO_URL: " + "$" + "{{ inputs.audio_url }}"
+          if "APPROVED VOICE GATE" in workflow_source or audio_url_expr in workflow_source or "Fetch and validate approved narration" in workflow_source:
               raise SystemExit("Renderer must not require a manually approved voice or supplied audio URL.")
           render = wf["jobs"]["render"]["steps"][names.index("Assemble final video and thumbnail")].get("run", "")
           for marker in ("ai_tech_lab_intro.png", "ai_tech_lab_subscribe.png", "work/voice_edited.wav", "work/music.wav", "work/transition_sfx.wav", "tools/make_transition_sfx.py", "apulsator=mode=sine:amount=0.75:width=1.5:hz=0.08", "drawbox=x=0:y=0:w=iw:h=131", "loudnorm=I=-14", "tools/render_transitions.py", "make_premium_thumbnail.py"):
