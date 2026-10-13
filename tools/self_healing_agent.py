@@ -50,7 +50,6 @@ PATCHABLE = {
 HEALTH_URLS = [
     ("main-cloudflare-worker", "https://dark-sunset-a2a1.hamarketers05.workers.dev/health"),
     ("production-worker", "https://ai-production-worker.hamarketers05.workers.dev/health"),
-    ("cloudflare-supervisor", "https://ai-assistant-supervisor.hamarketers05.workers.dev/"),
     ("daily-handoff-worker", "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/health"),
 ]
 
