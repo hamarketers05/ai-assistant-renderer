@@ -16,6 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      - name: Checkout marker file
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Validate target date and dispatch normal research workflow
         shell: bash
         env:
