@@ -285,8 +285,25 @@ async function generateAiCompletion(request, env) {
     console.error("AI_PROXY_WORKERS_AI_FAILURE", String(e && e.message || e).slice(0, 180));
     return Response.json({ ok: false, error: "Cloudflare Workers AI fallback could not complete the request" }, { status: 502, headers: cors() });
   }
-  const content = String(result && (result.response || result.text || result.output_text) || "");
-  if (!content.trim()) return Response.json({ ok: false, error: "AI provider returned empty content" }, { status: 502, headers: cors() });
+  const contentValue = result && (
+    result.response || result.text || result.output_text ||
+    (Array.isArray(result.choices) && result.choices[0] && result.choices[0].message && result.choices[0].message.content) ||
+    (result.result && (result.result.response || result.result.text || result.result.output_text))
+  );
+  const content = typeof contentValue === "string" ? contentValue :
+    (contentValue && typeof contentValue === "object" ? JSON.stringify(contentValue) : "");
+  if (!content.trim()) {
+    const shape = {
+      keys: result && typeof result === "object" ? Object.keys(result).slice(0, 12) : [],
+      response_type: typeof (result && result.response),
+      text_type: typeof (result && result.text),
+      output_text_type: typeof (result && result.output_text),
+      choices_type: typeof (result && result.choices),
+      errors: Array.isArray(result && result.errors) ? result.errors.slice(0, 2).map(e => String(e && (e.message || e.code) || "model_error").slice(0, 100)) : []
+    };
+    console.error("AI_PROXY_EMPTY_MODEL_OUTPUT", JSON.stringify(shape));
+    return Response.json({ ok: false, error: "AI provider returned empty content", diagnostic: shape }, { status: 502, headers: cors() });
+  }
   return Response.json({
     id: "cf-" + crypto.randomUUID(), object: "chat.completion",
     created: Math.floor(Date.now() / 1000), model,
