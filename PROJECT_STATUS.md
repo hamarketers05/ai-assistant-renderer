@@ -6,6 +6,14 @@
 **Reviewed code commit:** `dcd8f18845d886ef0e60184b321a6bf35db23bbd`  
 **Current release status:** BLOCKED — daily publishing is not end-to-end verified. Round-one changes are committed; automated validators are still running.
 
+## Round 1 verification update — latest observed provider and CI results
+
+- `Verify Cloudflare Trend Script (No Publishing)` run [38445094223](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445094223): live US Eastern category rotation and its self-test passed; the POST script attempt failed HTTP 502 because Cloudflare Workers AI returned error 4006 (daily free 10,000-neuron allocation exhausted). This does **not** show that the evergreen fallback failed; script generation did not reach package QA because the available AI provider path had no usable free capacity. Groq-primary health/cause remains unverified. No upgrade/billing enabled.
+- `AI Tech Lab Daily Research and Script` run [38445047924](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445047924) failed for the same 4006 provider-capacity error; no script package/artifact was released.
+- `CI Workflow Guard` run [38445841669](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445841669) passed after the workflow names were synchronized with the new research/evergreen fallback steps.
+- The next `Renderer Static Validation` run [38445841817](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445841817) is being checked after fixing its stale research-stage name assertion. A further regression test was added for the exact 4006 HTTP 502 response in commit `0e8e3ca24fed392a226dd79144edea6c996d41ec`; its new CI result is pending at this status update.
+- This is the honest stopping boundary: trend-related 422 rejection has been replaced by a labelled evergreen fallback, but an actual script cannot be called generated/verified while Groq is not confirmed healthy and Workers AI's free allocation is exhausted. Factual/current-claim and natural voice QA still must pass. A script must not be falsely marked PASS merely to avoid a rejection.
+
 ## Latest Round 1 implementation checkpoint — live Worker v415 (runtime QA pending)
 
 **Live deployment metadata verified:** Cloudflare content-only upload returned HTTP 200. Main Worker version **415** (d7237531-2f61-4859-a40f-4c83a8ce39e8) is assigned **100% traffic** in deployment 300dc85f-34fc-4212-bad2-94c4a6c64a1a. Settings GET returned HTTP 200; D1, Workers AI, authenticated Worker token binding, YouTube Data API key binding and observability remained present. This proves the uploaded version and routing metadata, **not** an end-to-end script-generation pass. Version 414 remains the previous version if a tested rollback becomes necessary.
