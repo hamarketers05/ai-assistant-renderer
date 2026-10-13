@@ -54,6 +54,17 @@ def scene_file(scene):
     safe=re.sub(r"[^A-Za-z0-9_-]","_",str(scene or ""))[:80]
     return Path("assets")/f"scene_{safe}.mp4"
 
+def asset_file(item):
+    """Return only the asset path explicitly logged for this source, constrained to assets/."""
+    requested = str(item.get("asset_path") or "").strip()
+    if requested:
+        path = Path(requested)
+        if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "assets":
+            raise SystemExit(f"Unsafe asset_path in source manifest: {requested!r}")
+        return path
+    # Backward-compatible path for historical licensed-video source rows.
+    return scene_file(item.get("scene"))
+
 def save_report(data):
     REPORT.parent.mkdir(parents=True,exist_ok=True)
     REPORT.write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding="utf-8")
@@ -81,7 +92,7 @@ def validate(content_id):
         elif keys & seen:
             reason="same asset selected for multiple scenes in this video"
         if reason:
-            scene_file(scene).unlink(missing_ok=True)
+            asset_file(item).unlink(missing_ok=True)
             removed.append({"scene":scene,"provider":provider,"asset_title":item.get("asset_title") or item.get("title"),"reason":reason})
             continue
         accepted.append(item); seen.update(keys)
