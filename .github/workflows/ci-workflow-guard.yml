@@ -263,5 +263,14 @@ jobs:
           if not match:
               raise SystemExit("Could not extract embedded Python from the Render scenes step.")
           ast.parse(match.group(1), filename="manual.yml:Render scenes embedded Python")
-          print(f"Embedded scene renderer syntax OK; checked {len(workflow_files)} workflows.")
+
+          vecteezy = next(step for step in manual["jobs"]["render"]["steps"] if step.get("name") == "Discover and download Vecteezy footage")
+          stock_match = re.search("cat > work/fetch_vecteezy.py <<'PY'\\n(.*?)\\nPY", vecteezy.get("run", ""), re.S)
+          if not stock_match:
+              raise SystemExit("Could not extract embedded Python from the Vecteezy acquisition step.")
+          stock_script = stock_match.group(1)
+          ast.parse(stock_script, filename="manual.yml:Vecteezy acquisition embedded Python")
+          if "relevance_score < 0.45" not in stock_script or "len(matching_terms) < 2" not in stock_script:
+              raise SystemExit("Vecteezy relevance safeguards disappeared from the embedded acquisition code.")
+          print(f"Embedded scene renderer and Vecteezy acquisition syntax OK; checked {len(workflow_files)} workflows.")
           PY
