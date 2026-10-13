@@ -183,6 +183,8 @@ jobs:
               raise SystemExit("Per-video editing manifest must require actual Groq review evidence.")
           if "count_rendered_stock_sources" not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
               raise SystemExit("Per-video manifest must count only license records matching rendered stock scenes.")
+          if '"applied_to_scenes": hud_overlays_applied' not in Path("tools/write_editing_tool_manifest.py").read_text(encoding="utf-8"):
+              raise SystemExit("Per-video manifest must report HUD overlay use across all primary visual types accurately.")
           if "target_new_licensed_clips" not in Path("tools/fetch_free_video.py").read_text(encoding="utf-8"):
               raise SystemExit("Free-media video acquisition must report its per-video asset target.")
           audio_url_expr = "AUDIO_URL: " + "$" + "{{ inputs.audio_url }}"

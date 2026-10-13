@@ -195,7 +195,7 @@ def main() -> None:
         {"tool": "Ken Burns / camera drift", "status": "used", "purpose": "slow pan/zoom and restrained camera motion on footage and generated stills", "settings": "generated stills zoom to 1.08; stock framing varies about 1.06-1.105 with slow x/y drift and subtle roll"},
         {"tool": "Cinematic color grade", "status": "used", "purpose": "restrained contrast/saturation, cool teal-blue shadows, warmer highlights, sharpening, soft vignette and subtle temporal grain", "settings": "contrast=1.10; saturation=1.10; gamma=1.015; cool shadows / warm highlights via colorbalance; unsharp=0.45; vignette=PI/5; noise=1.2 temporal"},
         {"tool": "Film grain", "status": "used", "purpose": "very light FFmpeg grain, kept subtle for technology detail"},
-        {"tool": "Neon HUD / scene overlay", "status": "used" if hud_overlays_applied > 0 else "skipped", "purpose": "transparent topic label, cyan glow and lower-third applied to licensed B-roll where a matching scene overlay exists", "generated_overlay_files": generated_hud_overlays, "applied_to_stock_scenes": hud_overlays_applied, "stock_scenes_with_footage": stock_scene_count, "skip_reason": None if hud_overlays_applied > 0 else "No licensed B-roll scene qualified for a separate transparent overlay; generated Pillow scenes retain their own built-in HUD/diagram design."},
+        {"tool": "Neon HUD / scene overlay", "status": "used" if hud_overlays_applied > 0 else "skipped", "purpose": "transparent topic label, cyan glow and lower-third composited over scheduled primary visuals of any supported type", "generated_overlay_files": generated_hud_overlays, "applied_to_scenes": hud_overlays_applied, "primary_stock_scenes_available": stock_scene_count, "skip_reason": None if hud_overlays_applied > 0 else "No eligible transparent composite was successfully applied in this run."},
         {"tool": "Crossfade / push / digital mosaic transitions", "status": "used", "purpose": "short FFmpeg xfade transitions; occasional pixelize/zoom transitions", "transition_report": transitions.get("transition_types", [])},
         {"tool": "Original procedural transition SFX", "status": "used", "purpose": "quiet whoosh + digital tick ahead of each rendered scene transition", "transition_count": int(sfx.get("transition_count", 0)), "cue_lead_seconds": sfx.get("cue_lead_seconds", 0.22), "source_license": sfx.get("source_license")},
         {"tool": "Original topic-aware music", "status": "used", "purpose": "locally synthesized score with voice ducking"},
@@ -230,7 +230,7 @@ def main() -> None:
     elif evidence_charts_used == 0:
         warnings.append("Evidence charts were generated but none matched a narrated scene well enough to insert safely; no unrelated chart was forced into the final video.")
     if hud_overlays_applied == 0:
-        warnings.append("No separate transparent HUD overlay was applied to stock B-roll in this run; generated Pillow scenes include their own topic-matched graphic styling.")
+        warnings.append("No separate transparent HUD overlay was applied in this run; primary visuals retain their normal content without a separate transparent HUD layer.")
     if licensed_clips < 4:
         raise SystemExit(f"Editing manifest blocked: only {licensed_clips} source-manifest entries; existing commercial-use gate requires at least four.")
     result = {
