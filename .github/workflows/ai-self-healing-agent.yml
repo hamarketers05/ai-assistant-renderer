@@ -66,7 +66,8 @@ jobs:
           GROQ_TEXT_MODEL: openai/gpt-oss-20b
         run: |
           set -euo pipefail
-          python -m py_compile tools/self_healing_agent.py
+          python -m py_compile tools/self_healing_agent.py tools/test_self_healing_agent.py
+          python tools/test_self_healing_agent.py
           python tools/self_healing_agent.py
 
       - name: Save machine-readable recovery report
