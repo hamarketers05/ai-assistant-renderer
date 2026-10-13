@@ -66,3 +66,13 @@ jobs:
           path: work/self_healing_report.json
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Publish sanitized recovery report to Cloudflare D1 dashboard
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/publish_self_heal_report.py
+          python tools/publish_self_heal_report.py
