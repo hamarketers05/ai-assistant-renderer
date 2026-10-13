@@ -131,7 +131,8 @@ def relevance_score(scene_text, title, description):
     if not shared_anchors:
         return 0.0, sorted(scene_words & available), []
     if len(shared_anchors) < 2 and not (shared_anchors & SPECIFIC_SINGLE_ANCHORS):
-        return 0.0, sorted(scene_words & available), sorted(shared_anchors)
+        # Preserve generic word matches for diagnostics only; they are not accepted anchors.
+        return 0.0, sorted(scene_words & available), []
     word_overlap = len(scene_words & available) / max(1, len(scene_words))
     anchor_overlap = len(shared_anchors) / max(1, len(scene_anchors))
     score = round(min(1.0, 0.65 * anchor_overlap + 0.35 * word_overlap), 3)
