@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare transparent source-backed graph overlays and per-scene HUD composites."""
 from __future__ import annotations
-import json, re
+import argparse, json, re
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -66,6 +66,30 @@ def make_graph_overlay(chart_path: Path, chart_detail: dict, target: Path):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        Path("work").mkdir(exist_ok=True)
+        Path("assets").mkdir(exist_ok=True)
+        chart = Path("assets/self-test-evidence-chart.png")
+        sample = Image.new("RGB", (900, 450), (10, 30, 50))
+        draw = ImageDraw.Draw(sample)
+        draw.rectangle((110, 100, 330, 380), fill=(0, 180, 230))
+        draw.rectangle((410, 60, 630, 380), fill=(255, 185, 60))
+        sample.save(chart)
+        Path("work/scenes.tsv").write_text(
+            "1\\t0\\t5\\t5\\tgenerated\\tAI chip performance improved\\tPerformance comparison\\n",
+            encoding="utf-8")
+        Path("work/evidence_charts_report.json").write_text(json.dumps({
+            "charts_created": [str(chart)],
+            "chart_details": [{"path": str(chart), "title": "AI chip performance",
+                              "source_url": "https://example.org/evidence",
+                              "labels": ["Earlier", "New"], "values": [10, 20]}]
+        }), encoding="utf-8")
+        hud = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(hud).rectangle((50, 800, 600, 1000), fill=(0, 180, 240, 100))
+        hud.save("assets/scene_overlay_1.png")
     scenes_path = Path("work/scenes.tsv")
     charts_path = Path("work/evidence_charts_report.json")
     if not scenes_path.exists():
@@ -124,6 +148,16 @@ def main():
     }
     Path("work/chart_overlay_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False)+"\n", encoding="utf-8")
     print(json.dumps({k:v for k,v in report.items() if k != "chart_assignments"}))
+    if args.self_test:
+        generated_overlay = Path("assets/chart_overlay_scene_1.png")
+        composite_overlay = Path("assets/composite_overlay_scene_1.png")
+        if (report.get("status") != "passed" or report.get("evidence_charts_mapped_to_scenes") != 1
+                or not generated_overlay.is_file() or not composite_overlay.is_file()):
+            raise SystemExit("Overlay self-test failed: chart was not mapped/composited as a transparent scene layer.")
+        with Image.open(generated_overlay) as overlay:
+            if overlay.size != (W, H) or overlay.mode != "RGBA":
+                raise SystemExit("Chart overlay output failed 1920x1080 transparent RGBA validation.")
+        print("Graph-overlay self-test passed: source-linked chart maps to the correct scene and remains transparent.")
 
 
 if __name__ == "__main__":
