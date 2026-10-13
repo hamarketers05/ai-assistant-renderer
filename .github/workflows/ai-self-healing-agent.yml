@@ -23,6 +23,7 @@ on:
       - "Renderer Static Validation"
       - "Verify Daily Handoff Endpoint (No Upload)"
       - "Verify Cloudflare Free-Source Research"
+      - "Verify Cloudflare Trend Script (No Publishing)"
       - "Midas SBS Validation"
       - "Self-Healing E2E Repair Test"
       - "Verify and correct Maia 300 YouTube source metadata"
