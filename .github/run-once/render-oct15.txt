@@ -1,1 +1,0 @@
-Dispatch existing D1 content 23/24 after visual-source and scene-cadence fixes.
