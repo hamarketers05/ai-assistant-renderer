@@ -3,41 +3,42 @@
 **Updated:** 2026-10-13 (PKT)  
 **Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
 **Branch:** main  
-**Reviewed code commit:** `dcd8f18845d886ef0e60184b321a6bf35db23bbd`  
-**Current release status:** BLOCKED — daily publishing is not end-to-end verified. Round-one changes are committed; automated validators are still running.
+**Reviewed code commit:** aba192a5769998d06c0e6cd971c1416651b84cbd  
+**Current release status:** **BLOCKED — end-to-end content generation and publishing are not yet verified.** No paid billing enabled, no QA gates bypassed, and this session did not publish/upload content.
 
-## Round 1 verification update — latest observed provider and CI results
+## Round 1 — latest verified checkpoint
 
-- `Verify Cloudflare Trend Script (No Publishing)` run [38445094223](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445094223): live US Eastern category rotation and its self-test passed; the POST script attempt failed HTTP 502 because Cloudflare Workers AI returned error 4006 (daily free 10,000-neuron allocation exhausted). This does **not** show that the evergreen fallback failed; script generation did not reach package QA because the available AI provider path had no usable free capacity. Groq-primary health/cause remains unverified. No upgrade/billing enabled.
-- `AI Tech Lab Daily Research and Script` run [38445047924](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445047924) failed for the same 4006 provider-capacity error; no script package/artifact was released.
-- `CI Workflow Guard` run [38445841669](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445841669) passed after the workflow names were synchronized with the new research/evergreen fallback steps.
-- The next `Renderer Static Validation` run [38445841817](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445841817) is being checked after fixing its stale research-stage name assertion. A further regression test was added for the exact 4006 HTTP 502 response in commit `0e8e3ca24fed392a226dd79144edea6c996d41ec`; CI Workflow Guard run [38446042449](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38446042449) passed on that commit, including the new exact-4006 self-healing classification regression test; latest full Renderer Static Validation run [38446042510](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38446042510) is still in progress as last observed.
-- This is the honest stopping boundary: trend-related 422 rejection has been replaced by a labelled evergreen fallback, but an actual script cannot be called generated/verified while Groq is not confirmed healthy and Workers AI's free allocation is exhausted. Factual/current-claim and natural voice QA still must pass. A script must not be falsely marked PASS merely to avoid a rejection.
+### Live Main Worker / Groq recovery
+- Main Worker dark-sunset-a2a1 version **416**, ID 85b53870-73ce-4a09-8875-5f75df98dcc6, is deployed at **100% traffic** via deployment 24c1c6a2-9e83-47a8-96b4-7ac669bf5cb4. Pre-deployment guard confirmed v415 was active. The post-deploy settings GET returned HTTP 200 and all expected binding names were preserved.
+- Cloudflare Observability telemetry over an inspected 30-minute window showed outbound fetch /openai/v1/chat/completions spans with both HTTP 200 and HTTP 429 for this Worker. That is evidence of upstream throttling, not proof of a missing Groq secret. It is **not** a successful content-generation proof.
+- v416 now reads Retry-After, then x-ratelimit-reset-tokens / x-ratelimit-reset-requests; accepts explicit seconds or ms/s/m; calculates remaining request-timeout budget; and retries HTTP 429 at most once, only if the advertised delay fits the current budget. Missing, malformed or too-long reset hints fail fast rather than retrying prematurely. Selected 408/425/5xx bounded retry behavior is unchanged.
+- Deterministic retry-policy checks all passed before version upload: 3 -> 3000ms, 2.5s -> 2500ms, 400ms -> 400ms, 1m -> 60000ms, and missing/malformed values -> no retry. Cloudflare accepted version upload and deployment; active bindings were read back afterward. Previous v415 ID d7237531-2f61-4859-a40f-4c83a8ce39e8 is the direct rollback candidate if a verified regression is found.
+- Implementation evidence: [Groq rate-limit recovery notes](docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md).
 
-## Latest Round 1 implementation checkpoint — live Worker v415 (runtime QA pending)
+### Live no-publishing verification
+- Validator run [38448132659](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38448132659) on commit aba192a5769998d06c0e6cd971c1416651b84cbd: the live read-only US Eastern category contract and its deterministic self-test **passed**. Its trend-to-script POST integration step was **still in progress at the last observation**; do not mark script generation as passed until this run and its independent QA result are complete.
+- Previous full script attempt [38445094223](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445094223) failed HTTP 502 because Workers AI reported error 4006: daily free 10,000-neuron allocation exhausted. It generated no QA-passed script/package. The latest v416 run is intended to retest this path after the Groq retry hardening.
+- Existing route quality gates remain mandatory: source-backed factual checks, 850–1000 long-form word target, independent hook/human-voice audit, unsupported-current-claim check, and explicit SCHEDULED_ROTATION_FALLBACK labelling if category trend evidence is sparse. No production row, rendered MP4, YouTube upload or future schedule was created for this patch.
+- D1 free-tier quota has been exhausted in previous runs. Content persistence, recent-title dedup, handoff, renderer and publication must remain **unverified/blocked** until the relevant D1 and end-to-end checks actually pass.
 
-**Live deployment metadata verified:** Cloudflare content-only upload returned HTTP 200. Main Worker version **415** (d7237531-2f61-4859-a40f-4c83a8ce39e8) is assigned **100% traffic** in deployment 300dc85f-34fc-4212-bad2-94c4a6c64a1a. Settings GET returned HTTP 200; D1, Workers AI, authenticated Worker token binding, YouTube Data API key binding and observability remained present. This proves the uploaded version and routing metadata, **not** an end-to-end script-generation pass. Version 414 remains the previous version if a tested rollback becomes necessary.
+### Self-healing agent — rules and regression test, not ML retraining
+- Added a deterministic classification rule for the live telemetry signature fetch /openai/v1/chat/completions + HTTP 429. It distinguishes the observed upstream rate-limit condition from a missing credential and recommends honoring the reset header, allowing at most one bounded retry, retaining the job pending on repeated rate limit, and not burning an exhausted Workers AI fallback or bypassing QA.
+- Regression test was added for the actual observed signature. CI runs after this change:
+  - [CI Workflow Guard 38447404092](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404092): **passed**.
+  - [Renderer Static Validation 38447404118](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404118): **passed**.
+  - [Self-Healing E2E Repair Test 38447404141](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404141): isolated deterministic repair canary **passed**.
+  - [Self-Healing Agent 38447404114](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38447404114): controller workflow **passed**.
+- This is rule-based incident handling plus tests, **not ML model training** and not proof that the full production system autonomously repaired a live script-to-upload incident.
 
-**Round 1 code change now in live version:**
-- YouTube Data API v3 recent-video search accepts bounded options: 1–14 day window, maxResults capped at 25, and documented order modes. The fallback performs two category-targeted queries with order=viewCount over a 7-day window and deduplicates by actual video ID; observed views/hour is only a discovery signal, not proof of a factual claim.
-- The strict “3 trend videos or HTTP 422” rejection was replaced with an explicit SCHEDULED_ROTATION_FALLBACK: if bounded targeted searches still find fewer than 3 distinct category-matching videos, keep that day's US Eastern rotation and use its predefined evergreen explainer. The package labels it as evergreen, not a live trend, and invents no IDs or trend metrics.
-- Existing 850–1000 word, minimum length, independent hook/human-voice QA, and unsupported-current-claim gates remain mandatory. Quality/authenticity failures can still block a package; we do not bypass them to force a green run.
-- nfGenerateScript now catches D1 failures for profile and recent-title context. It marks state mode D1_PERSISTED or D1_UNAVAILABLE_OR_WRITE_SKIPPED. In degraded mode, prior-title lookup/dedup context is unavailable; do not claim D1 persistence or production handoff readiness.
-- This AI Tech Lab Worker research path skips Tavily. The fallback sources remain YouTube Data API v3 plus public RSS/Atom and arXiv. Google Trends RSS, if returned, remains an interest signal—not factual verification or a Trends API score.
+### Round 1 completion gate
+Round 1 cannot honestly be marked fully verified while the live trend-to-script POST and independent content QA have not passed. Remaining blockers are actual script generation, D1 state persistence/dedup after quota recovery, render/MP4 inspection, and end-to-end upload/scheduling read-back. The self-healing changes are code/test verified; production recovery on the live content pipeline is not.
 
-**Repository changes committed:**
-- f2ed547129acc33bf89abc5ebc7964bfc965e638: daily research workflow accepts only a valid live trend gate or the explicit fallback mode and includes mode/state metadata.
-- 30f69a7edef6edd2d5cc1980b9205bc1801b6ef6: daily handoff accepts a correctly labelled fallback without pretending it is current-trending.
-- 9d938f85727c856d682acc02fe55878fc50b3630 and 189577b46578839413b93e9aaa6cded5f9221c33: self-healing D1-safe degradation/trend recovery guidance and regression assertions.
-- a3200f70e6db76949912c06cb12f7a9cd1823855: no-publishing live verifier now tests either the real 3-video trend mode or the explicit fallback, while retaining word-count, hook/voice, no-unsupported-current-claims, date and state-mode assertions.
-- 18d57825615318e9ffb7feb6501602271a1e47fb: tracked patch fragment documents the recovery/fallback contract and expanded deterministic self-test.
+**Next exact action:** retrieve validator run 38448132659 and fix only a confirmed live failure; keep publishing disabled until the script, D1 state, actual MP4 QA, YouTube ID/privacy/scheduled-time read-back all pass.
 
-**Runtime/verification boundary:**
-- Cloudflare version/deployment/settings metadata is verified.
-- The connector network cannot directly call the public Workers URL; the GitHub runner is required for live endpoint and independent QA verification. The new validator was triggered by the patch-fragment push, but its result has not been retrieved in this checkpoint.
-- D1 daily quota was exhausted earlier. Script generation now has a deliberate degraded mode, but research state persistence, recent-title dedup, D1 content creation and end-to-end handoff are not verified. No production row, render, upload or schedule was created by this change.
+---
 
-**Next exact action:** inspect the new Verify Cloudflare Trend Script (No Publishing) runner result and Renderer Static Validation/CI results; fix only observed failures. After D1's reset, perform one bounded read/write health check before claiming persistence or enabling content creation.
+## Historical checkpoint (older state, retained for continuity)
+v415 and earlier statuses below predate the active v416 Groq Retry-After hardening and the latest observed CI runs. Use the current section above as authoritative for the present release boundary.
 
 ## Latest verification checkpoint — 2026-10-13
 
