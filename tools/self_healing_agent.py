@@ -55,7 +55,7 @@ PATCHABLE = {
     "tools/generate_music.py", "tools/groq_video_review.py",
     "tools/make_3d_hero_overlay.py", "tools/make_brand_assets.py",
     "tools/seo_metadata.py", "tools/voice_editor.py",
-    "tools/self_healing_agent.py", "tools/self_healing_rescue.py",
+    "tools/self_healing_agent.py", "tools/self_healing_rescue.py", "tools/self_healing_canary.py",
     "tools/publish_self_heal_report.py",
 }
 HEALTH_URLS = [
@@ -301,6 +301,8 @@ def attempt_patch(run, job, log):
             cmd([sys.executable, target, "--self-test"], timeout=90)
         elif target == "tools/visual_budget.py":
             cmd([sys.executable, target, "--self-test"], timeout=90)
+        elif target == "tools/self_healing_canary.py":
+            cmd([sys.executable, target, "--self-test"], timeout=30)
         elif target == "tools/generate_flux_images.py":
             cmd([sys.executable, target, "--self-test", "--output", "work/flux_self_test_report.json"], timeout=90)
         cmd([sys.executable, "-m", "compileall", "-q", "tools"], timeout=90)
@@ -417,7 +419,7 @@ def analyze(runs):
                 REPORT["unresolved"].append(f"Retry failed for run {run['id']}: {str(exc)[:170]}")
             count += 1
             continue
-        if run.get("name") in {"CI Workflow Guard", "Renderer Static Validation", "AI Tech Lab Daily Research and Script", "AI Tech Lab Automatic Daily Production Handoff", "AI Assistant Renderer", "Midas SBS Validation", "AI Tech Lab Autonomous Self-Healing Agent", "AI Tech Lab Autonomous Self-Healing Watchdog"} and not is_transient(joined):
+        if run.get("name") in {"CI Workflow Guard", "Renderer Static Validation", "AI Tech Lab Daily Research and Script", "AI Tech Lab Automatic Daily Production Handoff", "AI Assistant Renderer", "Midas SBS Validation", "AI Tech Lab Autonomous Self-Healing Agent", "AI Tech Lab Autonomous Self-Healing Watchdog", "Self-Healing E2E Repair Test"} and not is_transient(joined):
             candidate = next(((j, log) for j, log in log_items if log), (failed[0], ""))
             patched, reason = attempt_patch(run, candidate[0], candidate[1])
             if patched:
