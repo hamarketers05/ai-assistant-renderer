@@ -8,7 +8,7 @@ import sys
 
 def answer():
     # This value must equal expected=42 in self_test().
-    return 41
+    return 42
 
 def self_test():
     actual = answer()
