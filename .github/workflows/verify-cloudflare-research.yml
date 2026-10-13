@@ -11,7 +11,7 @@ on:
         description: "Focused English AI topic for live Cloudflare research verification"
         required: false
         type: string
-        default: "Meta Muse Wonder Wonder Full new AI models October 2026 agentic capabilities"
+        default: "latest AI news"
 permissions:
   contents: read
 
@@ -23,7 +23,7 @@ jobs:
       WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
 # Main Worker trims both configured and supplied bearer tokens before comparing.
       WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
-      RESEARCH_QUERY: ${{ inputs.query || 'Meta Muse Wonder Wonder Full new AI models October 2026 agentic capabilities' }}
+      RESEARCH_QUERY: ${{ inputs.query || 'latest AI news' }}
     steps:
       - name: Run protected Cloudflare research
         shell: bash
@@ -39,7 +39,7 @@ jobs:
           test "$CODE" = "200" || { head -c 600 work/cloudflare-research.json; echo; exit 1; }
           jq -e '.ok == true' work/cloudflare-research.json >/dev/null
           jq '{ok,research_id,evidence_count,source_coverage,verification,google_trends_rss_status,google_trends_api_status,topic_recommendation}' work/cloudflare-research.json
-          jq -e '(.evidence_count // 0) >= 3 and (.source_coverage.official_primary // 0) >= 1 and (.source_coverage.independent_reporting // 0) >= 2' work/cloudflare-research.json >/dev/null
+          jq -e '(.evidence_count // 0) >= 3 and (.source_coverage.official_primary // 0) >= 1 and (.source_coverage.independent_reporting // 0) >= 2 and .topic_recommendation.topic != "No source-backed candidate" and ((.topic_recommendation.candidates[0].verification_status // "") == "CROSS_CHECKED")' work/cloudflare-research.json >/dev/null || { echo "SAFE BLOCK: no relevant topic with recent cross-publisher support; no script/render/upload requested."; exit 2; }
           CLAIMS=$(jq -r '(.verified_claims // []) | length' work/cloudflare-research.json)
           if [ "$CLAIMS" -lt 1 ]; then
             echo "SAFE BLOCK: sources were retrieved, but no cross-checked claim passed the Worker evidence gate. No script/render/upload was requested."
