@@ -154,19 +154,19 @@ def select_target(log_text):
     # Never ask the model to change code for authentication, permissions, or rate-limit failures.
     if AUTH_OR_INFRA.search(log_text) or not CODE_ERROR.search(log_text):
         return None
-    # Prefer the exact Python file named by the traceback, not filenames mentioned by successful steps.
-    frames = re.findall(r"File [\\\"']([^\\\"']+)[\\\"'], line \\d+", log_text)
+    # Prefer the exact file named in the exception traceback.
+    frames = re.findall(r"File .(.+?)., line [0-9]+", log_text)
     for frame in reversed(frames):
-        normalized = frame.replace("\\\\", "/").removeprefix("./")
+        normalized = frame.strip().replace(chr(92), "/").removeprefix("./")
         for target in PATCHABLE:
             if normalized.endswith(target):
                 return target
-    # Syntax errors from py_compile may not produce a Traceback heading; match only explicit error lines.
-    for target in PATCHABLE:
-        if re.search(r"(?:File )?[\\\"']?" + re.escape(target) + r"[\\\"']?[, :]?[^\\n]{0,180}(?:SyntaxError|IndentationError)", log_text, re.I | re.S):
-            return target
+    # py_compile syntax errors may not include a Traceback heading.
+    if re.search(r"SyntaxError|IndentationError", log_text, re.I):
+        candidates = [target for target in PATCHABLE if target in log_text]
+        if len(candidates) == 1:
+            return candidates[0]
     return None
-
 
 def ask_groq(target, log_text):
     if not GROQ_KEY:
