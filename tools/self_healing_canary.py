@@ -7,8 +7,8 @@ It has no imports from production rendering code and performs no external action
 import sys
 
 def answer():
-    # Fixed value after the isolated self-healing repair test.
-    return 42
+    # This value must equal expected=42 in self_test().
+    return 41
 
 def self_test():
     actual = answer()
