@@ -260,7 +260,7 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
         per_class_correct[row["label"]] += int(hit)
         unclassified_count += int(prediction.label == "LOW_CONFIDENCE_UNCLASSIFIED")
         results.append({
-            "expected": row["label"], "predicted": prediction.label,
+            "expected": row["label"], "predicted": prediction.label, "text": row["text"],
             "correct": hit, "confidence": prediction.confidence,
             "margin": prediction.margin, "second_label": prediction.second_label,
             "known_feature_count": prediction.known_feature_count,
@@ -378,6 +378,10 @@ def run_self_test() -> dict:
         "macro_accuracy": metrics["macro_accuracy"], "class_count": len(model.labels),
         "classification_coverage": metrics["classification_coverage"],
         "selective_accuracy": metrics["selective_accuracy"],
+        "misclassified_holdout": [
+            {key: row[key] for key in ("expected", "predicted", "text", "confidence", "margin", "second_label")}
+            for row in metrics["results"] if not row["correct"]
+        ],
     }
 
 
