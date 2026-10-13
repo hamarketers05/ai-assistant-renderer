@@ -67,7 +67,7 @@ See [the complete deep review](docs/PIPELINE_DEEP_REVIEW_2026-10-13.md) for the 
 - NEXT ACTION: verify the self-healing GitHub-runner probe and, after D1 quota reset, run a protected no-publish research test; then migrate the daily research workflow without creating a second production schedule.
 
 
-## Trend-to-script without Tavily checkpoint — 2026-10-13 17:20 UTC
+## Trend-to-script without Tavily checkpoint — 2026-10-13
 
 - Cloudflare Main Worker deployment metadata: Cloudflare accepted the 17:14 UTC content-only update with HTTP 200. Version 414 (192e70da-2353-4f18-86a9-b932593466ac) is listed at 100% traffic with existing fetch/scheduled/queue handlers and bindings. The public route runtime has not yet been verified. Later GET /content/v2 returned Cloudflare API error 10222 despite version/deployment metadata; do not claim exact source readback.
 - Trend-to-script route added: authenticated POST /editorial/trend-script; category-related topic must have at least 3 distinct YouTube video IDs. It uses YouTube Data API v3 trends and non-Tavily free RSS/Atom/arXiv context, then Groq primary / Workers AI fallback for a natural English 850–1000 word script with hook, human-voice and unsupported-current-claim checks. It returns a package only; no D1 content reservation or YouTube publishing occurs in that route.
