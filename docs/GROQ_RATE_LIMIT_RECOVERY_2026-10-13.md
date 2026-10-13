@@ -6,7 +6,7 @@ Cloudflare Workers Observability telemetry for service `dark-sunset-a2a1` showed
 
 ## Live fix
 
-Worker `dark-sunset-a2a1` version 418 (`f6209ec7-5365-4f0d-96f6-a87a224ecb52`) is deployed at 100% traffic in deployment `870db1d0-8e6f-49b8-86ae-2a52ca885aa3`. Version 417 (`baf942ec-441f-4d30-b82e-d21f528c1a8c`) is the immediate rollback target; v416 and v415 remain available further back.
+Worker `dark-sunset-a2a1` version 419 (`79b5fbe4-7946-49f8-afb8-4a4069ca431d`) is deployed at 100% traffic in deployment `19273318-174c-4bfd-a596-7722c168919f`. Version 418 (`f6209ec7-5365-4f0d-96f6-a87a224ecb52`) is the immediate rollback target; earlier versions remain available further back.
 
 The Groq request loop now handles HTTP 429 separately: it reads `Retry-After`, then `x-ratelimit-reset-tokens` / `x-ratelimit-reset-requests`; parses numeric seconds, simple `ms/s/m` hints, and compound reset values such as `2m59.56s` / `7.66s`; checks the remaining bounded request timeout; waits the advertised reset plus a small buffer; and permits at most one 429 retry. If the header is missing, malformed, or won't fit the timeout, it stops retrying rather than retrying too early. Existing bounded retry behavior for selected transient 5xx/408/425 statuses remains unchanged. Logs contain only the fact a hint was present and the computed delay/budget—not headers' secret values or provider response bodies.
 
@@ -17,3 +17,9 @@ The parser policy was checked for: `3` → 3000 ms, `2.5s` → 2500 ms, `400ms` 
 ## Verification boundary
 
 This is not an end-to-end content-production pass. The no-publishing script validator must still verify the live category contract and attempt script generation/QA. The v416 no-publish script validator run [38448132659](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38448132659) failed HTTP 502 due to free Workers AI quota exhaustion. Version 417 correctly progressed far enough to attempt script creation but its candidate failed the strict word-count gate at 1048 words. Version 418 fixes the one-sided word-count repair condition; its no-publish validator run is still pending. No production render, upload, or scheduled publication was performed for this fix. Do not enable paid billing or bypass editorial/audio/video QA.
+
+## v418 length-gate and v419 free-tier token-budget fixes
+
+The v417 no-publish run generated a 1048-word candidate, revealing that the repair step only ran for drafts below 850 words. v418 changed the condition to repair both `<850` and `>1000` drafts once, then enforce the hard 850–1000 gate. Local boundary checks passed at 849, 850, 900, 950, 1000, 1001 and 1048. Its deployed no-publish run [38449035982](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38449035982) could not verify this path because the next provider call hit Workers AI error 4006 (daily free 10,000-neuron allocation exhausted).
+
+v419 further reduces Groq request pressure: research ranking evidence limited to 8,000 serialized characters and 1,900 completion tokens; claim verification uses at most 12 compact evidence records; script input is capped to compact source/claim/title context; generation caps are 2,300 tokens and one length repair 2,100 tokens. This addresses oversized prompts and token bursts that can trigger the Groq free-tier TPM limit. Live deployment API/settings/content read-back confirmed v419 at 100% traffic and all 24 bindings present; the v419 no-publish result is pending. No paid billing was enabled.
