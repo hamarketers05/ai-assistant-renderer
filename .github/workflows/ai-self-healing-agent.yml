@@ -19,6 +19,7 @@ on:
       - "Renderer Static Validation"
       - "Verify Daily Handoff Endpoint (No Upload)"
       - "Midas SBS Validation"
+      - "AI Tech Lab Autonomous Self-Healing Watchdog"
     types: [completed]
   workflow_dispatch:
 
