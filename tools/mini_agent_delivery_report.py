@@ -39,7 +39,15 @@ def main() -> None:
     review = read_json("video_review_report.json")
     manifest = read_json("editing_tool_manifest.json")
     learning_path = Path("learning/latest_video_review.json")
-    learning_exists = learning_path.is_file()
+    learning_record = {}
+    if learning_path.is_file():
+        try:
+            loaded = json.loads(learning_path.read_text(encoding="utf-8"))
+            learning_record = loaded if isinstance(loaded, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            learning_record = {}
+    learning_exists = bool(learning_record)
+    current_review_persisted = bool(review) and learning_record == review
 
     video_id = str(verified.get("video_id") or upload.get("id") or existing_video_id)
     url = str(verified.get("url") or ("https://www.youtube.com/watch?v=" + video_id if video_id else ""))
@@ -70,11 +78,13 @@ def main() -> None:
     write("mini_agent_publish_execution_report.json", publisher)
 
     if review.get("review_status") == "completed" and review.get("decision") in {"PASS", "IMPROVE"}:
-        learning_status = "completed" if learning_exists else "review_completed_feedback_persistence_unverified"
+        learning_status = "completed" if current_review_persisted else "review_completed_feedback_persistence_unverified"
         learning_tools = ["Groq video/vision review"]
-        if learning_exists:
+        if current_review_persisted:
             learning_tools.append("learning/latest_video_review.json")
-        learning_note = "The latest rendered-video QA feedback is available for future scripts."
+            learning_note = "The current rendered-video QA feedback exactly matches the persisted learning record."
+        else:
+            learning_note = "A review exists, but the persisted learning record does not exactly match this run's review."
     else:
         learning_status = "blocked_or_unverified"
         learning_tools = []
@@ -84,7 +94,7 @@ def main() -> None:
         "actual_tools_used": learning_tools,
         "evidence_files": ["work/video_review_report.json", "work/video_review_metrics.json", "learning/latest_video_review.json"],
         "details": {"decision": review.get("decision"), "review_status": review.get("review_status"),
-                    "feedback_file_persisted": learning_exists, "note": learning_note}
+                    "feedback_file_exists": learning_exists, "current_feedback_exactly_persisted": current_review_persisted, "note": learning_note}
     }], {"content_id": content_id, "editorial_category": category, "policy_version": "1.0.0"})
     write("mini_agent_learning_execution_report.json", learning_agent)
 
