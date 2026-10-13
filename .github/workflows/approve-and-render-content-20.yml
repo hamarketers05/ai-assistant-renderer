@@ -33,7 +33,7 @@ jobs:
           set -euo pipefail
           mkdir -p work
           success=false
-          for attempt in $(seq 1 40); do
+          for _ in $(seq 1 40); do
             curl -fsS --retry 2 --retry-delay 2 \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
@@ -260,7 +260,7 @@ jobs:
             exit 0
           fi
           success=false
-          for attempt in $(seq 1 40); do
+          for _ in $(seq 1 40); do
             curl -fsS --retry 2 --retry-delay 2 \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
