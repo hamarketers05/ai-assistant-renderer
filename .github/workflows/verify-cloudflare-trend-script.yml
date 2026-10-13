@@ -1,0 +1,76 @@
+name: Verify Cloudflare Trend Script (No Publishing)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/main-worker-patches/editorial-category-rotation.js"
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "US Eastern editorial date to test; defaults to tomorrow"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-cloudflare-trend-script
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify deployed rotation and trend-to-script route without publishing
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+      WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+      TARGET_DATE: ${{ inputs.target_date }}
+    steps:
+      - name: Verify the live read-only category contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WORKER_AUTH_TOKEN"
+          if [ -z "$TARGET_DATE" ]; then TARGET_DATE=$(TZ=America/New_York date -d tomorrow +%F); fi
+          ROTATION_CODE=$(curl -sS --max-time 25 -o work-rotation.json -w "%{http_code}" "$WORKER_URL/editorial/category-rotation?date=$TARGET_DATE")
+          test "$ROTATION_CODE" = "200"
+          SELF_CODE=$(curl -sS --max-time 25 -o work-self-test.json -w "%{http_code}" "$WORKER_URL/editorial/category-rotation-self-test")
+          test "$SELF_CODE" = "200"
+          jq -e --arg d "$TARGET_DATE" '.ok == true and .timezone == "America/New_York" and .date_us_eastern == $d and .cycle_length_days == 7 and (.category_index >= 0 and .category_index < 7)' work-rotation.json >/dev/null
+          jq -e '.ok == true and .category_count == 7 and ([.checks[]] | all)' work-self-test.json >/dev/null
+
+      - name: Run one bounded no-upload trend-to-script integration check
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$TARGET_DATE" ]; then TARGET_DATE=$(TZ=America/New_York date -d tomorrow +%F); fi
+          BODY=$(jq -cn --arg d "$TARGET_DATE" '{target_date:$d}')
+          CODE=$(curl -sS --max-time 300 -o work-trend-script.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" --data "$BODY" \
+            "$WORKER_URL/editorial/trend-script")
+          if [ "$CODE" = "200" ]; then
+            jq -e '.ok == true and .stage == "cloudflare_trend_script_ready" and (.trend_verification.distinct_video_count >= 3) and (.script_word_count >= 850 and .script_word_count <= 1000) and (.hook_audit.score >= 7 and .hook_audit.human_voice_score >= 7)' work-trend-script.json >/dev/null
+            echo "Full trend-to-script QA passed. No YouTube upload or renderer dispatch was started."
+          elif [ "$CODE" = "422" ] && jq -e '.stage == "youtube_category_trend_gate" and .trend_verification.distinct_video_count < 3' work-trend-script.json >/dev/null; then
+            echo "Route is reachable and failed closed because current trend data did not contain three distinct category-related videos. No script/publish action was started."
+          else
+            echo "Trend-to-script endpoint failed verification with HTTP $CODE."
+            jq '{ok,stage,error,detail,editorial_category,trend_verification,audit}' work-trend-script.json || true
+            exit 1
+          fi
+
+      - name: Save sanitized no-publishing verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-trend-script-validation-${{ github.run_id }}
+          path: |
+            work-rotation.json
+            work-self-test.json
+            work-trend-script.json
+          if-no-files-found: warn
+          retention-days: 3
