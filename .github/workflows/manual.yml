@@ -173,14 +173,14 @@ jobs:
           if [ -n "$INPUT_AUDIO_URL" ]; then
             [[ "$INPUT_AUDIO_URL" =~ ^ai-tech-lab/[0-9]+/kokoro[.]mp3$ ]] || { echo "INPUT_AUDIO_URL must be an object path like ai-tech-lab/123/kokoro.mp3; full signed URLs are rejected."; exit 1; }
             HASH_PATH="${INPUT_AUDIO_URL%.mp3}.script.sha256"
-            curl -fsS --retry 2 --retry-delay 2 --max-time 60 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$HASH_PATH" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/approved_script_sha256.txt
-            APPROVED_SCRIPT_SHA=$(cut -d " " -f1 work/approved_script_sha256.txt)
-            [ "$APPROVED_SCRIPT_SHA" = "$SCRIPT_SHA256" ] || { echo "VOICE APPROVAL GATE BLOCKED: stored voice preview was made from a different script."; exit 1; }
+            curl -fsS --retry 2 --retry-delay 2 --max-time 60 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$HASH_PATH" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/stored_script_sha256.txt
+            STORED_SCRIPT_SHA=$(cut -d " " -f1 work/stored_script_sha256.txt)
+            [ "$STORED_SCRIPT_SHA" = "$SCRIPT_SHA256" ] || { echo "AUDIO SCRIPT-HASH GATE BLOCKED: stored narration was made from a different script."; exit 1; }
             curl -fsS --retry 2 --retry-delay 2 --max-time 120 "$SUPABASE_URL/storage/v1/object/ai-assistant-audio/$INPUT_AUDIO_URL" -H "Authorization: Bearer $SUPABASE_KEY" -H "apikey: $SUPABASE_KEY" -o work/kokoro_upload.mp3
             test -s work/kokoro_upload.mp3
             ffmpeg -y -i work/kokoro_upload.mp3 -ar 44100 -ac 2 -c:a pcm_s16le voice.wav
-            .venv/bin/python -c 'import json; from pathlib import Path; Path("work/kokoro_tts_report.json").write_text(json.dumps({"engine":"Kokoro-82M","voice":"af_heart","language":"American English","source":"previously generated preview reused after approval","sample_rate":44100,"manual_voice_required":False},indent=2),encoding="utf-8")'
-            echo "Reusing the exact previously previewed Kokoro MP3 after explicit approval."
+            .venv/bin/python -c 'import json; from pathlib import Path; Path("work/kokoro_tts_report.json").write_text(json.dumps({"engine":"Kokoro-82M","voice":"af_heart","language":"American English","source":"previously generated narration reused after script-hash verification","sample_rate":44100,"manual_voice_required":False},indent=2),encoding="utf-8")'
+            echo "Reusing the exact Kokoro MP3 after script-hash verification and automated audio QA."
           else
             .venv/bin/python tools/generate_kokoro_voice.py --script work/script.txt --output work/kokoro_voice.wav --voice af_heart --speed 1.0
             test -s work/kokoro_voice.wav
@@ -270,7 +270,7 @@ jobs:
         run: |
           echo "VOICE_AUDIO_GATE_BLOCKED: automatic narration did not pass validation; production remains blocked."
           echo "Inspect the Kokoro step and automated audio-quality report, then fix the failed validation before retrying."
-          echo "Approved audio object path: $(cat work/kokoro_audio_object_path.txt)"
+          echo "Stored audio object path: $(cat work/kokoro_audio_object_path.txt)"
           {
             echo "## Kokoro audio gate blocked production"
             echo "The voice was not marked ready; automatic rendering and publishing remain blocked."
@@ -367,7 +367,7 @@ jobs:
           qa=json.loads(Path("work/kokoro_audio_quality.json").read_text(encoding="utf-8"))
           if tts.get("engine")!="Kokoro-82M" or qa.get("quality_gate")!="passed":
               raise SystemExit("Kokoro narration did not pass the automated audio gate.")
-          print(json.dumps({"engine":tts["engine"],"voice":tts["voice"],"duration_seconds":qa["duration_seconds"],"manual_approval_required":True}))
+          print(json.dumps({"engine":tts["engine"],"voice":tts["voice"],"duration_seconds":qa["duration_seconds"],"manual_approval_required":False}))
           PY
 
       - name: Edit generated narration, add pauses and script cues, and generate captions

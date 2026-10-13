@@ -264,6 +264,7 @@ jobs:
           if "KPipeline" not in kokoro_code or "af_heart" not in kokoro_code:
               raise SystemExit("Kokoro American-English voice generator is missing.")
           voice_editor_code = Path("tools/voice_editor.py").read_text(encoding="utf-8")
+          kokoro_generator_code = Path("tools/generate_kokoro_voice.py").read_text(encoding="utf-8")
           sbs_code = Path("tools/convert_video_midas_sbs.py").read_text(encoding="utf-8")
           if "librosa.effects.preemphasis" not in voice_editor_code or "duration_preserved" not in voice_editor_code:
               raise SystemExit("Required duration-preserving librosa voice enhancement is missing.")
@@ -306,11 +307,13 @@ jobs:
               if marker not in sbs_code:
                   raise SystemExit(f"Required pinned cinematic LUT integration is missing: {marker}")
           review_code = Path("tools/groq_video_review.py").read_text(encoding="utf-8")
-          if '"manual_voice_required": False' not in voice_editor_code or "Kokoro-82M American-English narration" not in review_code:
-              raise SystemExit("Voice editor or final QA still expects a manually approved voice.")
-          for marker in ("Generate, master and validate Kokoro narration", "manual_voice_approval_required", "quality_gate", "ai-assistant-audio", "work/kokoro_audio_quality.json"):
+          if '"manual_voice_required": False' not in voice_editor_code or '"manual_voice_required":False' not in kokoro_generator_code or "Kokoro-82M American-English narration" not in review_code:
+              raise SystemExit("Kokoro generator, voice editor or final QA still expects manual voice approval.")
+          for marker in ("Generate, master and validate Kokoro narration", '"manual_voice_approval_required":False', '"manual_approval_required":False', "quality_gate", "ai-assistant-audio", "work/kokoro_audio_quality.json", "AUDIO SCRIPT-HASH GATE BLOCKED"):
               if marker not in renderer_text:
-                  raise SystemExit(f"Kokoro auto-voice integration missing: {marker}")
+                  raise SystemExit(f"Kokoro automatic-voice integration missing: {marker}")
+          if "VOICE APPROVAL GATE BLOCKED" in renderer_text or "after explicit approval" in renderer_text:
+              raise SystemExit("Narration reuse must use script hash + objective audio QA, never an approval gate.")
           stereo_code = Path("tools/convert_video_3d.py").read_text(encoding="utf-8")
           for marker in ("JulesMellot/2D3D", "PINNED_COMMIT", "frame-packing=3", "fast", "0.015", "0.55", "main_video_untouched", "failed_optional_export", "ANAGLYPH", "SBS", "TB"):
               if marker.lower() not in stereo_code.lower():

@@ -50,7 +50,7 @@ def main():
     report={"engine":"Kokoro-82M","license":"Apache-2.0 model; MIT inference library; espeak-ng dependency GPL-3.0",
             "voice":args.voice,"language":"American English","sample_rate":24000,
             "duration_seconds":round(duration,2),"script_characters":len(script),"peak_before_normalization":peak,
-            "manual_voice_required":True}
+            "manual_voice_required":False}
     Path("work/kokoro_tts_report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
     print(json.dumps(report))
 if __name__=="__main__": main()
