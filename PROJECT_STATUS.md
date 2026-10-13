@@ -6,6 +6,31 @@
 **Reviewed code commit:** `dcd8f18845d886ef0e60184b321a6bf35db23bbd`  
 **Current release status:** BLOCKED — daily publishing is not end-to-end verified. Round-one changes are committed; automated validators are still running.
 
+## Latest Round 1 implementation checkpoint — live Worker v415 (runtime QA pending)
+
+**Live deployment metadata verified:** Cloudflare content-only upload returned HTTP 200. Main Worker version **415** (d7237531-2f61-4859-a40f-4c83a8ce39e8) is assigned **100% traffic** in deployment 300dc85f-34fc-4212-bad2-94c4a6c64a1a. Settings GET returned HTTP 200; D1, Workers AI, authenticated Worker token binding, YouTube Data API key binding and observability remained present. This proves the uploaded version and routing metadata, **not** an end-to-end script-generation pass. Version 414 remains the previous version if a tested rollback becomes necessary.
+
+**Round 1 code change now in live version:**
+- YouTube Data API v3 recent-video search accepts bounded options: 1–14 day window, maxResults capped at 25, and documented order modes. The fallback performs two category-targeted queries with order=viewCount over a 7-day window and deduplicates by actual video ID; observed views/hour is only a discovery signal, not proof of a factual claim.
+- The strict “3 trend videos or HTTP 422” rejection was replaced with an explicit SCHEDULED_ROTATION_FALLBACK: if bounded targeted searches still find fewer than 3 distinct category-matching videos, keep that day's US Eastern rotation and use its predefined evergreen explainer. The package labels it as evergreen, not a live trend, and invents no IDs or trend metrics.
+- Existing 850–1000 word, minimum length, independent hook/human-voice QA, and unsupported-current-claim gates remain mandatory. Quality/authenticity failures can still block a package; we do not bypass them to force a green run.
+- nfGenerateScript now catches D1 failures for profile and recent-title context. It marks state mode D1_PERSISTED or D1_UNAVAILABLE_OR_WRITE_SKIPPED. In degraded mode, prior-title lookup/dedup context is unavailable; do not claim D1 persistence or production handoff readiness.
+- This AI Tech Lab Worker research path skips Tavily. The fallback sources remain YouTube Data API v3 plus public RSS/Atom and arXiv. Google Trends RSS, if returned, remains an interest signal—not factual verification or a Trends API score.
+
+**Repository changes committed:**
+- f2ed547129acc33bf89abc5ebc7964bfc965e638: daily research workflow accepts only a valid live trend gate or the explicit fallback mode and includes mode/state metadata.
+- 30f69a7edef6edd2d5cc1980b9205bc1801b6ef6: daily handoff accepts a correctly labelled fallback without pretending it is current-trending.
+- 9d938f85727c856d682acc02fe55878fc50b3630 and 189577b46578839413b93e9aaa6cded5f9221c33: self-healing D1-safe degradation/trend recovery guidance and regression assertions.
+- a3200f70e6db76949912c06cb12f7a9cd1823855: no-publishing live verifier now tests either the real 3-video trend mode or the explicit fallback, while retaining word-count, hook/voice, no-unsupported-current-claims, date and state-mode assertions.
+- 18d57825615318e9ffb7feb6501602271a1e47fb: tracked patch fragment documents the recovery/fallback contract and expanded deterministic self-test.
+
+**Runtime/verification boundary:**
+- Cloudflare version/deployment/settings metadata is verified.
+- The connector network cannot directly call the public Workers URL; the GitHub runner is required for live endpoint and independent QA verification. The new validator was triggered by the patch-fragment push, but its result has not been retrieved in this checkpoint.
+- D1 daily quota was exhausted earlier. Script generation now has a deliberate degraded mode, but research state persistence, recent-title dedup, D1 content creation and end-to-end handoff are not verified. No production row, render, upload or schedule was created by this change.
+
+**Next exact action:** inspect the new Verify Cloudflare Trend Script (No Publishing) runner result and Renderer Static Validation/CI results; fix only observed failures. After D1's reset, perform one bounded read/write health check before claiming persistence or enabling content creation.
+
 ## Latest verification checkpoint — 2026-10-13
 
 **Latest implementation commits:** `481aa4b327433b6034c934a040c8c26772d5e825` (self-healing tests wired into CI) and `ad66e71c1823fe8e728a6c02bc6fdaa9edf8949b` (renderer validator fix).
