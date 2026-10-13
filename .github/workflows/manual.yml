@@ -1323,6 +1323,8 @@ jobs:
             work/captions.srt
             work/music_report.json
             work/evidence_charts_report.json
+            work/flux_self_test_report.json
+            work/flux_generation_report.json
             work/rendered_scene_assets_report.json
             work/brand_assets_report.json
             work/seo_report.json
@@ -1535,6 +1537,7 @@ jobs:
           name: ai-tech-lab-editing-manifest-${{ inputs.content_id }}
           path: |
             work/editing_tool_manifest.json
+            work/flux_generation_report.json
             work/transition_sfx_report.json
             work/rendered_scene_assets_report.json
           if-no-files-found: error
@@ -1549,6 +1552,7 @@ jobs:
             output/AI_TECH_LAB_${{ inputs.content_id }}_3D_*.mp4
             work/stereo_3d_report.json
             work/editing_tool_manifest.json
+            work/flux_generation_report.json
             work/transition_sfx_report.json
           if-no-files-found: error
           retention-days: 30
