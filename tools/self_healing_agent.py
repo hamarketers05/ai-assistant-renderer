@@ -110,6 +110,28 @@ def is_transient(log):
     lower = log.lower()
     return any(key in lower for key in TRANSIENT)
 
+def classify_configuration_failure(log):
+    """Classify missing credentials/configuration; retries cannot create secrets."""
+    lower = log.lower()
+    missing_key = ("groq_api_key missing" in lower or
+                   ("groq_api_key" in lower and "missing" in lower) or
+                   "no api key" in lower or "api key is missing" in lower)
+    if not missing_key:
+        return None
+    if "thumbnail" in lower or "thumbnail brief" in lower:
+        return {
+            "code": "THUMBNAIL_AI_CREDENTIAL_MISSING",
+            "root_cause": "GROQ_API_KEY is unavailable to the renderer and authenticated Workers AI fallback context is unavailable.",
+            "safe_recovery": "Use the explicitly labelled deterministic local thumbnail brief; keep final thumbnail QA mandatory.",
+            "credential_action": "An authorized maintainer must configure the GitHub Actions GROQ_API_KEY secret to restore Groq-first inference. Never print, infer, or fabricate credentials."
+        }
+    return {
+        "code": "AI_PROVIDER_CREDENTIAL_MISSING",
+        "root_cause": "An AI-provider credential is missing; retries cannot repair configuration.",
+        "safe_recovery": "Use an already-authenticated fallback only; otherwise stop before release.",
+        "credential_action": "An authorized maintainer must configure the required Actions secret. Never print, infer, or fabricate credentials."
+    }
+
 def fetch_logs(job_id):
     # Diagnose only the failed step where possible; successful report steps mention other files.
     failed_numbers = set()
@@ -625,6 +647,19 @@ def analyze(runs):
                 else:
                     REPORT["unresolved"].append(f"Could not retrieve failure log for run {run['id']} job {job.get('name')}: {type(exc).__name__}: {str(exc)[:260]}")
         joined = "\n".join(log for _, log in log_items)
+        config_issue = classify_configuration_failure(joined)
+        if config_issue:
+            REPORT["actions"].append({
+                "action": "classified_configuration_failure",
+                "run_id": run.get("id"),
+                **config_issue
+            })
+            REPORT["unresolved"].append(
+                f"Run {run['id']} ({run.get('name')}): {config_issue['code']}. "
+                f"{config_issue['root_cause']} {config_issue['credential_action']}"
+            )
+            count += 1
+            continue
         if run.get("name") in SAFE_RETRY and is_transient(joined):
             try:
                 retry_failed(run, failed)
