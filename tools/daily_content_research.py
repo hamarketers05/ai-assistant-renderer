@@ -148,13 +148,53 @@ def youtube_trending(api_key, access_token=""):
     return all_items
 
 def tavily_search(key, query, include_domains=None):
-    payload = {
-        "api_key": key, "query": query, "search_depth": "advanced", "topic": "general",
-        "max_results": 6, "include_answer": False, "include_raw_content": False}
-    if include_domains:
-        payload["include_domains"] = include_domains
-    result = request_json(TAVILY_API, payload, timeout=60)
-    return result.get("results", []) if isinstance(result, dict) else []
+    """Search Tavily directly when its key is present; otherwise use the authenticated main Worker proxy.
+
+    The Worker keeps its existing Tavily secret in Cloudflare, so GitHub does not need a duplicate key.
+    """
+    if key:
+        payload = {
+            "api_key": key, "query": query, "search_depth": "advanced", "topic": "general",
+            "max_results": 6, "include_answer": False, "include_raw_content": False}
+        if include_domains:
+            payload["include_domains"] = include_domains
+        result = request_json(TAVILY_API, payload, timeout=60)
+        return result.get("results", []) if isinstance(result, dict) else []
+
+    token = os.getenv("WORKER_AUTH_TOKEN", "").strip()
+    worker_url = os.getenv("WORKER_URL", "https://dark-sunset-a2a1.hamarketers05.workers.dev").rstrip("/")
+    if not token:
+        raise RuntimeError("Tavily key is absent and authenticated main Worker research proxy is unavailable.")
+    url = worker_url + "/research?" + urllib.parse.urlencode({
+        "q": str(query)[:400], "brand_id": "AI_TECH_LAB"
+    })
+    result = request_json(url, headers={"Authorization": "Bearer " + token}, timeout=90)
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        raise RuntimeError("Authenticated main Worker research proxy returned an unsuccessful response.")
+    rows = result.get("results", [])
+    normalized = []
+    allowed_domains = [str(x).lower().strip().lstrip(".") for x in (include_domains or []) if str(x).strip()]
+    for item in rows if isinstance(rows, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url_value = str(item.get("url", "")).strip()
+        try:
+            host = (urllib.parse.urlparse(url_value).hostname or "").lower()
+        except ValueError:
+            host = ""
+        if allowed_domains and not any(host == d or host.endswith("." + d) for d in allowed_domains):
+            continue
+        normalized.append({
+            "title": item.get("title", ""), "url": url_value,
+            "content": item.get("content", ""),
+            "published_date": item.get("published_at", item.get("published_date", "")) or "",
+            "score": item.get("score", 0), "source_tier": item.get("source_tier", "unknown"),
+            "source_type": item.get("source_type", "unknown")
+        })
+    if not normalized:
+        raise RuntimeError("Authenticated main Worker research proxy returned no usable source results.")
+    print("Research evidence provider: existing Cloudflare main Worker -> Tavily secret binding.")
+    return normalized
 
 def clean_sources(results):
     out, seen = [], set()
@@ -182,8 +222,8 @@ def main():
     tv_key = os.getenv("TAVILY_API_KEY", "").strip()
     if not yt_key and not yt_token:
         raise SystemExit("YouTube Data API v3 authentication is missing: the existing Worker OAuth token or YOUTUBE_API_KEY is required.")
-    if not tv_key:
-        raise SystemExit("TAVILY_API_KEY is missing. Add it as a GitHub Actions repository secret.")
+    if not tv_key and not os.getenv("WORKER_AUTH_TOKEN", "").strip():
+        raise SystemExit("Neither TAVILY_API_KEY nor the authenticated main Worker research proxy is configured.")
     if not os.getenv("GROQ_API_KEY", "").strip():
         if not (os.getenv("GITHUB_TOKEN", "").strip() and os.getenv("GITHUB_RUN_ID", "").isdigit()):
             raise SystemExit("Groq is missing and authenticated Cloudflare Workers AI fallback context is unavailable.")
