@@ -184,6 +184,24 @@ def classify_known_infrastructure_failure(run, log):
     """Recognize recurring infrastructure failures whose correct response is auth/config, not code edits."""
     name = str(run.get("name") or "")
     lower = str(log or "").lower()
+    if ("d1" in lower and ("daily read limit" in lower or "daily write limit" in lower or "free-tier row read limit" in lower)):
+        return {
+            "code": "D1_FREE_TIER_DAILY_LIMIT_EXHAUSTED",
+            "root_cause": "Cloudflare D1 daily free-tier limits are exhausted; the account cannot execute queries until the quota reset.",
+            "safe_recovery": "Do not loop D1 queries or edit data/schema to bypass the quota. Keep rendering/publishing blocked until reads/writes recover; retry one read-only health check after the UTC reset. Never enable paid billing without owner approval."
+        }
+    if ("youtube_category_trend_gate" in lower or "blocked_insufficient_category_related_youtube_videos" in lower) and ("422" in lower or "distinct_video_count" in lower):
+        return {
+            "code": "YOUTUBE_CATEGORY_TREND_EVIDENCE_INSUFFICIENT",
+            "root_cause": "The selected editorial category did not have three distinct category-relevant YouTube trend videos in the retrieved sample.",
+            "safe_recovery": "Keep the trend gate closed. Retry at most once with a broader category-query phrase or the next valid category-supported trend; do not count duplicate video IDs, invent trend signals, or use Tavily/paid search to force a pass. If no alternative has three videos, record the blocker."
+        }
+    if ("/editorial/trend-script" in lower or "trend-script route" in lower) and any(x in lower for x in ("http 404", "not found", "route unavailable")):
+        return {
+            "code": "CLOUDFLARE_TREND_SCRIPT_ROUTE_UNAVAILABLE",
+            "root_cause": "The deployed Main Worker does not expose the expected trend-to-script endpoint or the caller used an incorrect route.",
+            "safe_recovery": "Compare the live Worker version and the tracked integration fragment. Do not overwrite the large live Worker with the smaller tracked worker.js. Open/retain an incident and keep research/render/upload blocked until the endpoint is read-back verified."
+        }
     if ("editorial category rotation" in lower or "editorial-category-rotation" in lower) and any(
         marker in lower for marker in ("failed", "failure", "error", "invalid", "regression", "ok=false")
     ):
