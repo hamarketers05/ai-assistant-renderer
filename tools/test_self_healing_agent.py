@@ -19,6 +19,19 @@ def main():
     assert "--- a/tools/self_healing_canary.py" in fixed
     assert "+++ b/tools/self_healing_canary.py" in fixed
 
+    omitted_prefix = """--- a/tools/self_healing_canary.py
++++ b/tools/self_healing_canary.py
+@@ -9,9 +9,9 @@
+ def answer():
+-    return 41
+    return 42
+"""
+    repaired = agent.normalize_diff_hunk_counts(
+        omitted_prefix, source_lines=["def answer():", "    return 41"]
+    )
+    assert "+    return 42" in repaired, repaired
+    assert "@@ -9,2 +9,2 @@" in repaired, repaired
+
     unchanged = """--- a/tools/sample.py
 +++ b/tools/sample.py
 @@ -1,2 +1,2 @@
