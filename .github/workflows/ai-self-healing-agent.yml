@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - "tools/self_healing_agent.py"
+      - "tools/test_self_healing_agent.py"
+      - "tools/self_healing_ml.py"
+      - "tools/test_self_healing_ml.py"
+      - "tools/self_healing_incidents_train.jsonl"
+      - "tools/self_healing_incidents_eval.jsonl"
       - "tools/publish_self_heal_report.py"
       - "cloudflare/ai-tech-lab-daily-handoff/worker.js"
       - ".github/workflows/ai-self-healing-agent.yml"
@@ -67,8 +72,10 @@ jobs:
           GROQ_TEXT_MODEL: openai/gpt-oss-20b
         run: |
           set -euo pipefail
-          python -m py_compile tools/self_healing_agent.py tools/test_self_healing_agent.py
+          python -m py_compile tools/self_healing_agent.py tools/test_self_healing_agent.py tools/self_healing_ml.py tools/test_self_healing_ml.py
           python tools/test_self_healing_agent.py
+          python tools/test_self_healing_ml.py
+          python tools/self_healing_ml.py --train --output work/self_healing_ml_model.json --evaluation-output work/self_healing_ml_evaluation.json
           python tools/self_healing_agent.py
 
       - name: Save machine-readable recovery report
@@ -76,7 +83,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-self-heal-${{ github.run_id }}
-          path: work/self_healing_report.json
+          path: |
+            work/self_healing_report.json
+            work/self_healing_ml_model.json
+            work/self_healing_ml_evaluation.json
           if-no-files-found: warn
           retention-days: 7
 
