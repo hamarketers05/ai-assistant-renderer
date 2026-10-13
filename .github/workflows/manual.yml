@@ -669,6 +669,15 @@ jobs:
           test -s work/commons_media_report.json
           cat work/commons_media_report.json
 
+      - name: Discover Full-HD commercially usable images and eligible NASA clips
+        env:
+          SMITHSONIAN_API_KEY: ${{ secrets.SMITHSONIAN_API_KEY }}
+        run: |
+          set -euo pipefail
+          .venv/bin/python tools/fetch_free_media.py
+          test -s work/visual_media_report.json
+          cat work/visual_media_report.json
+
       - name: Bootstrap visual history from recent verified production deliveries
         env:
           GH_TOKEN: ${{ github.token }}
