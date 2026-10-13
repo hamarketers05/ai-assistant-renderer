@@ -75,8 +75,10 @@ function nfEditorialTrendGate(items,categoryName){
 // Trigger the no-publishing GitHub-runner verification after the workflow was added.
 // Runtime status remains pending until the GitHub Actions log is inspected.
 
-// Cross-cutting provider hardening deployed in Main Worker v419:
+// Cross-cutting provider hardening deployed in Main Worker v420:
 // nfGroqText parses Retry-After and compound x-ratelimit-reset values; HTTP 429 retry stays capped at one.
-// nfGenerateScript repairs BOTH underlength and overlength drafts before the final 850–1000 word gate.
-// Research/claim/script prompt context and completion-token ceilings are bounded for Groq free-tier TPM resilience.
-// These changes never bypass evidence/voice/word QA; see docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md (v418 rollback).
+// nfGenerateScript repairs underlength/overlength drafts once before the final 850–1000 word gate.
+// Research/claim/script prompt context and token ceilings are bounded to reduce Groq free-tier TPM spikes.
+// Trend-script QA fills an omitted `approved` flag ONLY when explicit hook/human scores are >=7 and unsupported claims are [];
+// explicit approved:false, low scores, malformed or non-empty unsupported claims continue to block the package.
+// No QA is bypassed. See docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md (v419 rollback).
