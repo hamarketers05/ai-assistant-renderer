@@ -130,7 +130,7 @@ def fetch_logs(job_id):
     request = urllib.request.Request(log_url, headers=headers, method="GET")
     no_redirect = urllib.request.build_opener(
         type("NoRedirect", (urllib.request.HTTPRedirectHandler,), {
-            "redirect_request": lambda self, req, fp, code, msg, headers, newurl: None
+            "redirect_request": lambda self, req, fp, code, msg, redirect_headers, newurl: None
         })()
     )
     try:
@@ -142,7 +142,6 @@ def fetch_logs(job_id):
         location = exc.headers.get("Location")
         if not location or not location.startswith("https://"):
             raise RuntimeError("GitHub job-log redirect did not provide a valid HTTPS URL.") from None
-        # The Location URL is short-lived and signed; never print it or add GitHub auth.
         blob_request = urllib.request.Request(
             location, headers={"User-Agent": "AI-Tech-Lab-Self-Healing-Agent/1.0"}, method="GET"
         )
@@ -219,13 +218,57 @@ def incident(title, body):
 def get_patched_already(run_id):
     return bool(cmd(["git", "log", "--all", "--format=%s", "--grep", f"SELF-HEAL PATCH run={run_id}"]).strip())
 
+def normalize_diff_hunk_counts(diff):
+    """Recompute unified-diff hunk counts so well-formed model edits apply reliably."""
+    lines = diff.splitlines()
+    changed = False
+    i = 0
+    while i < len(lines):
+        if not lines[i].startswith("@@ "):
+            i += 1
+            continue
+        match = re.fullmatch(r"@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@(.*)", lines[i])
+        if not match:
+            raise ValueError("Malformed unified-diff hunk header.")
+        old_start, new_start, suffix = int(match.group(1)), int(match.group(2)), match.group(3)
+        j = i + 1
+        old_count = new_count = 0
+        while j < len(lines) and not lines[j].startswith("@@ "):
+            line = lines[j]
+            if line.startswith("diff --git "):
+                break
+            if line.startswith(" "):
+                old_count += 1
+                new_count += 1
+            elif line.startswith("-"):
+                old_count += 1
+            elif line.startswith("+"):
+                new_count += 1
+            elif line.startswith("\\\\ No newline at end of file"):
+                pass
+            else:
+                raise ValueError("Unified diff contains a line without a valid context/add/remove prefix.")
+            j += 1
+        corrected = f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{suffix}"
+        if corrected != lines[i]:
+            lines[i] = corrected
+            changed = True
+        if old_count == 0 and new_count == 0:
+            raise ValueError("Unified-diff hunk is empty.")
+        i = j
+    if not any(line.startswith("@@ ") for line in lines):
+        raise ValueError("Unified diff contains no hunks.")
+    return "\n".join(lines) + "\n"
+
+
 def get_diff(text):
     # Strip optional model commentary/fence and select the unified diff body.
     lines = text.strip().splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith("--- a/")), None)
     if start is None:
         raise ValueError("No unified diff returned.")
-    return "\n".join(lines[start:]).strip() + "\n"
+    diff = "\n".join(lines[start:]).strip() + "\n"
+    return normalize_diff_hunk_counts(diff)
 
 def request_patch_model(prompt, system, run, target):
     """Use Groq first, then an authenticated Cloudflare Workers AI fallback."""
