@@ -2,6 +2,7 @@
 """Daily US-topic workflow: YouTube Data API v3 signals -> Tavily evidence -> Groq script + hook audit."""
 from __future__ import annotations
 import argparse, json, os, re, time, urllib.error, urllib.parse, urllib.request
+from ai_text_client import chat_completion
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -74,21 +75,23 @@ def extract_json(text):
 def groq_json(system, user, max_tokens=2500, temperature=0.25):
     global _LAST_GROQ_START
     key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError("GROQ_API_KEY is missing; no script package was created.")
     body = {"model": TEXT_MODEL, "temperature": temperature, "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
             "messages": [
-                {"role": "system", "content": system + "\nReturn exactly one valid JSON object, with no Markdown fences."},
+                {"role": "system", "content": system + "\\nReturn exactly one valid JSON object, with no Markdown fences."},
                 {"role": "user", "content": user}]}
-    wait_seconds = 61.0 - (time.monotonic() - _LAST_GROQ_START) if _LAST_GROQ_START else 0.0
-    if wait_seconds > 0:
-        print(f"Respecting free-tier Groq TPM budget; spacing model calls by {int(wait_seconds)} seconds.")
-        time.sleep(wait_seconds)
-    _LAST_GROQ_START = time.monotonic()
-    result = request_json(GROQ_API, body, {"Authorization": "Bearer " + key}, timeout=90)
+    if key:
+        wait_seconds = 61.0 - (time.monotonic() - _LAST_GROQ_START) if _LAST_GROQ_START else 0.0
+        if wait_seconds > 0:
+            print(f"Respecting free-tier Groq TPM budget; spacing model calls by {int(wait_seconds)} seconds.")
+            time.sleep(wait_seconds)
+        _LAST_GROQ_START = time.monotonic()
+    result = chat_completion(body, ".github/workflows/daily-content-research.yml", timeout=90)
+    provider = str(result.get("provider", "groq"))
     choices = result.get("choices") or []
     if not choices:
-        raise RuntimeError("Groq returned no completion choices.")
+        raise RuntimeError(provider + " returned no completion choices.")
+    print("AI provider for research step: " + provider)
     return extract_json(choices[0].get("message", {}).get("content", ""))
 
 def duration_seconds(value):
@@ -174,7 +177,9 @@ def main():
     if not tv_key:
         raise SystemExit("TAVILY_API_KEY is missing. Add it as a GitHub Actions repository secret.")
     if not os.getenv("GROQ_API_KEY", "").strip():
-        raise SystemExit("GROQ_API_KEY is missing. Groq is primary; Gemini is not used in this workflow.")
+        if not (os.getenv("GITHUB_TOKEN", "").strip() and os.getenv("GITHUB_RUN_ID", "").isdigit()):
+            raise SystemExit("Groq is missing and authenticated Cloudflare Workers AI fallback context is unavailable.")
+        print("GROQ_API_KEY is absent; authenticated Cloudflare Workers AI fallback will be used. Daily free-neuron limits apply.")
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
