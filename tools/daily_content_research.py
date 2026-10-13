@@ -422,7 +422,9 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
          "evidence_files": ["work/hook_audit.json", "work/tavily_evidence.json"], "details": {"source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]), "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"])}},
         {"agent_id": "improvement_scout", "status": "completed" if scout_status == "completed" else "skipped" if not scout_plan.get("enabled") else scout_status,
          "actual_tools_used": ["Tavily Search API", scout_plan.get("domain", "official documentation")] if scout_status == "completed" else [],
-         "evidence_files": ["work/tool_improvement_research.json"], "details": {"tool": scout_plan.get("tool"), "status": scout_status, "no_automatic_code_changes": True}}
+         "evidence_files": ["work/tool_improvement_research.json"], "details": {"tool": scout_plan.get("tool"), "status": scout_status,
+                     "official_source_count": len(improvement_report.get("sources", [])),
+                     "recommendations_count": len(checked_recommendations), "no_automatic_code_changes": True}}
     ]
     agent_report = agent_execution_report("research", research_runs, {
         "target_date_us_eastern": editorial_date, "editorial_category": topic["category"],
@@ -442,6 +444,7 @@ Preserve a recognizable editorial point of view and natural spoken rhythm. Vary 
         "editorial_category": topic["category"], "rotation_category": rotation["category"],
         "human_voice_score": human_voice_qa["score"], "independent_voice_audit_score": auditor_voice_score,
         "tool_improvement_scout": scout_status,
+        "official_tool_improvement_proposals": len(checked_recommendations),
         "agent_report": "work/mini_agent_execution_report.json",
         "source_linked_claims": sum(1 for x in claims_checked if x["source_linked"]),
         "unlinked_claims": sum(1 for x in claims_checked if not x["source_linked"]),
