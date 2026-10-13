@@ -47,7 +47,7 @@ def main() -> None:
         except (OSError, json.JSONDecodeError):
             learning_record = {}
     learning_exists = bool(learning_record)
-    current_review_persisted = bool(review) and learning_record == review
+    current_review_persisted = bool(review) and learning_record == review and os.getenv("LEARNING_PERSISTENCE_STEP_OUTCOME", "").strip().lower() == "success"
 
     video_id = str(verified.get("video_id") or upload.get("id") or existing_video_id)
     url = str(verified.get("url") or ("https://www.youtube.com/watch?v=" + video_id if video_id else ""))
