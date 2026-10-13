@@ -71,7 +71,8 @@ def evaluate(scene_rows: list[dict[str, Any]], source_rows: list[dict[str, Any]]
     duration = float(video.get("duration_seconds") or 0)
     checks = {
         "native_full_hd_output": native_hd,
-        "duration_in_5_to_7_minute_window": 300 <= duration <= 420,
+        "duration_in_5_to_6_minute_window": 300 <= duration <= 364,
+        "rendered_scene_count_between_70_and_90": 70 <= scene_count <= 90,
         "at_least_70_unique_primary_visual_assets": len(unique_assets) >= min_unique,
         "at_least_100_timeline_visual_elements": elements >= min_elements,
         "six_flux_images_actually_used": flux_used >= 6,
