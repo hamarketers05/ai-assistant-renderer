@@ -91,6 +91,37 @@ def main():
     assert "public RSS fallback" in tavily_issue["safe_recovery"]
     assert "Never upgrade" in tavily_issue["safe_recovery"]
 
+    # Cloudflare editorial category rotation: seven-day US Eastern contract,
+    # bounded safe diagnosis, and no automatic production Worker mutation.
+    valid_rotation = {
+        "date_us_eastern": "2026-10-13", "timezone": "America/New_York",
+        "category": "AI News & Breakthroughs", "category_index": 0,
+        "next_category": "AI Tools & Practical Workflows",
+        "rotation_anchor": "2026-10-13", "cycle_length_days": 7,
+        "category_brief": "Evidence-backed news and breakthroughs.",
+    }
+    assert agent.validate_editorial_rotation_payload(valid_rotation, "2026-10-13") is True
+    assert agent.validate_editorial_rotation_payload(valid_rotation, "2026-10-14") is False
+    assert agent.validate_editorial_rotation_payload({**valid_rotation, "timezone": "UTC"}) is False
+    assert agent.validate_editorial_rotation_payload({**valid_rotation, "category_index": 7}) is False
+    valid_rotation_self_test = {
+        "ok": True, "category_count": 7,
+        "checks": {
+            "seven_unique_days_and_wraparound": True,
+            "duplicate_video_ids_do_not_count": True,
+            "three_video_trend_override": True,
+            "invalid_date_rejected": True,
+        },
+    }
+    assert agent.validate_editorial_rotation_self_test(valid_rotation_self_test) is True
+    assert agent.validate_editorial_rotation_self_test({**valid_rotation_self_test, "checks": {**valid_rotation_self_test["checks"], "duplicate_video_ids_do_not_count": False}}) is False
+    rotation_issue = agent.classify_known_infrastructure_failure(
+        {"name": "AI Tech Lab Daily Research and Script"},
+        "EDITORIAL_ROTATION_SELF_TEST_FAILED: Cloudflare editorial category rotation returned ok=false",
+    )
+    assert rotation_issue and rotation_issue["code"] == "CLOUDFLARE_EDITORIAL_ROTATION_REGRESSION"
+    assert "Do not deploy a Worker patch automatically" in rotation_issue["safe_recovery"]
+
     short_script = agent.classify_renderer_input_quality_failure(
         {"name": "AI Assistant Renderer"},
         'CONTENT_FORMAT=LONG_VIDEO\n"planned_visual_scenes": 49'
