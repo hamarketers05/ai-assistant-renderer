@@ -80,6 +80,12 @@ def main():
     )
     assert quota_issue and quota_issue["code"] == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED"
     assert "never enable billing" in quota_issue["safe_recovery"]
+    actual_worker_502 = agent.classify_known_infrastructure_failure(
+        {"name": "Verify Cloudflare Trend Script (No Publishing)"},
+        "HTTP 502: Trend research/script generation failed safely; detail=4006: you have used up your daily free allocation of 10,000 neurons."
+    )
+    assert actual_worker_502 and actual_worker_502["code"] == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED"
+    assert "wait for the free allocation reset" in actual_worker_502["safe_recovery"]
     rate_issue = agent.classify_known_infrastructure_failure({"name": "AI Tech Lab Daily Research and Script"}, "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover.")
     assert rate_issue and rate_issue["code"] == "GROQ_RATE_LIMITED"
 
