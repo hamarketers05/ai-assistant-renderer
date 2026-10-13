@@ -35,7 +35,6 @@ jobs:
         run: |
           set -u
           mkdir -p diagnostic
-          PASS=true
           if [ -z "$WORKER_AUTH_TOKEN" ]; then
             echo '{"ok":false,"stage":"worker_oauth","error":"WORKER_AUTH_TOKEN secret is missing"}' > diagnostic/youtube_api_report.json
             echo "passed=false" >> "$GITHUB_OUTPUT"
