@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "tools/self_healing_agent.py"
+      - "tools/publish_self_heal_report.py"
       - "cloudflare/ai-tech-lab-daily-handoff/worker.js"
       - ".github/workflows/ai-self-healing-agent.yml"
   schedule:
