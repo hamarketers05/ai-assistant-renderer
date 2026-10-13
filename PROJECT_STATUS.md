@@ -1,10 +1,28 @@
 # PROJECT_STATUS.md - AI Tech Lab
 
-**Updated:** 2026-10-13 (PKT)  
+**Updated:** 2026-10-14 (PKT)  
 **Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
 **Branch:** main  
 **Reviewed code commit:** 980bf963c305031c45dbf940b44dafd678576d5e  
 **Current release status:** **BLOCKED — end-to-end content generation and publishing are not yet verified.** No paid billing enabled, no QA gates bypassed, and this session did not publish/upload content.
+
+**Updated:** 2026-10-14 (PKT)  
+**Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
+**Branch:** main  
+**Reviewed code commit:** 38848242bea84e45c27a7f1abd0ed3cb9fc8f49f  
+**Current release status:** **BLOCKED — end-to-end content generation and publishing are not yet verified.** No paid billing enabled, no QA gates bypassed, and no content was published in this model-coverage change.
+
+## 2026-10-14 — ML incident model v2 coverage candidate (CI verification pending)
+
+- Expanded supervised incident corpus from 50 to **150 curated training examples** and from 20 to **80 held-out evaluation examples**, covering **30 incident classes** across provider quotas/rate limits, code/import faults, regression tests, workflow configuration, dependencies, rendering and video integrity, audio/caption QA, asset licensing, storage, YouTube quota/upload/duplicate/scheduling, D1 dedup/state, source-claim mismatch, JSON/schema validation, queue failures, Worker deployments and invalid LLM output.
+- Bumped classifier version to `incident-nb-v2`; added class-by-class accuracy, macro accuracy, unclassified prediction count, per-class support and train/holdout class-coverage plus normalized-duplicate-leakage checks. Regression tests now require >=150 train examples, >=80 holdout examples, 30+ classes and the configured accuracy targets.
+- All ML predictions and advisory descriptions remain **diagnostic/advisory only**. They do not authorize credentials changes, risky repairs, workflow/Worker release, upload, scheduling, or bypass of QA. Unknown and low-confidence incidents remain unclassified. The model cannot guarantee repair of every unknown failure, and model confidence is not calibrated.
+- This is a **branch candidate**, not yet merged or CI-verified. The 150/80 corpus counts, label coverage and zero normalized text overlap were checked while building the candidate, but the model's new training/evaluation gates and its actual holdout metrics must be verified by GitHub Actions before considering the model v2 change passed. Do not treat the 100% coverage claim as universal problem coverage.
+- Branch: `feat/self-healing-ml-coverage-20261014`. No production Worker code, credentials, database schema, billing or publishing behavior was changed in this candidate.
+
+**Next exact action:** run PR CI/static validation for model v2, inspect actual per-class holdout metrics and regression logs, then merge only if all checks pass; keep release status blocked until content pipeline E2E verification is complete.
+
+---
 
 ## Round 1 — latest verified checkpoint
 
