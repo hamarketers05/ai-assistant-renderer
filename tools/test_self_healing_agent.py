@@ -86,6 +86,13 @@ def main():
     )
     assert actual_worker_502 and actual_worker_502["code"] == "WORKERS_AI_FREE_ALLOCATION_EXHAUSTED"
     assert "wait for the free allocation reset" in actual_worker_502["safe_recovery"]
+    length_gate_issue = agent.classify_known_infrastructure_failure(
+        {"name": "Verify Cloudflare Trend Script (No Publishing)"},
+        "HTTP 502: Script length gate failed: 1048 spoken words; required 850–1000",
+    )
+    assert length_gate_issue and length_gate_issue["code"] == "CLOUDFLARE_SCRIPT_LENGTH_REPAIR_GATE"
+    assert "v418 now requests one evidence-locked rewrite" in length_gate_issue["safe_recovery"]
+    assert "never waive" in length_gate_issue["safe_recovery"]
     rate_issue = agent.classify_known_infrastructure_failure({"name": "AI Tech Lab Daily Research and Script"}, "GROQ_RATE_LIMITED: Main Worker Groq retry did not recover.")
     assert rate_issue and rate_issue["code"] == "GROQ_RATE_LIMITED"
     assert "Retry-After/reset window" in rate_issue["safe_recovery"]
