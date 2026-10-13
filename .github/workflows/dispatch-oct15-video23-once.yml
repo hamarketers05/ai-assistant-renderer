@@ -25,63 +25,63 @@ jobs:
         run: |
           set -euo pipefail
           cat > script.txt <<'SCRIPT'
-What if the AI assistant you use tomorrow can do more than answer questions? It might sort invoices, update customer records, summarize private documents, or trigger another tool on your behalf. That sounds convenient. But when software can take action—not just offer advice—the biggest question changes. It is no longer only, “Is the answer correct?” It is also, “What is this system allowed to do, and who catches the mistake?”
+          What if the AI assistant you use tomorrow can do more than answer questions? It might sort invoices, update customer records, summarize private documents, or trigger another tool on your behalf. That sounds convenient. But when software can take action—not just offer advice—the biggest question changes. It is no longer only, “Is the answer correct?” It is also, “What is this system allowed to do, and who catches the mistake?”
 
-This is the risk behind increasingly capable AI agents. The point is not that every agent is dangerous, or that businesses should avoid automation. The practical concern is that a helpful system can still make a poor decision, misunderstand an instruction, expose information, or take an action that is difficult to reverse. The more access it has, the more important the safeguards become.
+          This is the risk behind increasingly capable AI agents. The point is not that every agent is dangerous, or that businesses should avoid automation. The practical concern is that a helpful system can still make a poor decision, misunderstand an instruction, expose information, or take an action that is difficult to reverse. The more access it has, the more important the safeguards become.
 
-There is a useful starting point from the National Institute of Standards and Technology, or NIST. Its AI Risk Management Framework organizes risk work around governing, mapping, measuring, and managing risks. NIST also published a profile focused on generative AI risks. These are not magic checklists that guarantee safety. They provide a disciplined way to ask what could go wrong, how serious the result would be, and how the organization will monitor the system over time.
+          There is a useful starting point from the National Institute of Standards and Technology, or NIST. Its AI Risk Management Framework organizes risk work around governing, mapping, measuring, and managing risks. NIST also published a profile focused on generative AI risks. These are not magic checklists that guarantee safety. They provide a disciplined way to ask what could go wrong, how serious the result would be, and how the organization will monitor the system over time.
 
-A second useful reference is OWASP, whose GenAI security work covers risks in large language model applications. One especially practical concern is excessive agency: giving an AI system more tools, permissions, or independence than the task actually requires. Another concern is prompt injection, where untrusted text attempts to influence a model’s behavior. A message inside an email or document should be treated as content to inspect—not automatically as an instruction that overrides the user or the system’s safety rules.
+          A second useful reference is OWASP, whose GenAI security work covers risks in large language model applications. One especially practical concern is excessive agency: giving an AI system more tools, permissions, or independence than the task actually requires. Another concern is prompt injection, where untrusted text attempts to influence a model’s behavior. A message inside an email or document should be treated as content to inspect—not automatically as an instruction that overrides the user or the system’s safety rules.
 
-Imagine a small business connecting an AI agent to its shared inbox and bookkeeping software. The owner asks it to identify overdue invoices and draft reminders. That is a manageable starting task if the agent can read only the relevant records and create drafts. But if the same agent can also change bank details, approve payments, delete records, and send messages without review, one mistaken interpretation has a much larger blast radius. The issue is not whether the model sounds confident. It is whether the workflow limits what can happen when the model is wrong.
+          Imagine a small business connecting an AI agent to its shared inbox and bookkeeping software. The owner asks it to identify overdue invoices and draft reminders. That is a manageable starting task if the agent can read only the relevant records and create drafts. But if the same agent can also change bank details, approve payments, delete records, and send messages without review, one mistaken interpretation has a much larger blast radius. The issue is not whether the model sounds confident. It is whether the workflow limits what can happen when the model is wrong.
 
-Here is a five-part test you can use before trusting an AI agent with an important task.
+          Here is a five-part test you can use before trusting an AI agent with an important task.
 
-First, start with the smallest useful permission set. If the job is to summarize files, it should not also have permission to delete them or transfer money. Separate reading from writing, and separate drafting from executing. When possible, use a test account or a copy of the data before connecting the real system.
+          First, start with the smallest useful permission set. If the job is to summarize files, it should not also have permission to delete them or transfer money. Separate reading from writing, and separate drafting from executing. When possible, use a test account or a copy of the data before connecting the real system.
 
-Second, define what a successful result looks like before you automate. For invoice reminders, success might mean identifying the correct customer, matching the right invoice, and drafting a message that contains no invented amount or deadline. Compare the agent’s output with a trusted baseline. Measure mistakes and rework as well as time saved. A workflow that appears fast but creates hidden cleanup work may not be an improvement.
+          Second, define what a successful result looks like before you automate. For invoice reminders, success might mean identifying the correct customer, matching the right invoice, and drafting a message that contains no invented amount or deadline. Compare the agent’s output with a trusted baseline. Measure mistakes and rework as well as time saved. A workflow that appears fast but creates hidden cleanup work may not be an improvement.
 
-Third, keep a human approval step for actions with meaningful consequences. Payments, changes to account access, messages sent to customers, deletion of important data, and decisions affecting people deserve stronger checks than low-risk summarization. The approval screen should show what the agent proposes to do and why, not simply ask the user to click “OK” on a long, unclear result.
+          Third, keep a human approval step for actions with meaningful consequences. Payments, changes to account access, messages sent to customers, deletion of important data, and decisions affecting people deserve stronger checks than low-risk summarization. The approval screen should show what the agent proposes to do and why, not simply ask the user to click “OK” on a long, unclear result.
 
-Fourth, treat retrieved documents, emails, webpages, and tool outputs as untrusted input. A source can contain useful facts and also contain misleading instructions. The agent should follow a clear authority hierarchy, use only the tools needed for the job, and ask for help when an action falls outside its assigned scope. If the system cannot show where an important claim came from, treat that claim as a draft that needs verification.
+          Fourth, treat retrieved documents, emails, webpages, and tool outputs as untrusted input. A source can contain useful facts and also contain misleading instructions. The agent should follow a clear authority hierarchy, use only the tools needed for the job, and ask for help when an action falls outside its assigned scope. If the system cannot show where an important claim came from, treat that claim as a draft that needs verification.
 
-Fifth, make actions observable and reversible. Keep logs of important operations, record the source of decisions, set limits on how many actions can run in a sequence, and create a way to stop the workflow. Test unusual cases: an ambiguous request, a missing field, contradictory data, a suspicious instruction inside a document, or a tool that returns an error. Decide in advance which failures should stop the run rather than trigger another attempt.
+          Fifth, make actions observable and reversible. Keep logs of important operations, record the source of decisions, set limits on how many actions can run in a sequence, and create a way to stop the workflow. Test unusual cases: an ambiguous request, a missing field, contradictory data, a suspicious instruction inside a document, or a tool that returns an error. Decide in advance which failures should stop the run rather than trigger another attempt.
 
-These safeguards involve trade-offs. Extra checks can make a workflow slower, and people may become tired of approving routine actions. The answer is to classify actions by risk. Low-impact, reversible tasks can often run with automatic monitoring. High-impact or hard-to-reverse tasks should require stronger confirmation. Review that classification whenever you add a new tool, grant a new permission, or change what data the agent can reach.
+          These safeguards involve trade-offs. Extra checks can make a workflow slower, and people may become tired of approving routine actions. The answer is to classify actions by risk. Low-impact, reversible tasks can often run with automatic monitoring. High-impact or hard-to-reverse tasks should require stronger confirmation. Review that classification whenever you add a new tool, grant a new permission, or change what data the agent can reach.
 
-There is also a human factor: people can over-trust a polished answer. An AI system may sound certain without having enough evidence. That is why training matters. Teach staff to verify important claims, recognize suspicious requests, and report unexpected actions. Do not treat a successful demonstration as proof that the system will behave safely in every real situation.
+          There is also a human factor: people can over-trust a polished answer. An AI system may sound certain without having enough evidence. That is why training matters. Teach staff to verify important claims, recognize suspicious requests, and report unexpected actions. Do not treat a successful demonstration as proof that the system will behave safely in every real situation.
 
-My view is that the most useful AI agent is not the one given the most freedom. It is the one that reliably completes a well-defined job while making its limits visible. More autonomy can create value, but only when the organization knows what the agent may do, measures how it performs, and remains accountable for the outcome.
+          My view is that the most useful AI agent is not the one given the most freedom. It is the one that reliably completes a well-defined job while making its limits visible. More autonomy can create value, but only when the organization knows what the agent may do, measures how it performs, and remains accountable for the outcome.
 
-So before connecting your next AI agent to a business tool, ask three questions: What is the minimum access it needs? Which actions must a person approve? And how will you detect and reverse a mistake? Start small, measure actual results, and expand only after the evidence supports it. Automate repeatable work—but never outsource responsibility.
+          So before connecting your next AI agent to a business tool, ask three questions: What is the minimum access it needs? Which actions must a person approve? And how will you detect and reverse a mistake? Start small, measure actual results, and expand only after the evidence supports it. Automate repeatable work—but never outsource responsibility.
 SCRIPT
           cat > description.txt <<'DESCRIPTION'
-Autonomous AI agents can create risk when they have excessive permissions, trust untrusted instructions, or take consequential actions without review. This AI Tech Lab explainer offers a practical safety checklist for individuals and businesses, grounded in NIST risk-management guidance and OWASP GenAI security work.
+          Autonomous AI agents can create risk when they have excessive permissions, trust untrusted instructions, or take consequential actions without review. This AI Tech Lab explainer offers a practical safety checklist for individuals and businesses, grounded in NIST risk-management guidance and OWASP GenAI security work.
 
-KEY TAKEAWAYS
-- Give agents only the permissions their tasks require.
-- Define success and measure errors as well as time saved.
-- Require human approval for high-impact or hard-to-reverse actions.
-- Treat email, documents, web pages and tool outputs as untrusted input.
-- Log actions, test failure cases and keep a stop/recovery path.
+          KEY TAKEAWAYS
+          - Give agents only the permissions their tasks require.
+          - Define success and measure errors as well as time saved.
+          - Require human approval for high-impact or hard-to-reverse actions.
+          - Treat email, documents, web pages and tool outputs as untrusted input.
+          - Log actions, test failure cases and keep a stop/recovery path.
 
-SOURCES & FURTHER READING
-- NIST AI Risk Management Framework: https://www.nist.gov/itl/ai-risk-management-framework
-- NIST Generative AI Profile: https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence
-- OWASP Top 10 for LLM and GenAI Applications: https://genai.owasp.org/initiative/owasp-top-10-for-llm-and-genai/
-- OWASP Excessive Agency: https://genai.owasp.org/llmrisk/llm062025-excessive-agency/
-- CISA and UK NCSC secure AI development guidance: https://www.cisa.gov/news-events/alerts/2023/11/26/cisa-and-uk-ncsc-unveil-joint-guidelines-secure-ai-system-development
+          SOURCES & FURTHER READING
+          - NIST AI Risk Management Framework: https://www.nist.gov/itl/ai-risk-management-framework
+          - NIST Generative AI Profile: https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence
+          - OWASP Top 10 for LLM and GenAI Applications: https://genai.owasp.org/initiative/owasp-top-10-for-llm-and-genai/
+          - OWASP Excessive Agency: https://genai.owasp.org/llmrisk/llm062025-excessive-agency/
+          - CISA and UK NCSC secure AI development guidance: https://www.cisa.gov/news-events/alerts/2023/11/26/cisa-and-uk-ncsc-unveil-joint-guidelines-secure-ai-system-development
 
-CHAPTERS
-00:00 When AI stops just answering
-00:37 Why permissions matter
-01:18 What NIST and OWASP guidance adds
-02:05 The invoice-agent example
-02:40 Five practical safeguards
-04:48 The trade-offs and human factor
-05:25 The three questions to ask
+          CHAPTERS
+          00:00 When AI stops just answering
+          00:37 Why permissions matter
+          01:18 What NIST and OWASP guidance adds
+          02:05 The invoice-agent example
+          02:40 Five practical safeguards
+          04:48 The trade-offs and human factor
+          05:25 The three questions to ask
 
-Subscribe to AI Tech Lab for practical, evidence-based coverage of AI tools, agents and future technology.
+          Subscribe to AI Tech Lab for practical, evidence-based coverage of AI tools, agents and future technology.
 DESCRIPTION
           WORDS=$(python3 -c 'import re,sys; print(len(re.findall(r"\\b[\\w-]+\\b", sys.stdin.read())))' < script.txt)
           if [ "$WORDS" -lt 850 ] || [ "$WORDS" -gt 1000 ]; then
