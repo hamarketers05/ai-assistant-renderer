@@ -120,7 +120,37 @@ def fetch_logs(job_id):
         }
     except Exception:
         pass
-    _, raw = api("GET", f"/repos/{REPO}/actions/jobs/{job_id}/logs", raw=True, timeout=55)
+    # GitHub returns a short-lived redirect for job logs. Do not let urllib forward
+    # the GitHub bearer token to the Azure blob host; follow the signed Location URL
+    # separately without Authorization to avoid the observed Azure 401.
+    log_url = API + f"/repos/{REPO}/actions/jobs/{job_id}/logs"
+    headers = {"Authorization": "Bearer " + TOKEN, "Accept": "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "AI-Tech-Lab-Self-Healing-Agent/1.0"}
+    request = urllib.request.Request(log_url, headers=headers, method="GET")
+    no_redirect = urllib.request.build_opener(
+        type("NoRedirect", (urllib.request.HTTPRedirectHandler,), {
+            "redirect_request": lambda self, req, fp, code, msg, headers, newurl: None
+        })()
+    )
+    try:
+        with no_redirect.open(request, timeout=55) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (301, 302, 303, 307, 308):
+            raise RuntimeError(f"GitHub log endpoint HTTP {exc.code}.") from None
+        location = exc.headers.get("Location")
+        if not location or not location.startswith("https://"):
+            raise RuntimeError("GitHub job-log redirect did not provide a valid HTTPS URL.") from None
+        # The Location URL is short-lived and signed; never print it or add GitHub auth.
+        blob_request = urllib.request.Request(
+            location, headers={"User-Agent": "AI-Tech-Lab-Self-Healing-Agent/1.0"}, method="GET"
+        )
+        try:
+            with urllib.request.urlopen(blob_request, timeout=55) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as blob_exc:
+            raise RuntimeError(f"Signed job-log download HTTP {blob_exc.code}; GitHub authorization was not forwarded.") from None
     if raw.startswith(b"PK"):
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as z:
