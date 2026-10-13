@@ -1,0 +1,20 @@
+{"label":"GROQ_RATE_LIMITED","text":"upstream chat endpoint sent rate limit 429 and Retry-After 15 seconds"}
+{"label":"GROQ_RATE_LIMITED","text":"Groq API request 429 too many requests during the token quota window"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"Workers AI free daily neuron allocation exhausted with error 4006"}
+{"label":"WORKERS_AI_QUOTA_EXHAUSTED","text":"not enough free neurons left in Cloudflare Workers AI today"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"D1 query stopped; daily free row reads are over budget"}
+{"label":"D1_QUOTA_EXHAUSTED","text":"Cloudflare DB read allowance maxed out for the day"}
+{"label":"SCRIPT_LENGTH_GATE","text":"LONG_VIDEO generated 1048 words; 850 to 1000 required"}
+{"label":"SCRIPT_LENGTH_GATE","text":"underlength story failed minimum spoken-word gate"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"independent natural_script_audit lacks approval and factual support"}
+{"label":"SCRIPT_AUDIT_BLOCK","text":"script QA explicitly rejected an unsupported claim"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"trend gate found only 2 unique category-specific YouTube results"}
+{"label":"TREND_EVIDENCE_INSUFFICIENT","text":"cannot verify a live trend with fewer than three related video IDs"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"HTTP 432 from Tavily because daily usage exhausted"}
+{"label":"TAVILY_QUOTA_EXHAUSTED","text":"Tavily search free quota reached: suspend for 24h"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"runner timed out while connecting; temporary 504 upstream"}
+{"label":"TRANSIENT_NETWORK_FAILURE","text":"network socket closed unexpectedly; service unavailable 503"}
+{"label":"AUDIO_QA_FAILURE","text":"Kokoro produced a zero-byte wav file; narration integrity not passed"}
+{"label":"AUDIO_QA_FAILURE","text":"voice QA rejected silent audio and missing duration metadata"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"401 due to absent GROQ_API_KEY secret"}
+{"label":"CREDENTIAL_CONFIG_MISSING","text":"protected service call unauthorized because token secret is unset"}
