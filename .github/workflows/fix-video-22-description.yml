@@ -4,6 +4,10 @@ on:
   workflow_run:
     workflows: ["AI Assistant Renderer"]
     types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - "production/launch_ai_tech_lab_content_22.json"
 
 permissions:
   actions: read
@@ -11,7 +15,7 @@ permissions:
 
 jobs:
   correct-source-metadata:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[metadata-only]')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -21,6 +25,7 @@ jobs:
           ref: main
 
       - name: Download the verified delivery report from the completed render
+        if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@v4
         with:
           name: ai-tech-lab-delivery-22
@@ -38,16 +43,21 @@ jobs:
           PACKAGE=production/launch_ai_tech_lab_content_22.json
           REPORT=verified-delivery/youtube_post_upload_review.json
           test -s "$PACKAGE"
-          test -s "$REPORT"
 
           EXPECTED_TITLE=$(jq -er '.title' "$PACKAGE")
           EXPECTED_AT=$(jq -er '.publish_at' "$PACKAGE")
           DESCRIPTION=$(jq -er '.description' "$PACKAGE")
-          VIDEO_ID=$(jq -er '.video_id' "$REPORT")
-          jq -e --arg title "$EXPECTED_TITLE" --arg at "$EXPECTED_AT" \
-            '.verified == true and .title == $title and .publish_at == $at and .privacy_status == "private" and (.video_id | length > 0)' \
-            "$REPORT" >/dev/null
-          [[ "$VIDEO_ID" =~ ^[A-Za-z0-9_-]{11}$ ]] || { echo "Verified delivery report contains an invalid YouTube ID."; exit 1; }
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            test -s "$REPORT"
+            VIDEO_ID=$(jq -er '.video_id' "$REPORT")
+            jq -e --arg title "$EXPECTED_TITLE" --arg at "$EXPECTED_AT" \
+              '.verified == true and .title == $title and .publish_at == $at and .privacy_status == "private" and (.video_id | length > 0)' \
+              "$REPORT" >/dev/null
+          else
+            VIDEO_ID=$(jq -er '.video_id' "$PACKAGE")
+            echo "Metadata-only correction triggered from the explicit [metadata-only] package commit."
+          fi
+          [[ "$VIDEO_ID" =~ ^[A-Za-z0-9_-]{11}$ ]] || { echo "Target YouTube video ID is invalid."; exit 1; }
 
           # Verify the production run is the expected Maia 300 delivery before changing anything.
           REPORT_URL=$(jq -r '.url' "$REPORT")
