@@ -384,13 +384,13 @@ jobs:
           Path("work/opencv_visual_qa.json").write_text(json.dumps({"status":"passed","sample_frames":10}),encoding="utf-8")
           fixture_scene_assets = [
               {"scene":str(i),"primary_asset":f"assets/fixture_stock_{i}.mp4","asset_type":"licensed_stock_broll",
-               "hud_overlay_applied":i<3,"chart_overlay_applied":False,"flux_image_used":False}
+               "hud_overlay_applied":i<4,"chart_overlay_applied":False,"flux_image_used":False}
               if i < 4 else
               {"scene":str(i),"primary_asset":f"assets/generated_scene_{i}.png","asset_type":"python_pillow_scene",
                "hud_overlay_applied":False,"chart_overlay_applied":False,"flux_image_used":False}
               for i in range(n)
           ]
-          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":3,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4,"scenes":fixture_scene_assets}),encoding="utf-8")
+          Path("work/rendered_scene_assets_report.json").write_text(json.dumps({"status":"passed","rendered_scene_count":n,"evidence_charts_used":0,"transparent_hud_overlay_applied_count":4,"licensed_stock_broll_scene_count":4,"cloudflare_flux_image_scene_count":0,"python_pillow_scene_count":n-4,"scenes":fixture_scene_assets}),encoding="utf-8")
           Path("work/flux_generation_report.json").write_text(json.dumps({"status":"skipped","generated_count":0,"requested_count":0,"reason":"CI fixture uses local fallback and makes no inference request","model":"@cf/black-forest-labs/flux-1-schnell","license":"Apache-2.0","license_url":"https://github.com/black-forest-labs/flux/blob/main/model_licenses/LICENSE-FLUX1-schnell"}),encoding="utf-8")
           Path("work/visual_coverage_report.json").write_text(json.dumps({
               "status":"passed","content_id":"9876","content_format_target":"native 1080x1920 AI Tech Lab Short",
