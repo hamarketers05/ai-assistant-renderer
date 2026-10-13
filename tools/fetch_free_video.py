@@ -15,10 +15,10 @@ MIN_WIDTH, MIN_HEIGHT = 1920, 1080
 MAX_API_REQUESTS = 120
 MIN_API_INTERVAL_SECONDS = 1.25
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
-ANCHORS = set("ai artificial intelligence automation automated agent agents robot robots robotics cybersecurity cyber security privacy surveillance security fraud software code coding programming algorithm algorithms neural model models developer developers workplace factory industry industries worker workers finance fairness ethics ethical governance bias biased oversight accountability transparency safety risk risks autonomy autonomous misinformation disinformation deepfake deepfakes manipulation regulation compliance control chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
+ANCHORS = set("ai artificial intelligence automation automated agent agents robot robotic robots robotics cybersecurity cyber security privacy surveillance security fraud software code coding programming algorithm algorithms neural model models developer developers workplace factory industry industries worker workers finance fairness fair ethics ethical governance bias biased oversight accountability transparency transparent explainable explainability safety risk risks autonomy autonomous misinformation disinformation deepfake deepfakes manipulation regulation compliance control chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter data center megawatt megawatts power electricity cooling compute computing memory networking network bandwidth circuit circuits hardware motherboard transistor transistors".split())
 # One-word matches are accepted only when they name a distinctive hardware concept.
 # Generic anchors such as "data", "power", "center", or "network" are insufficient alone.
-SPECIFIC_SINGLE_ANCHORS = set("automation agent agents robot robots robotics cybersecurity security privacy surveillance fraud software code programming algorithm deepfake chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter megawatt megawatts networking bandwidth circuit circuits hardware motherboard transistor transistors".split())
+SPECIFIC_SINGLE_ANCHORS = set("automation agent agents robot robotic robots robotics cybersecurity security privacy surveillance fairness ethics ethical governance transparency transparent explainable explainability fraud software code programming algorithm deepfake chip chips chiplet chiplets semiconductor semiconductors processor processors gpu gpus nvidia silicon microchip microchips wafer wafers accelerator accelerators maia inference server servers rack racks datacenter megawatt megawatts networking bandwidth circuit circuits hardware motherboard transistor transistors".split())
 MIN_VIDEO_RELEVANCE = 0.30
 API_REQUESTS = 0
 LAST_API_REQUEST = 0.0
@@ -92,9 +92,12 @@ def anchor_terms(text):
         "artificial": {"ai", "intelligence"}, "intelligence": {"ai", "artificial"},
         "agent": {"automation", "robot"}, "agents": {"automation", "robot", "robots"},
         "robot": {"automation", "agent"}, "robots": {"automation", "agents"},
-        "robotics": {"robot", "automation"}, "automated": {"automation", "robot"},
+        "robotics": {"robot", "automation"}, "robotic": {"robot", "robotics", "automation"},
+        "automated": {"automation", "robot"},
         "cybersecurity": {"cyber", "security"}, "cyber": {"security", "cybersecurity"},
         "surveillance": {"privacy", "security"}, "privacy": {"surveillance", "security"},
+        "transparent": {"transparency", "explainable"}, "explainable": {"transparency", "explainability"},
+        "explainability": {"explainable", "transparency"}, "fair": {"fairness", "ethics"},
         "ethics": {"ethical", "governance", "fairness"}, "ethical": {"ethics", "governance"},
         "accountability": {"oversight", "governance"}, "oversight": {"accountability", "governance"},
         "misinformation": {"disinformation", "deepfake"}, "disinformation": {"misinformation", "deepfake"},
@@ -147,6 +150,26 @@ def topic_queries(text):
         queries.append("computer hardware")
     # Remove duplicates and keep each scene to four focused, reusable API searches.
     return list(dict.fromkeys(q for q in queries if q))[:4]
+
+
+def curated_titles_for_scene(scene_text):
+    """Prioritize a small set of known Commons pages; every file still undergoes all live metadata gates."""
+    anchors = anchor_terms(scene_text)
+    titles = []
+    if anchors & {"privacy", "surveillance"}:
+        titles.append("File:Surveillance cameras in public places are an invasion of privacy- WMNF News.webm")
+    if anchors & {"cybersecurity", "cyber", "security", "fraud"}:
+        titles.append("File:AFN Okinawa Radio around the Region Cyber Security (950168).webm")
+    if anchors & {"ai", "artificial", "intelligence", "automation", "automated", "agent", "agents",
+                  "robot", "robotic", "robots", "robotics", "algorithm", "algorithms", "neural", "model", "models"}:
+        titles.extend([
+            "File:Generative AI explained in 2 minutes.webm",
+            "File:Lindirobot.webm",
+        ])
+    if anchors & {"ethics", "ethical", "governance", "fairness", "transparent", "transparency",
+                  "explainable", "explainability", "oversight", "accountability", "safety"}:
+        titles.append("File:Ética de la IA en la medicina digital - Explicación de por qué es importante una IA transparente y explicable (Spanish redub).webm")
+    return list(dict.fromkeys(titles))
 
 def relevance_score(scene_text, title, description):
     """Score on both shared hardware concepts and narrower scene-word overlap."""
@@ -223,6 +246,7 @@ def self_test():
     relevant_power = relevance_score("AI data center power and cooling", "Data center power cooling systems", "Server racks and cooling infrastructure")
     relevant_ai = relevance_score("AI automation and autonomous agents", "Industrial robot automation demonstration", "Robots performing automated tasks")
     ai_queries = topic_queries("AI automation agents oversight")
+    curated_queries = curated_titles_for_scene("AI automation agents, privacy and surveillance, cybersecurity, transparent and explainable systems")
     if irrelevant[0] != 0.0 or irrelevant[2]:
         raise SystemExit("Generic-media rejection self-test failed: generic 'data' overlap was accepted.")
     if relevant_chip[0] < MIN_VIDEO_RELEVANCE or not (set(relevant_chip[2]) & SPECIFIC_SINGLE_ANCHORS):
@@ -233,6 +257,14 @@ def self_test():
         raise SystemExit("Relevant AI automation/agent-footage self-test failed.")
     if not any("automation" in q.lower() or "artificial intelligence" in q.lower() for q in ai_queries):
         raise SystemExit("AI/automation scene did not produce a focused free-media query.")
+    required_curated = {
+        "File:Surveillance cameras in public places are an invasion of privacy- WMNF News.webm",
+        "File:AFN Okinawa Radio around the Region Cyber Security (950168).webm",
+        "File:Generative AI explained in 2 minutes.webm",
+        "File:Lindirobot.webm",
+    }
+    if not required_curated.issubset(set(curated_queries)):
+        raise SystemExit("Curated free-media candidate self-test failed.")
     if len(ai_queries) < 4 or not any("robotic arm" in q.lower() for q in ai_queries):
         raise SystemExit("AI/agent footage search must inspect expanded Full-HD robotics candidates.")
     print(json.dumps({
@@ -284,11 +316,14 @@ def main():
 
         selected = None
         seen_titles = set()
-        for query in query_candidates:
+        curated_titles = set(curated_titles_for_scene(scene_text))
+        for query_index, query in enumerate(query_candidates):
             if stop_all or RATE_LIMITED or REQUEST_BUDGET_REACHED:
                 break
             try:
                 results = search_files(query)
+                if query_index == 0 and curated_titles:
+                    results = [{"title": title} for title in sorted(curated_titles)] + results
             except Exception as exc:
                 print(f"Commons search failed for scene {scene}, query={query!r}: {str(exc)[:140]}")
                 if RATE_LIMITED or REQUEST_BUDGET_REACHED:
@@ -305,6 +340,10 @@ def main():
                     continue
                 seen_titles.add(title)
                 score, _, _ = relevance_score(scene_text, title, "")
+                # Candidate priority only decides inspection order; it does not override
+                # the live title+description relevance or license/resolution/size checks below.
+                if title in curated_titles:
+                    score = max(score, 1.0)
                 candidates.append((score, title))
             candidates.sort(key=lambda item: item[0], reverse=True)
 
