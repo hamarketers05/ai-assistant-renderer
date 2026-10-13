@@ -1473,6 +1473,7 @@ jobs:
           retention-days: 7
 
       - name: Persist final QA feedback for the next video
+        id: learning_feedback
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
@@ -1926,6 +1927,7 @@ jobs:
         env:
           ALREADY_UPLOADED: ${{ steps.youtube_state.outputs.already_uploaded }}
           EXISTING_VIDEO_ID: ${{ steps.youtube_state.outputs.video_id }}
+          LEARNING_PERSISTENCE_STEP_OUTCOME: ${{ steps.learning_feedback.outcome }}
         run: |
           set -euo pipefail
           python3 tools/mini_agent_delivery_report.py
