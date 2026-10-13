@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       seed_topic:
-        description: "Optional direction; Groq still chooses against current US trends"
+        description: "Optional search direction; the topic must still pass the YouTube category-trend gate"
         required: false
         type: string
       target_date:
-        description: "Optional US Eastern publish date for reproducible category selection (YYYY-MM-DD)"
+        description: "US Eastern production date (YYYY-MM-DD); defaults to tomorrow"
         required: false
         type: string
 
@@ -23,92 +23,97 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  research-and-script:
-    name: US YouTube trends to sourced script
+  cloudflare-research-and-script:
+    name: Cloudflare YouTube trend gate to Groq natural script
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 12
     env:
-      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
       WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
-      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      GITHUB_TOKEN: ${{ github.token }}
-      GITHUB_REPOSITORY: ${{ github.repository }}
       SEED_TOPIC: ${{ inputs.seed_topic }}
       TARGET_DATE: ${{ inputs.target_date }}
-      GROQ_TEXT_MODEL: openai/gpt-oss-20b
     steps:
-      - name: Checkout repository
+      - name: Checkout for the existing production handoff contract
         uses: actions/checkout@v4
 
-      - name: Prepare free runtime dependencies
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Verify free-provider configuration
+      - name: Request category-verified trend research and natural script from Cloudflare
+        shell: bash
         run: |
           set -euo pipefail
-          test -n "$WORKER_AUTH_TOKEN" || { echo "Missing existing WORKER_AUTH_TOKEN repository secret."; exit 1; }
-          test -n "$GITHUB_TOKEN"
-          if [ -n "$TAVILY_API_KEY" ]; then
-            echo "Direct Tavily key is configured."
-          else
-            echo "GitHub Tavily secret is absent; free public RSS/Atom, Google News RSS, and arXiv fallbacks will be used without paid search."
+          test -n "$WORKER_AUTH_TOKEN" || { echo "Missing WORKER_AUTH_TOKEN repository secret."; exit 1; }
+          mkdir -p work
+          if [ -z "$TARGET_DATE" ]; then
+            TARGET_DATE=$(TZ=America/New_York date -d tomorrow +%F)
           fi
-          if [ -z "$GROQ_API_KEY" ]; then echo "Groq key absent; authenticated Cloudflare Workers AI fallback is enabled."; fi
-          python -m pip install --disable-pip-version-check numpy pillow
-          python tools/mini_agents.py --self-test
-
-      - name: Get existing YouTube OAuth token for Data API v3 trend reads
-        env:
-          WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
-        run: |
-          set -euo pipefail
-          CODE=$(curl -sS --max-time 45 -o work_token.json -w "%{http_code}" \
-            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
-            -H "Content-Type: application/json" "$WORKER_URL/youtube/access-token")
+          date -d "$TARGET_DATE" +%F >/dev/null
+          BODY=$(jq -cn --arg d "$TARGET_DATE" --arg q "$SEED_TOPIC" '{target_date:$d} + (if $q != "" then {category_query:$q} else {} end)')
+          CODE=$(curl -sS --max-time 300 -o work/cloudflare_trend_script.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$BODY" \
+            "$WORKER_URL/editorial/trend-script")
           if [ "$CODE" != "200" ]; then
-            jq '{ok,error,provider_error}' work_token.json || true
-            echo "Existing Worker could not supply a YouTube OAuth token for trend research."
+            echo "Cloudflare trend-to-script route returned HTTP $CODE; fail closed."
+            jq '{ok,stage,error,detail,editorial_category,trend_verification,audit}' work/cloudflare_trend_script.json || true
             exit 1
           fi
-          TOKEN=$(jq -r '.access_token // empty' work_token.json)
-          test -n "$TOKEN"
-          echo "::add-mask::$TOKEN"
-          echo "YOUTUBE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-          rm -f work_token.json
-
-      - name: Select one US topic from YouTube Data API v3 trend signals, research with Tavily, write and audit script with Groq primary / Workers AI fallback
-        run: |
-          set -euo pipefail
-          mkdir -p work output
-          ARGS=()
-          if [ -n "$SEED_TOPIC" ]; then ARGS+=(--seed-topic "$SEED_TOPIC"); fi
-          if [ -n "$TARGET_DATE" ]; then ARGS+=(--target-date "$TARGET_DATE"); fi
-          python tools/daily_content_research.py "${ARGS[@]}"
-          test -s work/daily_content_package.json
-          test -s work/script.txt
-          test -s work/title.txt
-          test -s work/research_summary.json
+          jq -e '
+            .ok == true and
+            .stage == "cloudflare_trend_script_ready" and
+            (.trend_verification.distinct_video_count >= 3) and
+            (.script_word_count >= 850 and .script_word_count <= 1000) and
+            (.hook_audit.score >= 7 and .hook_audit.human_voice_score >= 7) and
+            (.qa.trend_category_gate == "PASS" and .qa.human_voice_audit == "PASS") and
+            (.category_rotation.date_us_eastern == .target_date or .category_rotation.date_us_eastern == null or .category_rotation.date_us_eastern == .category_decision.date_us_eastern)
+          ' work/cloudflare_trend_script.json >/dev/null
+          jq --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
+            generated_at_utc:$generated,
+            target_audience:.target_audience,
+            brand:.brand,
+            primary_ai:"Groq",
+            research_provider:.research_provider,
+            trend_provider:"YouTube Data API v3",
+            editorial_category:.editorial_category,
+            category_rotation:.category_rotation,
+            category_decision:.category_decision,
+            title:.title,
+            hook:((.script | split(" ") | .[0:24] | join(" ")) + "..."),
+            hook_audit:.hook_audit,
+            human_voice_qa:{score:.hook_audit.human_voice_score,decision:"PASS"},
+            script_word_count:.script_word_count,
+            script:.script,
+            description:.description,
+            tags:.tags,
+            trend_basis:.trend_basis,
+            trend_verification:.trend_verification,
+            sources:.sources,
+            claims_review:[],
+            visual_direction:[],
+            chapters:[],
+            warnings:["Tavily is disabled for this pipeline. Free public RSS/Atom and arXiv are research context; retain caution around unsupported current-event claims."],
+            previous_video_learning_applied:{}
+          }' work/cloudflare_trend_script.json > work/daily_content_package.json
+          jq '{
+            provider:.research_provider,
+            topic:.trend_topic,
+            category:.editorial_category,
+            trend_verification:.trend_verification,
+            sources:.sources,
+            research_record_id:.research_record_id
+          }' work/cloudflare_trend_script.json > work/research_evidence.json
+          jq -r '.script' work/daily_content_package.json > work/script.txt
+          jq -r '.title' work/daily_content_package.json > work/title.txt
+          jq -r '.description' work/daily_content_package.json > work/description.txt
+          jq -r '(.tags // []) | join(",")' work/daily_content_package.json > work/tags.txt
+          jq '{score:.hook_audit.score,human_voice_score:.hook_audit.human_voice_score,decision:"PASS",notes:.hook_audit.notes}' work/daily_content_package.json > work/hook_audit.json
+          jq '{status:"CLOUDFLARE_TREND_SCRIPT_READY",title,script_words:.script_word_count,category:.editorial_category,category_date:.category_rotation.date_us_eastern,distinct_trending_videos:.trend_verification.distinct_video_count,source_context_count:(.sources|length),hook_score:.hook_audit.score,human_voice_score:.hook_audit.human_voice_score,provider:.provider,research_provider:.research_provider}' work/cloudflare_trend_script.json > work/research_summary.json
+          jq '{editorial_category,category_rotation,category_decision,trend_basis,trend_verification}' work/daily_content_package.json > work/topic_brief.json
+          jq '{category:.editorial_category,trend_verification:.trend_verification,videos:.trend_verification.videos}' work/daily_content_package.json > work/youtube_trend_signals.json
+          jq '{stage:"research_and_script",status:"completed",provider:.provider,research_provider:.research_provider,trend_verification:.trend_verification,hook_audit:.hook_audit}' work/cloudflare_trend_script.json > work/mini_agent_execution_report.json
           cat work/research_summary.json
 
-      - name: Generate an AI thumbnail brief with Groq primary / Workers AI fallback and render the preview
-        run: |
-          set -euo pipefail
-          python tools/groq_thumbnail_brief.py
-          jq -e '(.provider == "Groq text inference" or .provider == "Cloudflare Workers AI fallback") and (.hook | length > 0) and (.visual_focus | length > 0)' work/thumbnail_brief.json >/dev/null
-          python tools/make_premium_thumbnail.py --title-file work/title.txt --brief-file work/thumbnail_brief.json --output output/thumbnail_preview.jpg
-          python - <<'PY'
-          from PIL import Image
-          with Image.open("output/thumbnail_preview.jpg") as im:
-              if im.size != (1280, 720): raise SystemExit(f"Bad thumbnail dimensions: {im.size}")
-              im.verify()
-          print("Validated provider-specific AI creative brief and locally rendered thumbnail passed validation.")
-          PY
-
-      - name: Publish research package artifact for Kokoro voice production
+      - name: Publish category-verified script package for automatic voice production
         uses: actions/upload-artifact@v4
         with:
           name: ai-tech-lab-research-${{ github.run_id }}
@@ -116,16 +121,14 @@ jobs:
             work/daily_content_package.json
             work/research_summary.json
             work/youtube_trend_signals.json
-            work/tavily_evidence.json
+            work/research_evidence.json
             work/topic_brief.json
             work/hook_audit.json
+            work/mini_agent_execution_report.json
             work/script.txt
             work/title.txt
             work/description.txt
             work/tags.txt
-            work/thumbnail_brief.json
-            work/tool_improvement_research.json
-            work/mini_agent_execution_report.json
-            output/thumbnail_preview.jpg
+            work/cloudflare_trend_script.json
           if-no-files-found: error
           retention-days: 7
