@@ -86,7 +86,7 @@ def main():
     if not SOURCE_RUN_ID.isdigit() or not GITHUB_TOKEN:
         raise SystemExit("Source workflow run ID and GitHub Actions token are required.")
     package_path = find_file("daily_content_package.json")
-    evidence_path = find_file("tavily_evidence.json")
+    evidence_path = find_file("research_evidence.json")
     short_path = find_file("short_content_package.json")
     package, evidence, short = read_json(package_path), read_json(evidence_path), read_json(short_path)
     if package.get("brand") != "AI Tech Lab" or package.get("target_audience") != "United States":
@@ -94,8 +94,11 @@ def main():
     long_words = int(package.get("script_word_count", 0) or 0)
     hook_score = int((package.get("hook_audit") or {}).get("score", 0) or 0)
     sources = evidence.get("sources", [])
-    if not 850 <= long_words <= 1000 or len(str(package.get("script", ""))) < 4500 or hook_score < 7 or len(sources) < 4:
-        raise SystemExit("Long-form quality/source gate failed: require 850-1000 words, at least 4500 script characters, hook score >=7, and 4+ sources; no content records or renderer runs were created.")
+    trend_basis = package.get("trend_basis") or {}
+    trend_count = int(trend_basis.get("distinct_youtube_videos", 0) or 0)
+    category = str(package.get("editorial_category", "")).strip()
+    if not 850 <= long_words <= 1000 or len(str(package.get("script", ""))) < 4500 or hook_score < 7 or trend_count < 3 or not category:
+        raise SystemExit("Long-form quality/trend gate failed: require 850-1000 words, 4500+ script characters, hook score >=7, a category, and 3+ distinct category-related YouTube videos. Source links are retained as internal context but are not a separate release-count gate.")
     if short.get("content_format") != "SHORT" or not 100 <= int(short.get("script_word_count", 0) or 0) <= 135 or short.get("qa") != "passed":
         raise SystemExit("Short-form QA failed; no content records or renderer runs were created.")
     next_slot_date = datetime.now(NY).date() + timedelta(days=1)
