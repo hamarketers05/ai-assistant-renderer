@@ -221,6 +221,14 @@ def self_test() -> None:
     report = evaluate(scenes, sources, 25, {"width": 1920, "height": 1080, "duration_seconds": 360})
     if report["status"] != "passed":
         raise SystemExit(f"Visual budget self-test failed: {report}")
+    boundary = evaluate(scenes[:80], sources, 25,
+                        {"width": 1920, "height": 1080, "duration_seconds": 360})
+    if boundary["status"] != "passed":
+        raise SystemExit(f"Visual budget 80-scene boundary test failed: {boundary}")
+    below_target = evaluate(scenes[:79], sources, 25,
+                            {"width": 1920, "height": 1080, "duration_seconds": 360})
+    if below_target["checks"].get("rendered_scene_count_between_80_and_90") is not False:
+        raise SystemExit("Visual budget failed to block a 79-scene long video.")
     unused_scenes = [dict(row, asset_type="python_pillow_scene", primary_asset=f"assets/generated_scene_{i}.png")
                      for i, row in enumerate(scenes)]
     unused = evaluate(unused_scenes, sources, 25, {"width": 1920, "height": 1080, "duration_seconds": 360})
