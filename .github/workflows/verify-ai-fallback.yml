@@ -88,3 +88,5 @@ jobs:
 # Fallback verification refresh 2026-10-13: rerun text and vision checks after Worker diagnostics update.
 
 # Recheck after Worker AI response normalizer update (2026-10-13).
+
+# Recheck after final Workers AI model/vision input fix (2026-10-13).
