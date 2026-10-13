@@ -5,7 +5,7 @@ import argparse, json, os, re, time, urllib.error, urllib.parse, urllib.request
 from ai_text_client import chat_completion
 from datetime import datetime, timezone
 from pathlib import Path
-from mini_agents import (NATURAL_VOICE_GUIDANCE, agent_execution_report,
+from mini_agents import (EDITORIAL_CATEGORIES, NATURAL_VOICE_GUIDANCE, agent_execution_report,
                          category_rotation, evaluate_human_voice, parse_editorial_date,
                          resolve_category, weekly_tool_scout_plan)
 
@@ -243,8 +243,11 @@ def main():
                     "previous_video_feedback": learning}, ensure_ascii=False),
         max_tokens=1000)
     candidate_category = str(topic.get("category", rotation["category"])).strip()
+    category_names = {x["name"] for x in EDITORIAL_CATEGORIES}
+    if candidate_category not in category_names:
+        raise SystemExit("Topic strategist did not choose one of the seven exact category names; no package was released.")
     category_decision = resolve_category(candidate_category, rotation, trend_sample)
-    if candidate_category in {x["name"] for x in __import__("mini_agents").EDITORIAL_CATEGORIES} and candidate_category != category_decision["category"]:
+    if candidate_category != category_decision["category"]:
         raise SystemExit("Topic strategist requested an off-rotation category without three-video live-trend evidence; no package was released.")
     topic["category"] = category_decision["category"]
     topic["category_decision"] = category_decision
