@@ -717,6 +717,15 @@ def is_retired_diagnostic_workflow(run):
     }
 
 
+def is_expected_research_quality_gate_block(run, log):
+    """Treat an intentional evidence gate as safe blocking, not an infrastructure outage."""
+    return (
+        str(run.get("name") or "") == "Verify Cloudflare Free-Source Research"
+        and "SAFE BLOCK: sources were retrieved, but no cross-checked claim passed" in str(log or "")
+        and "verified_claims" in str(log or "")
+    )
+
+
 def analyze(runs):
     count = 0
     retried_daily = False
@@ -758,6 +767,14 @@ def analyze(runs):
                 else:
                     REPORT["unresolved"].append(f"Could not retrieve failure log for run {run['id']} job {job.get('name')}: {type(exc).__name__}: {str(exc)[:260]}")
         joined = "\n".join(log for _, log in log_items)
+        if is_expected_research_quality_gate_block(run, joined):
+            REPORT["actions"].append({
+                "action": "research_evidence_gate_blocked_safely",
+                "run_id": run.get("id"),
+                "reason": "The research worker retrieved sources but no candidate was corroborated by two independent publishers. The verifier correctly blocked an unverified topic; do not bypass the gate or upload a script from this result."
+            })
+            count += 1
+            continue
         config_issue = classify_configuration_failure(joined)
         if config_issue:
             REPORT["actions"].append({
