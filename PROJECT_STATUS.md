@@ -3,21 +3,21 @@
 **Updated:** 2026-10-13 (PKT)  
 **Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
 **Branch:** main  
-**Reviewed code commit:** aba192a5769998d06c0e6cd971c1416651b84cbd  
+**Reviewed code commit:** 807f67bf2f36bdcf676af0a6160d1a9ef7a83e62  
 **Current release status:** **BLOCKED — end-to-end content generation and publishing are not yet verified.** No paid billing enabled, no QA gates bypassed, and this session did not publish/upload content.
 
 ## Round 1 — latest verified checkpoint
 
 ### Live Main Worker / Groq recovery
-- Main Worker dark-sunset-a2a1 version **416**, ID 85b53870-73ce-4a09-8875-5f75df98dcc6, is deployed at **100% traffic** via deployment 24c1c6a2-9e83-47a8-96b4-7ac669bf5cb4. Pre-deployment guard confirmed v415 was active. The post-deploy settings GET returned HTTP 200 and all expected binding names were preserved.
+- Main Worker dark-sunset-a2a1 version **417**, ID baf942ec-441f-4d30-b82e-d21f528c1a8c, is deployed at **100% traffic** via deployment 761410f9-35de-49a8-b6e3-c1eb72a5912c. Pre-deployment guard confirmed v416 was active. The post-deploy settings GET returned HTTP 200 with all 24 expected binding names preserved. Immediate rollback candidate is v416 ID 85b53870-73ce-4a09-8875-5f75df98dcc6.
 - Cloudflare Observability telemetry over an inspected 30-minute window showed outbound fetch /openai/v1/chat/completions spans with both HTTP 200 and HTTP 429 for this Worker. That is evidence of upstream throttling, not proof of a missing Groq secret. It is **not** a successful content-generation proof.
-- v416 now reads Retry-After, then x-ratelimit-reset-tokens / x-ratelimit-reset-requests; accepts explicit seconds or ms/s/m; calculates remaining request-timeout budget; and retries HTTP 429 at most once, only if the advertised delay fits the current budget. Missing, malformed or too-long reset hints fail fast rather than retrying prematurely. Selected 408/425/5xx bounded retry behavior is unchanged.
-- Deterministic retry-policy checks all passed before version upload: 3 -> 3000ms, 2.5s -> 2500ms, 400ms -> 400ms, 1m -> 60000ms, and missing/malformed values -> no retry. Cloudflare accepted version upload and deployment; active bindings were read back afterward. Previous v415 ID d7237531-2f61-4859-a40f-4c83a8ce39e8 is the direct rollback candidate if a verified regression is found.
+- v417 reads Retry-After, then x-ratelimit-reset-tokens / x-ratelimit-reset-requests; parses numeric seconds, simple ms/s/m and compound reset strings such as 2m59.56s; calculates remaining request-timeout budget; and retries HTTP 429 at most once, only if the advertised delay fits. Missing, malformed or too-long reset hints fail fast. Existing selected 408/425/5xx bounded retry behavior is unchanged.
+- Deterministic retry-policy checks all passed before v417 upload: 3 -> 3000ms, 2.5s -> 2500ms, compound 2m59.56s -> 179560ms, 400ms -> 400ms, 1m -> 60000ms, and missing/malformed values -> no retry. Cloudflare accepted v417 upload/deployment; active version and bindings were read back. Previous v415 ID d7237531-2f61-4859-a40f-4c83a8ce39e8 is the direct rollback candidate if a verified regression is found.
 - Implementation evidence: [Groq rate-limit recovery notes](docs/GROQ_RATE_LIMIT_RECOVERY_2026-10-13.md).
 
 ### Live no-publishing verification
-- Validator run [38448132659](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38448132659) on commit aba192a5769998d06c0e6cd971c1416651b84cbd: the live read-only US Eastern category contract and its deterministic self-test **passed**. Its trend-to-script POST integration step was **failed HTTP 502**. The response again reported Cloudflare Workers AI error 4006 (daily free allocation exhausted); no script passed independent QA. Do not claim the Groq retry patch recovered end-to-end generation.
-- Previous full script attempt [38445094223](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445094223) failed HTTP 502 because Workers AI reported error 4006: daily free 10,000-neuron allocation exhausted. It generated no QA-passed script/package. The v416 retest is run 38448132659, and it still ended in HTTP 502 / Workers AI error 4006. The retry hardening is deployed and read back, but a successful script is not verified.
+- Validator run [38448132659](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38448132659) on commit aba192a5769998d06c0e6cd971c1416651b84cbd: the live read-only US Eastern category contract and its deterministic self-test **passed**. Its trend-to-script POST integration step **failed HTTP 502** due to Workers AI error 4006 (daily 10,000-neuron free allocation exhausted); no script passed independent QA. v417's new no-publish validator run was triggered by the latest patch-fragment update and is pending at this status update.
+- Previous full script attempt [38445094223](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38445094223) failed HTTP 502 because Workers AI reported error 4006: daily free 10,000-neuron allocation exhausted. It generated no QA-passed script/package. The v416 retest is run 38448132659 and ended in HTTP 502 / Workers AI error 4006. v417 additionally parses compound Groq reset windows, but script generation still is not verified until the new run passes.
 - Existing route quality gates remain mandatory: source-backed factual checks, 850–1000 long-form word target, independent hook/human-voice audit, unsupported-current-claim check, and explicit SCHEDULED_ROTATION_FALLBACK labelling if category trend evidence is sparse. No production row, rendered MP4, YouTube upload or future schedule was created for this patch.
 - D1 free-tier quota has been exhausted in previous runs. Content persistence, recent-title dedup, handoff, renderer and publication must remain **unverified/blocked** until the relevant D1 and end-to-end checks actually pass.
 
@@ -33,7 +33,7 @@
 ### Round 1 completion gate
 Round 1 cannot honestly be marked fully verified while the live trend-to-script POST and independent content QA have not passed. Remaining blockers are actual script generation, D1 state persistence/dedup after quota recovery, render/MP4 inspection, and end-to-end upload/scheduling read-back. The self-healing changes are code/test verified; production recovery on the live content pipeline is not.
 
-**Next exact action:** retrieve validator run 38448132659 and fix only a confirmed live failure; keep publishing disabled until the script, D1 state, actual MP4 QA, YouTube ID/privacy/scheduled-time read-back all pass.
+**Next exact action:** retrieve the v417 no-publish validator triggered by commit 807f67bf2f36bdcf676af0a6160d1a9ef7a83e62; fix only a confirmed live failure. Keep publishing disabled until script QA, D1 persistence, real MP4 QA and scheduled YouTube read-back all pass.
 
 ---
 
