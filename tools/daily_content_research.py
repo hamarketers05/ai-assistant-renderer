@@ -2,6 +2,7 @@
 """Daily US-topic workflow: YouTube Data API v3 signals -> Tavily evidence -> Groq script + hook audit."""
 from __future__ import annotations
 import argparse, json, os, re, time, urllib.error, urllib.parse, urllib.request
+import html
 from ai_text_client import chat_completion
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -250,54 +251,177 @@ def youtube_trending(api_key, access_token=""):
         fallback = str(fallback_exc)[:260]
         raise RuntimeError("YouTube trend collection failed safely. chart_error=" + original + "; worker_fallback=" + fallback) from None
 
-def tavily_search(key, query, include_domains=None):
-    """Search Tavily directly when its key is present; otherwise use the authenticated main Worker proxy.
+_RESEARCH_PROVIDER_NAMES = set()
+_TAVILY_DISABLED_FOR_RUN = False
+_FREE_SOURCE_CACHE = {}
 
-    The Worker keeps its existing Tavily secret in Cloudflare, so GitHub does not need a duplicate key.
-    """
-    if key:
+def _local_xml_text(element, names):
+    for child in list(element):
+        if child.tag.rsplit("}", 1)[-1].lower() in names:
+            return (child.text or "").strip()
+    return ""
+
+def _parse_feed_entries(xml_bytes, feed_name, feed_url):
+    import xml.etree.ElementTree as ET
+    import html
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return []
+    entries = [node for node in root.iter() if node.tag.rsplit("}", 1)[-1].lower() in {"item", "entry"}]
+    out = []
+    for node in entries[:30]:
+        title = _local_xml_text(node, {"title"})
+        link = _local_xml_text(node, {"link"})
+        if not link:
+            for child in list(node):
+                if child.tag.rsplit("}", 1)[-1].lower() == "link":
+                    link = str(child.attrib.get("href", "")).strip()
+                    if link:
+                        break
+        link = html.unescape(link.strip())
+        if link.startswith("//"):
+            link = "https:" + link
+        if not link.startswith("https://") or not title:
+            continue
+        description = _local_xml_text(node, {"description", "summary", "encoded", "content"})
+        description = html.unescape(re.sub(r"<[^>]+>", " ", description))
+        description = re.sub(r"\\s+", " ", description).strip()
+        published = _local_xml_text(node, {"pubdate", "published", "updated", "date", "issued"})
+        publisher = feed_name
+        for child in list(node):
+            if child.tag.rsplit("}", 1)[-1].lower() == "source":
+                publisher = str(child.attrib.get("url") or child.text or feed_name).strip()
+                break
+        out.append({
+            "title": re.sub(r"\\s+", " ", html.unescape(title)).strip()[:220],
+            "url": link[:1000],
+            "content": (description or ("Official/research feed entry. Headline: " + html.unescape(title).strip()))[:1100],
+            "published_date": published[:80],
+            "score": 0.0,
+            "publisher": publisher[:160],
+            "source_type": "rss_or_atom",
+            "source_tier": "official" if feed_name in {"OpenAI News", "Google DeepMind", "Google AI"} else "research_or_news"
+        })
+    return out
+
+def _free_source_search(query, include_domains=None):
+    """No-key fallback using public RSS/Atom feeds, Google News RSS, and arXiv's public feed."""
+    global _FREE_SOURCE_CACHE
+    query = re.sub(r"\\s+", " ", str(query or "")).strip()[:240]
+    domain_filters = [
+        str(x).lower().strip().lstrip(".")
+        for x in (include_domains or [])
+        if str(x).strip() and str(x).strip().lower() not in {"example.com", "github.com"}
+    ]
+    candidates = []
+    feed_defs = [
+        ("OpenAI News", "https://openai.com/news/rss.xml", "openai.com"),
+        ("Google DeepMind", "https://deepmind.google/blog/rss.xml", "deepmind.google"),
+        ("Google AI", "https://blog.google/innovation-and-ai/technology/ai/rss/", "blog.google"),
+        ("arXiv AI Research", "https://rss.arxiv.org/rss/cs.AI", "arxiv.org")
+    ]
+
+    def host_matches(host, domain):
+        host = (host or "").lower().split(":")[0]
+        return host == domain or host.endswith("." + domain)
+
+    def fetch_url(url, timeout=16):
+        import urllib.request
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "AI-Tech-Lab-Research/1.0 (free public RSS/Atom fallback)", "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.read(2_000_000)
+
+    for feed_name, feed_url, domain in feed_defs:
+        if domain_filters and not any(host_matches(domain, allowed) for allowed in domain_filters):
+            continue
+        if feed_url not in _FREE_SOURCE_CACHE:
+            try:
+                _FREE_SOURCE_CACHE[feed_url] = _parse_feed_entries(fetch_url(feed_url), feed_name, feed_url)
+                print("Free source feed checked: " + feed_name + " (" + str(len(_FREE_SOURCE_CACHE[feed_url])) + " entries).")
+            except Exception as exc:
+                _FREE_SOURCE_CACHE[feed_url] = []
+                print("Free source feed unavailable: " + feed_name + " (" + type(exc).__name__ + ").")
+        for item in _FREE_SOURCE_CACHE[feed_url]:
+            try:
+                host = (urllib.parse.urlparse(item["url"]).hostname or "").lower()
+            except ValueError:
+                host = ""
+            if domain_filters and not any(host_matches(host, allowed) for allowed in domain_filters):
+                continue
+            candidates.append(dict(item))
+
+    # Google News is a public RSS endpoint, not a paid or API-key service. Its result URLs redirect readers to publishers.
+    if not domain_filters:
+        news_url = "https://news.google.com/rss/search?" + urllib.parse.urlencode({
+            "q": query + " when:14d",
+            "hl": "en-US", "gl": "US", "ceid": "US:en"
+        })
+        cache_key = "google-news:" + query.casefold()
+        if cache_key not in _FREE_SOURCE_CACHE:
+            try:
+                rows = _parse_feed_entries(fetch_url(news_url), "Google News RSS (USA)", news_url)
+                # Preserve the source/publisher that Google News includes in each RSS entry.
+                _FREE_SOURCE_CACHE[cache_key] = rows[:12]
+                print("Free source feed checked: Google News USA RSS (" + str(len(rows)) + " entries).")
+            except Exception as exc:
+                _FREE_SOURCE_CACHE[cache_key] = []
+                print("Google News RSS unavailable (" + type(exc).__name__ + ").")
+        candidates.extend(dict(x) for x in _FREE_SOURCE_CACHE[cache_key])
+
+    # Basic relevance ranking: prefer entries that share informative query terms; all text is untrusted evidence.
+    stop = {"what", "when", "where", "with", "from", "about", "latest", "recent", "current", "news", "research", "into", "this", "that", "have", "has", "for", "the", "and", "or", "are", "was", "were", "how", "why"}
+    terms = [x.lower() for x in re.findall(r"[A-Za-z0-9][A-Za-z0-9+.-]{2,}", query) if x.lower() not in stop]
+    unique = list(dict.fromkeys(terms))
+    for item in candidates:
+        title = str(item.get("title", "")).lower()
+        body = str(item.get("content", "")).lower()
+        combined = title + " " + body
+        item["_relevance"] = sum(3 if t in title else 1 if t in combined else 0 for t in unique)
+    candidates.sort(key=lambda x: (int(x.get("_relevance", 0)), str(x.get("published_date", ""))), reverse=True)
+    out, seen = [], set()
+    for item in candidates:
+        url = str(item.get("url", "")).strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        item.pop("_relevance", None)
+        out.append(item)
+        if len(out) >= 12:
+            break
+    if not out:
+        raise RuntimeError("All free RSS/Atom sources were unavailable or no entries passed the requested official-domain filter.")
+    _RESEARCH_PROVIDER_NAMES.add("Free public RSS/Atom + Google News RSS + arXiv")
+    print("Research source provider: free public RSS/Atom and Google News RSS; no paid search endpoint.")
+    return out
+
+def tavily_search(key, query, include_domains=None):
+    """Use Tavily while available, then fall back to truly free public sources without upgrading plans."""
+    global _TAVILY_DISABLED_FOR_RUN
+    if key and not _TAVILY_DISABLED_FOR_RUN:
         payload = {
             "api_key": key, "query": query, "search_depth": "advanced", "topic": "general",
-            "max_results": 10, "include_answer": False, "include_raw_content": False}
+            "max_results": 6, "include_answer": False, "include_raw_content": False}
         if include_domains:
             payload["include_domains"] = include_domains
-        result = request_json(TAVILY_API, payload, timeout=60)
-        return result.get("results", []) if isinstance(result, dict) else []
-
-    token = os.getenv("WORKER_AUTH_TOKEN", "").strip()
-    worker_url = os.getenv("WORKER_URL", "https://dark-sunset-a2a1.hamarketers05.workers.dev").rstrip("/")
-    if not token:
-        raise RuntimeError("Tavily key is absent and authenticated main Worker research proxy is unavailable.")
-    url = worker_url + "/research?" + urllib.parse.urlencode({
-        "q": str(query)[:400], "brand_id": "AI_TECH_LAB"
-    })
-    result = request_json(url, headers={"Authorization": "Bearer " + token}, timeout=90)
-    if not isinstance(result, dict) or result.get("ok") is not True:
-        raise RuntimeError("Authenticated main Worker research proxy returned an unsuccessful response.")
-    rows = result.get("results", [])
-    normalized = []
-    allowed_domains = [str(x).lower().strip().lstrip(".") for x in (include_domains or []) if str(x).strip()]
-    for item in rows if isinstance(rows, list) else []:
-        if not isinstance(item, dict):
-            continue
-        url_value = str(item.get("url", "")).strip()
         try:
-            host = (urllib.parse.urlparse(url_value).hostname or "").lower()
-        except ValueError:
-            host = ""
-        if allowed_domains and not any(host == d or host.endswith("." + d) for d in allowed_domains):
-            continue
-        normalized.append({
-            "title": item.get("title", ""), "url": url_value,
-            "content": item.get("content", ""),
-            "published_date": item.get("published_at", item.get("published_date", "")) or "",
-            "score": item.get("score", 0), "source_tier": item.get("source_tier", "unknown"),
-            "source_type": item.get("source_type", "unknown")
-        })
-    if not normalized:
-        raise RuntimeError("Authenticated main Worker research proxy returned no usable source results.")
-    print("Research evidence provider: existing Cloudflare main Worker -> Tavily secret binding.")
-    return normalized
+            result = request_json(TAVILY_API, payload, timeout=60)
+            rows = result.get("results", []) if isinstance(result, dict) else []
+            if rows:
+                _RESEARCH_PROVIDER_NAMES.add("Tavily Search API")
+                return rows
+        except RuntimeError as exc:
+            message = str(exc)
+            if "432" in message or "usage limit" in message.lower() or "upgrade your plan" in message.lower():
+                _TAVILY_DISABLED_FOR_RUN = True
+                print("Tavily free-plan usage cap confirmed; disabling Tavily for the remainder of this run.")
+            else:
+                print("Tavily request failed; switching to free public sources (" + message[:180] + ").")
+            # Do not keep retrying an exhausted quota or block daily research on a paid-provider error.
+    return _free_source_search(query, include_domains)
 
 def clean_sources(results):
     out, seen = [], set()
