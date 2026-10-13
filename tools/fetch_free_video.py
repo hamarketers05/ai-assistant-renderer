@@ -10,6 +10,7 @@ UA = "AI-Tech-Lab-Renderer/1.0 (https://github.com/hamarketers05/ai-assistant-re
 MAX_SCENES, MAX_DOWNLOADS = 48, 8
 MIN_LICENSED_CLIPS = 4
 MAX_BYTES = 80 * 1024 * 1024
+MIN_WIDTH, MIN_HEIGHT = 1920, 1080
 MAX_API_REQUESTS = 120
 MIN_API_INTERVAL_SECONDS = 1.25
 STOP = set("""about above after again also although among another any are around because been before being between both but can could did does doing down during each few for from further get got had has have having here how into its itself just more most much must near new nor not now off once only other our out over own same says should since some such than that the their them then there these they thing this those through too under until use used using very was were what when where which while who why will with would your you and the for from with into onto how why when then than that this these those real latest technology artificial intelligence explain explained explains""".split())
@@ -259,6 +260,10 @@ def main():
                     if Path(urllib.parse.urlparse(file_url).path).suffix.lower() not in VIDEO_EXTS:
                         continue
                     meta = info.get("extmetadata") or {}
+                    source_width, source_height = int(info.get("width") or 0), int(info.get("height") or 0)
+                    if source_width < MIN_WIDTH or source_height < MIN_HEIGHT:
+                        print(f"Commons skipped {title}: native source is below Full HD ({source_width}x{source_height}).")
+                        continue
                     label, license_url = meta_field(meta, "LicenseShortName"), meta_field(meta, "LicenseUrl")
                     ok, normalized, attribution = license_ok(label, license_url)
                     if not ok:
@@ -288,6 +293,7 @@ def main():
                     selected = {
                         "title": title, "file_url": file_url, "source_url": source_url,
                         "creator": creator, "license": normalized, "license_url": license_url,
+                        "source_width": source_width, "source_height": source_height,
                         "attribution": attribution, "relevance_score": score,
                         "matching_terms": matching_terms, "matching_anchors": matching_anchors
                     }
@@ -316,8 +322,8 @@ def main():
             target.parent.mkdir(parents=True, exist_ok=True)
             subprocess.run([
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
-                "-t", "30", "-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=30,setsar=1",
-                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-t", "30", "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,setsar=1",
+                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
                 "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(target)
             ], check=True, timeout=180)
             if not target.is_file() or target.stat().st_size < 10000:
@@ -332,7 +338,10 @@ def main():
                 "relevance_score": selected["relevance_score"],
                 "matching_terms": selected["matching_terms"],
                 "matching_anchors": selected["matching_anchors"],
-                "query": " / ".join(query_candidates), "commercial_use_allowed": True
+                "query": " / ".join(query_candidates), "commercial_use_allowed": True,
+                "commercial_use_basis": "Per-file Wikimedia Commons license metadata; only commercial-compatible CC BY/CC BY-SA/CC0/Public Domain accepted.",
+                "asset_path": str(target), "source_width": selected["source_width"],
+                "source_height": selected["source_height"], "output_resolution": "1920x1080"
             }
             with log.open("a", encoding="utf-8") as out:
                 out.write(json.dumps(item, ensure_ascii=False) + "\n")
