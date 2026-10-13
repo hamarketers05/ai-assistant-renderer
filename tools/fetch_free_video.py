@@ -168,7 +168,7 @@ def curated_titles_for_scene(scene_text):
         ])
     if anchors & {"ethics", "ethical", "governance", "fairness", "transparent", "transparency",
                   "explainable", "explainability", "oversight", "accountability", "safety"}:
-        titles.append("File:Ética de la IA en la medicina digital - Explicación de por qué es importante una IA transparente y explicable (Spanish redub).webm")
+        titles.append("File:Ethics of AI in Digital Medicine – Explanation why transparent explainable AI is important.webm")
     return list(dict.fromkeys(titles))
 
 def relevance_score(scene_text, title, description):
