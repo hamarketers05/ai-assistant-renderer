@@ -186,3 +186,13 @@ See [the complete deep review](docs/PIPELINE_DEEP_REVIEW_2026-10-13.md) for the 
 - Architecture warning: live Worker bundle is approximately 806 KB and much larger than tracked cloudflare/main-worker/worker.js. Never deploy the smaller tracked file over production.
 - NEXT ACTION: inspect the run triggered by commit a8a8b9af3157d72731b079afa66ea93e2f29cbd3. If D1 quota is the blocker, wait for reset and run one protected no-publish test. Only then permit production handoff.
 
+
+
+## 2026-10-14 — Pipeline knowledge map and read-only health contract (PR validation pending)
+
+- Added `tools/pipeline_catalog.json` as a structured map of 14 pipeline stages, 21 workflows, 40 tools, incident routes, evidence boundaries, and protected operations. The catalog explicitly distinguishes intended/static configuration from runtime proof.
+- Added `tools/self_healing_pipeline_health.py`: read-only validation of catalog schema, unique stage/incident identifiers, existence of catalogued repository paths, protected-operation declarations, and monitoring cadence policy. If GitHub runtime credentials are absent, runtime freshness is reported as `UNKNOWN`, not healthy. GitHub API failures remain `UNKNOWN`; observed failed or skipped controller runs are not treated as success.
+- Added offline tests in `tools/test_self_healing_pipeline_health.py`; wired health-contract tests into the existing self-healing controller and independent recovery watchdog. These checks do not change production resources, deploy Workers, touch secrets, enable billing, or publish videos.
+- **Not yet verified:** the new tests have not yet run in GitHub Actions or a local checkout in this session; the PR and its CI results must be checked before merge. The runtime API freshness probe is read-only and bounded to the most recent 100 runs. Cron remains best-effort and does not guarantee continuous 24/7 monitoring.
+- **Release blockers remain:** live research/script generation has had provider quota/rate-limit failures; no full final MP4 review or verified YouTube long/Short scheduled-publication readback is established here. Do not publish or bypass QA.
+- **NEXT ACTION:** run CI on this branch, inspect test output and path-contract failures, fix any exact issue, and merge only after required checks pass.
