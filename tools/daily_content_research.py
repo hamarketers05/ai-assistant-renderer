@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse, json, os, re, time, urllib.error, urllib.parse, urllib.request
 from ai_text_client import chat_completion
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from mini_agents import (EDITORIAL_CATEGORIES, NATURAL_VOICE_GUIDANCE, agent_execution_report,
                          category_rotation, evaluate_human_voice, parse_editorial_date,
@@ -192,9 +192,12 @@ def main():
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-    editorial_date = args.target_date or parse_editorial_date().isoformat()
+    research_date_us_eastern = parse_editorial_date()
+    # Research runs the evening before the US publish slot, so rotate for the actual
+    # scheduled publish date rather than the date on which a script happens to be generated.
+    editorial_date = args.target_date or (research_date_us_eastern + timedelta(days=1)).isoformat()
     rotation = category_rotation(editorial_date)
-    scout_plan = weekly_tool_scout_plan(editorial_date)
+    scout_plan = weekly_tool_scout_plan(research_date_us_eastern)
     review = read_json(Path("learning/latest_video_review.json"), {})
     learning = {
         "last_title": review.get("title", ""),
