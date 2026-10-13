@@ -36,6 +36,8 @@ TRANSIENT = (
 SAFE_RETRY = {
     "AI Tech Lab Daily Research and Script",
     "AI Tech Lab Automatic Daily Production Handoff",
+    "AI Tech Lab Autonomous Self-Healing Agent",
+    "AI Tech Lab Autonomous Self-Healing Watchdog",
     "CI Workflow Guard", "Renderer Static Validation",
     "Verify Daily Handoff Endpoint (No Upload)", "Midas SBS Validation",
 }
@@ -53,6 +55,8 @@ PATCHABLE = {
     "tools/generate_music.py", "tools/groq_video_review.py",
     "tools/make_3d_hero_overlay.py", "tools/make_brand_assets.py",
     "tools/seo_metadata.py", "tools/voice_editor.py",
+    "tools/self_healing_agent.py", "tools/self_healing_rescue.py",
+    "tools/publish_self_heal_report.py",
 }
 HEALTH_URLS = [
     ("main-cloudflare-worker", "https://dark-sunset-a2a1.hamarketers05.workers.dev/health"),
@@ -249,7 +253,9 @@ def attempt_patch(run, job, log):
         "Do not add, delete, rename files or change other paths. Never touch workflow YAML, Workers, credentials, "
         "database schemas, YouTube upload/scheduling/publishing code, or permissions. You may repair the named research, "
         "voice-generation, audio-processing, editing, visual, 3D, music, SEO, or daily-handoff utility only when the "
-        "root cause is clear. Never remove or weaken sourced-evidence requirements, voice/audio validation, missing-audio "
+        "root cause is clear. The three self-healing controller/report Python files may only be repaired when logs "
+        "prove a syntax/runtime defect in that exact file; never patch them for authentication, permissions, missing "
+        "secrets, rate limits, or service outages. Never remove or weaken sourced-evidence requirements, voice/audio validation, missing-audio "
         "blocks, QA gates, duration/visual checks, license checks, duplicate protection, or private-before-schedule rules. "
         "Preserve unrelated behavior. If no certain safe fix is visible, return NO_SAFE_PATCH. Return diff only."
     )
@@ -304,6 +310,16 @@ def attempt_patch(run, job, log):
                 resumed = "daily-content-research.yml"
                 REPORT["actions"].append({"action": "resume_pipeline_after_patch", "workflow": resumed,
                     "reason": "Research helper was repaired, locally validated and committed; fresh research run started."})
+            elif workflow_name == "AI Tech Lab Autonomous Self-Healing Agent":
+                dispatch("ai-self-healing-agent.yml")
+                resumed = "ai-self-healing-agent.yml"
+                REPORT["actions"].append({"action": "resume_pipeline_after_patch", "workflow": resumed,
+                    "reason": "The recovery controller was repaired and validated; a fresh controller run was dispatched."})
+            elif workflow_name == "AI Tech Lab Autonomous Self-Healing Watchdog":
+                dispatch("self-healing-watchdog.yml")
+                resumed = "self-healing-watchdog.yml"
+                REPORT["actions"].append({"action": "resume_pipeline_after_patch", "workflow": resumed,
+                    "reason": "The independent watchdog controller was repaired and validated; a fresh watchdog run was dispatched."})
             elif workflow_name == "AI Tech Lab Automatic Daily Production Handoff":
                 source_match = re.search(r"(?:SOURCE_RUN_ID|source_run_id)\s*[:=]\s*(\d{5,})", log, re.I)
                 if not source_match:
@@ -361,8 +377,6 @@ def analyze(runs):
             continue
         if superseded_by_success(run, runs):
             continue
-        if run.get("name") == "AI Tech Lab Autonomous Self-Healing Agent":
-            continue
         created = dt(run.get("created_at"))
         if not created or NOW - created > timedelta(hours=30) or int(run.get("run_attempt", 1)) != 1:
             continue
@@ -387,7 +401,7 @@ def analyze(runs):
                 REPORT["unresolved"].append(f"Retry failed for run {run['id']}: {str(exc)[:170]}")
             count += 1
             continue
-        if run.get("name") in {"CI Workflow Guard", "Renderer Static Validation", "AI Tech Lab Daily Research and Script", "AI Tech Lab Automatic Daily Production Handoff", "AI Assistant Renderer", "Midas SBS Validation"} and not is_transient(joined):
+        if run.get("name") in {"CI Workflow Guard", "Renderer Static Validation", "AI Tech Lab Daily Research and Script", "AI Tech Lab Automatic Daily Production Handoff", "AI Assistant Renderer", "Midas SBS Validation", "AI Tech Lab Autonomous Self-Healing Agent", "AI Tech Lab Autonomous Self-Healing Watchdog"} and not is_transient(joined):
             candidate = next(((j, log) for j, log in log_items if log), (failed[0], ""))
             patched, reason = attempt_patch(run, candidate[0], candidate[1])
             if patched:
