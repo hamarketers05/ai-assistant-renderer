@@ -89,7 +89,13 @@ def main():
     words = len(re.findall(r"\b[\w'-]+\b", short_text))
     description = re.sub(r"\s+", " ", str(result.get("description", "")).strip())
     if not description:
-        description = "A quick AI Tech Lab explainer based on the sources listed below.\n\n" + str(package.get("description", ""))
+        description = "A quick AI Tech Lab explainer based on the sources listed below."
+    description = description.split("SOURCES & FURTHER READING", 1)[0].rstrip()
+    source_block = "\n\nSOURCES & FURTHER READING\n" + "\n".join(
+        "- " + str(item.get("title", "Source"))[:180] + ": " + str(item.get("url", ""))
+        for item in sources[:8] if str(item.get("url", "")).startswith("https://")
+    )
+    description = (description[:max(0, 4900 - len(source_block))].rstrip() + source_block)[:4900]
     tags = result.get("tags", package.get("tags", []))
     if not isinstance(tags, list):
         tags = package.get("tags", [])
