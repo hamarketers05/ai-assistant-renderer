@@ -34,7 +34,9 @@ permissions:
   issues: write
 
 concurrency:
-  group: ai-tech-lab-self-healing
+  # Keep each source event/run separate: a burst of unrelated workflow_run events
+  # must not replace the one pending run responsible for repairing a real failure.
+  group: ai-tech-lab-self-healing-${{ github.event.workflow_run.id || github.run_id }}
   cancel-in-progress: false
 
 jobs:
