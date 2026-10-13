@@ -1,0 +1,145 @@
+name: Verify live YouTube API and research topic quality
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-live-youtube-topic-selection.yml"
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Read-only US AI Tech Lab research query"
+        required: false
+        type: string
+        default: "latest AI news"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-youtube-topic-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  live-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WORKER_URL: https://dark-sunset-a2a1.hamarketers05.workers.dev
+      WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
+      RESEARCH_QUERY: ${{ inputs.query || 'latest AI news' }}
+    steps:
+      - name: Verify OAuth token and live YouTube Data API v3 trend read
+        id: youtube
+        shell: bash
+        run: |
+          set -u
+          mkdir -p diagnostic
+          PASS=true
+          if [ -z "$WORKER_AUTH_TOKEN" ]; then
+            echo '{"ok":false,"stage":"worker_oauth","error":"WORKER_AUTH_TOKEN secret is missing"}' > diagnostic/youtube_api_report.json
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TOKEN_CODE=$(curl -sS --max-time 45 -o diagnostic/token_response.json -w "%{http_code}" \
+            -X POST -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+            -H "Content-Type: application/json" "$WORKER_URL/youtube/access-token") || TOKEN_CODE=000
+          TOKEN=$(jq -r '.access_token // empty' diagnostic/token_response.json 2>/dev/null || true)
+          if [ "$TOKEN_CODE" != "200" ] || [ -z "$TOKEN" ]; then
+            jq '{ok,error,provider_error,code}' diagnostic/token_response.json > diagnostic/youtube_api_report.json 2>/dev/null || \
+              printf '{"ok":false,"stage":"worker_oauth","http_status":"%s"}\n' "$TOKEN_CODE" > diagnostic/youtube_api_report.json
+            rm -f diagnostic/token_response.json
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "YouTube OAuth token endpoint failed: HTTP $TOKEN_CODE (response sanitized)."
+            exit 0
+          fi
+          echo "::add-mask::$TOKEN"
+          YT_CODE=$(curl -sS --max-time 45 -o diagnostic/youtube_chart_response.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" \
+            "https://www.googleapis.com/youtube/v3/videos?part=snippet%2Cstatistics&chart=mostPopular&regionCode=US&videoCategoryId=28&maxResults=25") || YT_CODE=000
+          COUNT=$(jq -r '(.items // []) | length' diagnostic/youtube_chart_response.json 2>/dev/null || echo 0)
+          if [ "$YT_CODE" = "200" ] && [ "$COUNT" -ge 1 ]; then
+            jq --argjson code "$YT_CODE" '{ok:true,stage:"youtube_data_api_v3",http_status:$code,item_count:((.items // [])|length),items:((.items // [])|map({id,snippet:{title:.snippet.title,channelTitle:.snippet.channelTitle,publishedAt:.snippet.publishedAt}})|.[0:10])}' diagnostic/youtube_chart_response.json > diagnostic/youtube_api_report.json
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "Live YouTube Data API v3: HTTP $YT_CODE; $COUNT US Science & Technology chart items."
+          else
+            jq --arg code "$YT_CODE" '{ok:false,stage:"youtube_data_api_v3",http_status:$code,error,items_returned:((.items // [])|length)}' diagnostic/youtube_chart_response.json > diagnostic/youtube_api_report.json 2>/dev/null || \
+              printf '{"ok":false,"stage":"youtube_data_api_v3","http_status":"%s","items_returned":%s}\n' "$YT_CODE" "$COUNT" > diagnostic/youtube_api_report.json
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Live YouTube Data API v3 failed: HTTP $YT_CODE; items=$COUNT."
+          fi
+          rm -f diagnostic/token_response.json
+          unset TOKEN
+
+      - name: Diagnose the live Worker topic selector and cross-source evidence gate
+        id: research
+        shell: bash
+        run: |
+          set -u
+          mkdir -p diagnostic
+          if [ -z "$WORKER_AUTH_TOKEN" ]; then
+            printf '{"ok":false,"stage":"worker_research","error":"WORKER_AUTH_TOKEN is missing"}\n' > diagnostic/research_quality_report.json
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CODE=$(curl -sS --max-time 180 -o diagnostic/research_response.json -w "%{http_code}" \
+            -H "Authorization: Bearer $WORKER_AUTH_TOKEN" -H "Accept: application/json" \
+            --get --data-urlencode "brand_id=AI_TECH_LAB" --data-urlencode "q=$RESEARCH_QUERY" \
+            "$WORKER_URL/research") || CODE=000
+          if ! jq -e . diagnostic/research_response.json >/dev/null 2>&1; then
+            printf '{"ok":false,"stage":"worker_research","http_status":"%s","error":"Worker returned invalid JSON"}\n' "$CODE" > diagnostic/research_quality_report.json
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jq --arg code "$CODE" '{
+            ok:(.ok == true and $code == "200"),
+            stage:"worker_research",
+            http_status:$code,
+            research_id,
+            query,
+            evidence_count,
+            source_coverage,
+            google_trends,
+            verified_claim_count:((.verified_claims // [])|length),
+            top_topic:(.topic_recommendation.topic // ""),
+            top_candidate:(.topic_recommendation.candidates[0] // {}),
+            candidate_count:((.topic_recommendation.candidates // [])|length),
+            answer:(.answer // "")
+          }' diagnostic/research_response.json > diagnostic/research_quality_report.json
+
+          jq -e '(.ok == true) and ((.evidence_count // 0) >= 3) and ((.source_coverage.official_primary // 0) >= 1) and ((.source_coverage.independent_reporting // 0) >= 2) and ((.topic_recommendation.topic // "") != "No source-backed candidate") and ((.topic_recommendation.candidates[0].verification_status // "") == "CROSS_CHECKED") and (((.verified_claims // [])|length) >= 1)' diagnostic/research_response.json >/dev/null
+          VALID=$?
+          if [ "$CODE" = "200" ] && [ "$VALID" -eq 0 ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "Live Worker research: source coverage, cross-checked topic, and at least one claim passed."
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Live Worker research quality gate did not pass; diagnostic artifact preserves the evidence summary."
+          fi
+
+      - name: Upload sanitized live diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-youtube-topic-diagnostic-${{ github.run_id }}
+          path: |
+            diagnostic/youtube_api_report.json
+            diagnostic/youtube_chart_response.json
+            diagnostic/research_quality_report.json
+            diagnostic/research_response.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Fail closed if API or research-quality gate failed
+        if: always()
+        shell: bash
+        env:
+          YOUTUBE_PASSED: ${{ steps.youtube.outputs.passed }}
+          RESEARCH_PASSED: ${{ steps.research.outputs.passed }}
+        run: |
+          if [ "$YOUTUBE_PASSED" != "true" ] || [ "$RESEARCH_PASSED" != "true" ]; then
+            echo "BLOCKED: no rendering or upload was requested. Use the diagnostic artifact to fix the failed API/relevance/evidence gate."
+            exit 1
+          fi
+          echo "PASS: YouTube API and live topic/evidence gates passed."
