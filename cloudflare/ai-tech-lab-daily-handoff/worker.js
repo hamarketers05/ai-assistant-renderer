@@ -293,7 +293,7 @@ async function generateAiCompletion(request, env) {
       }
       if (!imageInput) return Response.json({ ok:false, error:"Vision request has no validated image" }, { status:400, headers:cors() });
       result = await env.AI.run(model, {
-        prompt: textParts.join("\\n").slice(0, 45000),
+        prompt: textParts.join("\n").slice(0, 45000),
         image: imageInput,
         max_tokens: maxTokens, temperature
       });
