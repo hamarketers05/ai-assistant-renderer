@@ -80,12 +80,30 @@ def chat_completion(payload: dict, workflow_path: str, timeout: int = 90) -> dic
             for m in payload.get("messages", [])
         ) else "text",
     }
-    try:
-        result = _post_json(WORKER_API, body, {"Authorization": "Bearer " + token}, timeout)
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"Authenticated Cloudflare AI fallback returned HTTP {exc.code}; Groq primary was unavailable.") from None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Cloudflare AI fallback failed safely: {type(exc).__name__}; Groq primary was unavailable.") from None
+    result = None
+    fallback_error = None
+    # Cloudflare free inference can briefly return 429/5xx during shared capacity spikes.
+    # Retry only transient failures with a short bounded backoff; never switch to a paid API.
+    for attempt in range(3):
+        try:
+            result = _post_json(WORKER_API, body, {"Authorization": "Bearer " + token}, timeout)
+            break
+        except urllib.error.HTTPError as exc:
+            fallback_error = f"HTTP {exc.code}"
+            if exc.code not in (408, 425, 429, 500, 502, 503, 504) or attempt >= 2:
+                raise RuntimeError(f"Authenticated Cloudflare AI fallback returned {fallback_error}; Groq primary was unavailable.") from None
+            try:
+                delay = min(8, max(2, int(float(exc.headers.get("Retry-After", "2")))))
+            except (TypeError, ValueError):
+                delay = 2 * (attempt + 1)
+            time.sleep(delay)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            fallback_error = type(exc).__name__
+            if attempt >= 2:
+                raise RuntimeError(f"Cloudflare AI fallback failed safely after bounded retries: {fallback_error}; Groq primary was unavailable.") from None
+            time.sleep(2 * (attempt + 1))
+    if not isinstance(result, dict):
+        raise RuntimeError("Cloudflare AI fallback returned no usable response after bounded retries; Groq primary was unavailable.")
     if result.get("ok") is not True or not result.get("choices"):
         err = str(result.get("error", "fallback returned no completion"))[:180]
         raise RuntimeError("Cloudflare AI fallback failed: " + err)
