@@ -46,6 +46,7 @@ PATCHABLE = {
     "tools/compose_scene_overlays.py", "tools/visual_budget.py",
     "tools/fetch_free_media.py", "tools/generate_flux_images.py",
     "tools/make_premium_thumbnail.py", "tools/groq_thumbnail_brief.py",
+    "tools/daily_auto_handoff.py", "tools/make_daily_short.py",
 }
 HEALTH_URLS = [
     ("main-cloudflare-worker", "https://dark-sunset-a2a1.hamarketers05.workers.dev/health"),
@@ -167,9 +168,53 @@ def get_diff(text):
         raise ValueError("No unified diff returned.")
     return "\n".join(lines[start:]).strip() + "\n"
 
+def request_patch_model(prompt, system, run, target):
+    """Use Groq first, then an authenticated Cloudflare Workers AI fallback."""
+    groq_problem = ""
+    if GROQ_KEY:
+        body = json.dumps({"model": MODEL, "temperature": 0, "max_tokens": 4000,
+                           "messages": [{"role": "system", "content": system},
+                                        {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)}]}).encode()
+        req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", data=body,
+                 headers={"Authorization": "Bearer " + GROQ_KEY, "Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=70) as response:
+                completion = json.loads(response.read().decode())
+            text = str(completion.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+            if text:
+                return text, "groq", ""
+            groq_problem = "Groq returned empty output."
+        except urllib.error.HTTPError as exc:
+            groq_problem = "Groq HTTP " + str(exc.code) + "."
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            groq_problem = "Groq " + type(exc).__name__ + "."
+    # The Worker verifies the short-lived Actions token and trusted workflow identity.
+    agent_run_id = os.getenv("GITHUB_RUN_ID", "").strip()
+    if not TOKEN or not agent_run_id.isdigit():
+        return None, "", (groq_problem + " " if groq_problem else "") + "Cloudflare AI fallback lacks authenticated GitHub run context."
+    try:
+        _, answer = api("POST", "https://ai-tech-lab-daily-handoff.hamarketers05.workers.dev/self-heal/patch", {
+            "workflow_run_id": agent_run_id,
+            "source_run_id": str(run.get("id", "")),
+            "failed_workflow": str(run.get("name", "")),
+            "failed_job": str(prompt.get("failed_job", "")),
+            "target": target,
+            "source": prompt["current_file"],
+            "log": prompt["failure_log_tail"],
+        })
+        if not isinstance(answer, dict) or answer.get("ok") is not True:
+            return None, "", (groq_problem + " " if groq_problem else "") + "Cloudflare Workers AI rejected the patch request."
+        patch = str(answer.get("patch", "")).strip()
+        if not patch:
+            return None, "", "Cloudflare Workers AI returned an empty patch."
+        return patch, str(answer.get("provider", "cloudflare_workers_ai")), ""
+    except Exception as exc:
+        return None, "", (groq_problem + " " if groq_problem else "") + "Cloudflare Workers AI fallback failed: " + type(exc).__name__
+
+
 def attempt_patch(run, job, log):
-    if not GROQ_KEY:
-        return False, "GROQ_API_KEY unavailable; code auto-repair skipped."
+    if not TOKEN:
+        return False, "GitHub Actions token is unavailable; code auto-repair skipped."
     targets = sorted(p for p in PATCHABLE if p in log)
     if len(targets) != 1:
         return False, "Failure log did not identify exactly one allowlisted editing module."
@@ -192,19 +237,11 @@ def attempt_patch(run, job, log):
         "database schemas, research, voice generation, QA gates, YouTube upload/scheduling/publishing, or permissions. "
         "Preserve unrelated behavior. If no certain safe fix is visible, return NO_SAFE_PATCH. Return diff only."
     )
-    body = json.dumps({"model": MODEL, "temperature": 0, "max_tokens": 4000,
-                       "messages": [{"role": "system", "content": system},
-                                   {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)}]}).encode()
-    req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", data=body,
-             headers={"Authorization": "Bearer " + GROQ_KEY, "Content-Type": "application/json"}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=70) as r:
-            completion = json.loads(r.read().decode())
-    except urllib.error.HTTPError as exc:
-        return False, f"Groq patch request failed HTTP {exc.code}."
-    text = str(completion.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+    text, provider, error = request_patch_model(prompt, system, run, target)
+    if not text:
+        return False, error or "No AI patch output available."
     if text == "NO_SAFE_PATCH":
-        return False, "AI found no safe minimal patch."
+        return False, "AI found no safe minimal patch (provider: " + provider + ")."
     try:
         diff = get_diff(text)
     except ValueError as exc:
@@ -243,7 +280,7 @@ def attempt_patch(run, job, log):
             dispatch("validate-renderer.yml")
         except Exception as exc:
             REPORT["unresolved"].append("Code patch pushed after local tests, but full validator dispatch failed: " + str(exc)[:150])
-        REPORT["actions"].append({"action": "auto_code_patch_committed", "path": target,
+        REPORT["actions"].append({"action": "auto_code_patch_committed", "path": target, "provider": provider,
             "source_run_id": run["id"], "commit": cmd(["git", "rev-parse", "HEAD"]).strip(),
             "tests": ["py_compile", "allowlisted self-test when available", "compileall tools", "git diff --check"],
             "post_push_validation": "Renderer Static Validation dispatched"})
