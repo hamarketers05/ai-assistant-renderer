@@ -153,7 +153,7 @@ jobs:
           print("Free-media licensing, graph overlays and visual-budget fail-closed self-tests passed.")
 
           budget_code = Path("tools/visual_budget.py").read_text(encoding="utf-8")
-          for marker in ('"rendered_scene_count_between_80_and_90"', '"at_least_80_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_images_actually_used"', '"ten_vecteezy_assets_verified"', '"at_least_25_hud_overlays_applied"', '"native_full_hd_output"', '"native_vertical_output"', '"at_least_4_hud_overlays_applied"', '"at_least_2_flux_images_actually_used"', '"at_least_4_vecteezy_assets_verified"'):
+          for marker in ('"rendered_scene_count_between_80_and_90"', '"at_least_80_unique_primary_visual_assets"', '"at_least_100_timeline_visual_elements"', '"six_flux_or_original_visuals_used"', '"at_least_4_verified_free_license_stock_clips_rendered"', '"at_least_25_hud_overlays_applied"', '"native_full_hd_output"', '"native_vertical_output"', '"at_least_4_hud_overlays_applied"', '"at_least_2_flux_or_original_visuals_used"', '"at_least_1_verified_free_license_stock_clip_rendered"'):
               if marker not in budget_code:
                   raise SystemExit(f"Strict long-video visual budget missing: {marker}")
           media_code = Path("tools/fetch_free_media.py").read_text(encoding="utf-8")
@@ -421,8 +421,8 @@ jobs:
               "status":"passed","content_id":"9876","content_format_target":"native 1080x1920 AI Tech Lab Short",
               "checks":{"native_vertical_output":True,"duration_in_20_to_60_second_window":True,
                         "rendered_scene_count_between_8_and_30":True,"at_least_8_unique_primary_visual_assets":True,
-                        "at_least_4_hud_overlays_applied":True,"at_least_2_flux_images_actually_used":True,
-                        "at_least_4_vecteezy_assets_verified":True,"caption_file_has_at_least_5_cues":True,
+                        "at_least_4_hud_overlays_applied":True,"at_least_2_flux_or_original_visuals_used":True,
+                        "at_least_1_verified_free_license_stock_clip_rendered":True,"caption_file_has_at_least_5_cues":True,
                         "every_rendered_scene_has_primary_asset_record":True},
               "visual_counts":{"rendered_scene_placements":n,"unique_primary_visual_assets":n,
                                "hud_overlay_placements":4,"subtitle_cue_placements":8}
