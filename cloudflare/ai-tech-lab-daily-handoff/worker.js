@@ -109,17 +109,22 @@ async function receiveSelfHealReport(request, env) {
   });
   if (!verify.ok) return Response.json({ ok: false, error: "GitHub token could not verify workflow run", github_status: verify.status }, { status: 403 });
   const run = await verify.json();
-  if (run.path !== ".github/workflows/ai-self-healing-agent.yml" ||
+  const trustedReportAgents = {
+    ".github/workflows/ai-self-healing-agent.yml": "AI Tech Lab Autonomous Self-Healing Agent",
+    ".github/workflows/self-healing-watchdog.yml": "AI Tech Lab Autonomous Self-Healing Watchdog"
+  };
+  const expectedAgent = trustedReportAgents[run.path];
+  if (!expectedAgent ||
       run.head_branch !== "main" ||
       !["push", "schedule", "workflow_run", "workflow_dispatch"].includes(run.event) ||
       (run.repository && run.repository.full_name !== "hamarketers05/ai-assistant-renderer")) {
-    return Response.json({ ok: false, error: "Only the trusted main-branch self-healing workflow may publish reports" }, { status: 403 });
+    return Response.json({ ok: false, error: "Only trusted main-branch self-healing controllers may publish reports" }, { status: 403 });
   }
   const report = body.report;
   if (!report || typeof report !== "object" ||
-      report.agent !== "AI Tech Lab Autonomous Self-Healing Agent" ||
+      report.agent !== expectedAgent ||
       !["healthy", "attention_required"].includes(String(report.overall || ""))) {
-    return Response.json({ ok: false, error: "Invalid self-healing report schema" }, { status: 400 });
+    return Response.json({ ok: false, error: "Invalid self-healing report schema for verified workflow" }, { status: 400 });
   }
   const health = (Array.isArray(report.health) ? report.health : []).slice(0, 10).map(x => ({
     component: String(x && x.component || "unknown").slice(0, 100),
