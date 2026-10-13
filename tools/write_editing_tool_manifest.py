@@ -112,6 +112,7 @@ def main() -> None:
         missing.append(str(thumb))
     if missing:
         raise SystemExit("Editing tool manifest blocked; required production evidence missing: " + ", ".join(missing))
+    imagemagick_report = read_json(Path("work/thumbnail_imagemagick_report.json"))
     if thumb is None:
         raise SystemExit("Editing tool manifest blocked: final thumbnail is required to verify ImageMagick processing.")
     thumb_hash = hashlib.sha256(thumb.read_bytes()).hexdigest()
@@ -141,7 +142,6 @@ def main() -> None:
     stereo = read_json(Path("work/stereo_3d_report.json"))
     kokoro = read_json(Path("work/kokoro_audio_quality.json"))
     thumbnail_brief = read_json(Path("work/thumbnail_brief.json"))
-    imagemagick_report = read_json(Path("work/thumbnail_imagemagick_report.json"))
     provider_counts = count_asset_sources(Path("work/asset_sources.jsonl"))
     stock_provider_counts = count_rendered_stock_sources(Path("work/asset_sources.jsonl"), scene_assets)
 
