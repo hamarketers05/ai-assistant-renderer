@@ -99,6 +99,9 @@ def main():
     if short.get("content_format") != "SHORT" or not 100 <= int(short.get("script_word_count", 0) or 0) <= 135 or short.get("qa") != "passed":
         raise SystemExit("Short-form QA failed; no content records or renderer runs were created.")
     starts = (datetime.now(NY).date() + timedelta(days=1)).isoformat()
+    rotation_date = str((package.get("category_rotation") or {}).get("date_us_eastern", "")).strip()
+    if rotation_date and rotation_date != starts:
+        raise SystemExit("Research category date does not match the next US Eastern publish slot; dispatch blocked to prevent a wrong-day category.")
     common_sources = sources[:12]
     editorial_category = str(package.get("editorial_category", "")).strip()
     if not editorial_category:
