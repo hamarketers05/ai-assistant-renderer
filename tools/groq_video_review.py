@@ -35,7 +35,7 @@ def groq_call(model, messages, max_tokens=800, json_mode=True):
     try:
         answer = json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r"\\{.*\\}", text, re.S)
+        match = re.search(r"\{.*\}", text, re.S)
         if not match:
             raise RuntimeError(str(result.get("provider", "AI provider")) + " returned an invalid review response")
         answer = json.loads(match.group(0))
