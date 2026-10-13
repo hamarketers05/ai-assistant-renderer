@@ -203,7 +203,7 @@ jobs:
                   raise SystemExit(f"Automatic Kokoro audio QA contract missing: {marker}")
           if "VOICE_AUDIO_APPROVAL_PENDING" in workflow_source or "wait for user approval" in workflow_source.lower():
               raise SystemExit("Human voice approval must not block automatic production.")
-          for marker in ("work/kokoro_script.sha256", "APPROVED_SCRIPT_SHA", "SCRIPT_SHA256"):
+          for marker in ("work/kokoro_script.sha256", "STORED_SCRIPT_SHA", "SCRIPT_SHA256"):
               if marker not in workflow_source:
                   raise SystemExit(f"Reused narration must stay tied to the exact script hash: {marker}")
           manifest_pos = workflow_source.index("- name: Request production manifest")
