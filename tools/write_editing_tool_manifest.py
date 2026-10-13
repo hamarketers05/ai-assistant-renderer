@@ -118,6 +118,8 @@ def main() -> None:
     if (imagemagick_report.get("status") != "used"
             or imagemagick_report.get("output_changed") is not True
             or imagemagick_report.get("dimensions") != [1280, 720]
+            or not imagemagick_report.get("input_sha256")
+            or imagemagick_report.get("input_sha256") == imagemagick_report.get("output_sha256")
             or imagemagick_report.get("output_sha256") != thumb_hash):
         raise SystemExit("Editing tool manifest blocked: ImageMagick processing report does not match the final thumbnail bytes.")
 
