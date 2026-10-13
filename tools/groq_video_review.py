@@ -6,6 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
+from ai_text_client import chat_completion
 
 TEXT_MODEL = os.getenv("GROQ_TEXT_MODEL", "openai/gpt-oss-20b")
 VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
@@ -22,46 +23,25 @@ def run(args, capture=False):
     return proc.stdout.strip() if capture else ""
 
 def groq_call(model, messages, max_tokens=800, json_mode=True):
-    key=os.getenv("GROQ_API_KEY","").strip()
-    if not key:
-        raise RuntimeError("GROQ_API_KEY is not configured")
-    payload={"model":model,"temperature":0.1,"max_tokens":max_tokens,"messages":messages}
+    payload = {"model": model, "temperature": 0.1, "max_tokens": max_tokens, "messages": messages}
     if json_mode:
-        payload["response_format"]={"type":"json_object"}
-    data=json.dumps(payload).encode("utf-8")
-    for attempt in range(3):
-        req=urllib.request.Request(GROQ_API,data=data,headers={
-            "Authorization":"Bearer "+key,"Content-Type":"application/json","Accept":"application/json"})
-        try:
-            with urllib.request.urlopen(req,timeout=90) as response:
-                result=json.loads(response.read().decode("utf-8"))
-            choices=result.get("choices") or []
-            if not choices:
-                raise RuntimeError("Groq returned no choices")
-            text=choices[0].get("message",{}).get("content","")
-            try:
-                answer=json.loads(text)
-            except json.JSONDecodeError:
-                match=re.search(r"\{.*\}",text,re.S)
-                if not match:
-                    raise RuntimeError("Groq returned an invalid review response")
-                answer=json.loads(match.group(0))
-            if not isinstance(answer,dict):
-                raise RuntimeError("Groq review response was not an object")
-            return answer
-        except urllib.error.HTTPError as exc:
-            if (exc.code==429 or exc.code>=500) and attempt<2:
-                try: pause=min(20,max(2,int(float(exc.headers.get("Retry-After","3")))))
-                except ValueError: pause=3*(attempt+1)
-                time.sleep(pause)
-                continue
-            raise RuntimeError(f"Groq review request failed with HTTP {exc.code}") from None
-        except (urllib.error.URLError,TimeoutError,json.JSONDecodeError) as exc:
-            if attempt<2:
-                time.sleep(2+2*attempt)
-                continue
-            raise RuntimeError(f"Groq review request failed: {type(exc).__name__}") from None
-    raise RuntimeError("Groq review did not complete after retries")
+        payload["response_format"] = {"type": "json_object"}
+    workflow_path = ".github/workflows/manual.yml"
+    result = chat_completion(payload, workflow_path, timeout=90)
+    choices = result.get("choices") or []
+    if not choices:
+        raise RuntimeError(str(result.get("provider", "AI provider")) + " returned no review choices")
+    text = str(choices[0].get("message", {}).get("content", ""))
+    try:
+        answer = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\\{.*\\}", text, re.S)
+        if not match:
+            raise RuntimeError(str(result.get("provider", "AI provider")) + " returned an invalid review response")
+        answer = json.loads(match.group(0))
+    if not isinstance(answer, dict):
+        raise RuntimeError("AI review response was not a JSON object")
+    return answer
 
 def probe(path):
     data=json.loads(run(["ffprobe","-v","error","-show_streams","-show_format","-of","json",str(path)],True))
@@ -239,11 +219,11 @@ def main():
           "next_video_rules":final_review.get("next_video_rules",[])[:6] if isinstance(final_review.get("next_video_rules",[]),list) else [],
           "summary":str(final_review.get("summary",""))[:1200],
           "asset_source_count":len(sources),"voice_pipeline":"Kokoro-82M American-English narration; automated audio QA required before render",
-          "review_models":{"vision":VISION_MODEL,"router":TEXT_MODEL}})
+          "review_models":{"vision":VISION_MODEL,"router":TEXT_MODEL},"review_provider":"Groq primary / authenticated Cloudflare Workers AI fallback"})
     except Exception as exc:
         report.update({"review_status":"failed","decision":"BLOCK",
           "blocking_issues":[f"Final AI/vision review did not complete: {type(exc).__name__}: {str(exc)[:220]}"],
-          "top_improvements":["Restore the free Groq API quota/key or correct the review error, then rerun final QA."],
+          "top_improvements":["Restore Groq access or Workers AI free quota/capacity, then rerun final QA."],
           "repeat_issues_to_avoid":["Never upload a render whose required final review did not complete."]})
     out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding="utf-8")
