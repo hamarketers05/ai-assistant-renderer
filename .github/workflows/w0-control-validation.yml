@@ -1,0 +1,40 @@
+name: W0 Control Validation
+
+on:
+  push:
+    branches:
+      - rebuild/architecture-v1
+    paths:
+      - "cloudflare/w0-control/**"
+      - ".github/workflows/w0-control-validation.yml"
+  pull_request:
+    paths:
+      - "cloudflare/w0-control/**"
+      - ".github/workflows/w0-control-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w0-control-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare/w0-control
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Install pinned project dependencies
+        run: npm install --no-audit --no-fund --legacy-peer-deps
+      - name: Type-check and test
+        run: npm run check
+      - name: Build Worker without deployment
+        run: npm run build
