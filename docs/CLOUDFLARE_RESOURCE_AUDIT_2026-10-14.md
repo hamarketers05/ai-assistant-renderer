@@ -98,16 +98,38 @@ Secret values were never requested. Secret counts are based on Cloudflare's list
 2. Four other Workers currently reference dark-sunset-a2a1: ai-assistant-dashboard-v2, ai-assistant-supervisor, ha-digital-superadmin, and voice-command-gateway. Three of those also reference ai-production-worker: ai-assistant-supervisor, ha-digital-superadmin, and voice-command-gateway. Retiring these scripts affects dependent integrations.
 3. Deleting all non-target scripts now would remove the supervisor, dashboard, handoff and gateway components before the proposed five-service architecture is implemented and verified. This conflicts with the PDF's no-bulk-replacement-before-testing rule.
 4. The target playbook specifies W0–W4 (five logical Workers/services). The request to leave only two existing Worker scripts is therefore treated as a cleanup/rebuild phase instruction, not evidence that the final playbook architecture should contain only two services.
-5. The exact deployed source of the two keepers has not been archived privately and reproducibly by this step; current repository files are not sufficient as the only source backup.
+5. At the initial read-only audit, the deployed source had not yet been archived. The follow-up archive operation below completed that pending item; repository files remain insufficient as the only source backup.
 6. D1 query verification is blocked by quota, and R2 is unavailable until enabled through the dashboard. Neither quota/billing nor R2 activation was changed.
 
 ## Actions taken
 
 - Read Cloudflare account metadata, Worker list, Worker settings/bindings, secret names, Cron schedules, deployment metadata, D1 list metadata, Queue/Workflow metadata, KV namespace names, Durable Object namespaces, Worker domains, Zones, and Pages projects.
-- Did not read secret values, KV values, or D1 application rows.
-- Did not change Workers, bindings, variables, secrets, schedules, routes/domains, Queues, Workflows, databases, Pages projects, or billing.
+- Did not read secret values, pre-existing KV session values, or D1 application rows. The follow-up archive operation read back only the newly created archive keys to verify encryption/decryption integrity.
+- Did not change Worker code, bindings, variables, secrets, schedules, routes/domains, Queues, Workflows, existing databases, Pages projects, or billing. The only follow-up Cloudflare mutations were creation of a dedicated KV namespace and writing its two encrypted source envelopes plus manifest.
 - Created the GitHub branch rebuild/architecture-v1 for controlled implementation and documentation.
 
 ## Next exact action
 
-Secure a verified private archive of the exact deployed source for dark-sunset-a2a1 and ai-production-worker without changing their bindings. Then map the existing Workers to the new W0–W4 responsibilities, identify which non-target scripts are safe to retire, and test replacements in staging before deleting any live Worker. Preserve all current variables and secrets on dark-sunset-a2a1 and do not deploy the undersized tracked main-worker file over production.
+Source archiving has been completed in dedicated Cloudflare KV namespace `AI_TECH_LAB_SOURCE_ARCHIVE_2026_10_14` (ID `7ed67f3dc5674c37a2784bf7a466a118`). Both source payloads were AES-256-GCM encrypted, read back, decrypted in memory, and checked against byte count and SHA-256. Recovery key is supplied as a separate local artifact and must not be committed to this public repository. Next: perform a controlled restore test when a scoped KV-read token is available; then map existing Workers to W0–W4 responsibilities, stage replacements, and test before any live deletion. Preserve all current variables and secrets on `dark-sunset-a2a1`; do not deploy the undersized tracked file over production.
+
+## Post-audit update — 2026-10-14: encrypted source archive
+
+A dedicated KV namespace was created after the read-only resource inventory specifically for encrypted source backup:
+- Namespace title: `AI_TECH_LAB_SOURCE_ARCHIVE_2026_10_14`
+- Namespace ID: `7ed67f3dc5674c37a2784bf7a466a118`
+- Archive keys: `dark-sunset-a2a1-v420.enc.json`, `ai-production-worker-v10.enc.json`, and `archive-manifest.json`.
+
+Captured baselines:
+| Worker | Version / deployment | Captured bytes | Captured raw SHA-256 | Stable source-body SHA-256 |
+|---|---|---:|---|---|
+| `dark-sunset-a2a1` | v420 / `528d0d1b-22c9-4159-9edf-9f58f8a9d368` | 815,687 | `8794e28ca6c255b71c2b817fb8441e380aedc86c7c211fa3d097d91c736edd63` | `8f4ac1b024e074daf21594d805bfd4c687cbf1171f5ca8b9f3239750d63272c2` |
+| `ai-production-worker` | v10 / `e90ed89e-beda-4627-82e1-5d16a8f1cf50` | 16,717 | `76c420742d620a02e00ff6b6297b8e4636476815125ffec29f8bfbbf5879698c` | `023168f71fc0d382b2f111fd0535a3248c7d797a4956b4dc947b7cdd02f5718f` |
+
+Verification performed:
+- Deployment version IDs were checked before and after source capture and remained the same.
+- Encrypted KV values were fetched back and AES-256-GCM authenticated/decrypted in memory. Restored bytes and raw SHA-256 matched the captured bytes and hash for each Worker.
+- Independent source reads differed on the first and penultimate response lines; after excluding those volatile lines and the trailing blank line, the remaining body was byte-for-byte identical across repeated reads and matched the archived body.
+- Key material is in a separate local recovery file and is intentionally absent from this public repo. Secret values were neither read nor changed.
+- No existing Worker or binding/schedule was modified. No production deployment or deletion occurred.
+
+Remaining recovery check: run `restore-worker-source.mjs` with a dedicated Cloudflare token scoped to Workers KV Storage Read, and retain the key in a separate safe location. Until that succeeds, preserve current Cloudflare versions and do not overwrite production.
