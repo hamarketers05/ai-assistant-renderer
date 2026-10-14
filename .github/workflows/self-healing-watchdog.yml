@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "tools/self_healing_rescue.py"
+      - "tools/pipeline_catalog.json"
+      - "tools/self_healing_pipeline_health.py"
+      - "tools/test_self_healing_pipeline_health.py"
       - ".github/workflows/self-healing-watchdog.yml"
   schedule:
     - cron: "*/15 * * * *"
@@ -50,7 +53,9 @@ jobs:
           GROQ_TEXT_MODEL: openai/gpt-oss-20b
         run: |
           set -euo pipefail
-          python -m py_compile tools/self_healing_rescue.py
+          python -m py_compile tools/self_healing_rescue.py tools/self_healing_pipeline_health.py tools/test_self_healing_pipeline_health.py
+          python tools/test_self_healing_pipeline_health.py
+          python tools/self_healing_pipeline_health.py
           python tools/self_healing_rescue.py
 
       - name: Save machine-readable recovery report
