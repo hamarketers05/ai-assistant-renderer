@@ -479,6 +479,7 @@ def run_self_test() -> dict:
         "class_count": len(model.labels),
         "classification_coverage": metrics["classification_coverage"],
         "pipeline_knowledge": metrics["pipeline_knowledge"],
+        "confusion_matrix": metrics["confusion_matrix"],
         "selective_accuracy": metrics["selective_accuracy"],
         "misclassified_holdout": [
             {key: row[key] for key in ("expected", "predicted", "text", "confidence", "margin", "second_label")}
