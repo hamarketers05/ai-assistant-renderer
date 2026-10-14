@@ -1,3 +1,22 @@
+## 2026-10-14 — Private Worker source archive completed (current state)
+
+**Status: encrypted source payloads stored and integrity-verified; production Workers untouched.**
+
+- Dedicated Cloudflare KV namespace: `AI_TECH_LAB_SOURCE_ARCHIVE_2026_10_14` (`7ed67f3dc5674c37a2784bf7a466a118`). It contains only two encrypted source payloads plus `archive-manifest.json`; no existing session namespace was used.
+- `dark-sunset-a2a1`: active version 420 (`2e566cc7-0a07-4626-8611-15c8155070c7`), deployment `528d0d1b-22c9-4159-9edf-9f58f8a9d368`; captured 815,687 bytes; raw SHA-256 `8794e28ca6c255b71c2b817fb8441e380aedc86c7c211fa3d097d91c736edd63`; normalized source-body SHA-256 `8f4ac1b024e074daf21594d805bfd4c687cbf1171f5ca8b9f3239750d63272c2`.
+- `ai-production-worker`: active version 10 (`0a4db91f-5764-4a74-b297-7ea08ba29dd1`), deployment `e90ed89e-beda-4627-82e1-5d16a8f1cf50`; captured 16,717 bytes; raw SHA-256 `76c420742d620a02e00ff6b6297b8e4636476815125ffec29f8bfbbf5879698c`; normalized source-body SHA-256 `023168f71fc0d382b2f111fd0535a3248c7d797a4956b4dc947b7cdd02f5718f`.
+- Both encrypted values were read back from KV, AES-256-GCM authenticated/decrypted in memory, and matched their captured byte counts and raw SHA-256. The normalized source-body SHA matched two repeated live reads for each Worker. Active deployment IDs remained unchanged before and after capture.
+- The source API's first and penultimate lines varied across reads; the stable body matched exactly after excluding those response-variable lines and the trailing empty line. This observation is documented in the archive manifest and does not change the stored raw payload.
+- The decryption key was saved in a separate local recovery artifact, **not in this public GitHub repository**. Do not commit the key, print it in logs, or upload it beside plaintext source. Recovery instructions and a Node.js restore script are in the local recovery pack.
+- Secret values were not read or changed. Existing Worker code, variables, secrets, bindings, routes, schedules, queues, workflows, D1 data, Pages projects, and billing were not modified. The only Cloudflare writes were creation of this dedicated namespace and its three archive/manifest keys.
+
+**Pending:** use the restore script when a locally scoped Cloudflare KV read token is available; run a full restore test and keep the key in a second safe location before any future production overwrite.
+
+**Next exact step:** continue the controlled rebuild on `rebuild/architecture-v1`: map current Worker dependencies to W0–W4, define the minimum staging contracts/tests, and use only staging for initial implementation. Do not delete Workers or deploy over production until the source archive is recoverable and acceptance checks pass.
+
+> This leading section supersedes older entries below that described the source archive as blocked or pending; those entries are retained as historical progress records.
+
+
 ## 2026-10-14 — Revised channel requirements and next rebuild step
 
 - User clarified the target channel is **AI Tech Lab**, aimed at a USA audience and focused on AI, AI tools, AI technology, robotics science, AI tech news, and future technology.
@@ -16,7 +35,7 @@
 - Confirmed the requested keepers: Main Worker dark-sunset-a2a1 (24 bindings, including 19 secret-text bindings, D1/KV/Queue/service bindings, and two Cron schedules) and ai-production-worker (Workers AI, MAIN_WORKER_URL plain-text variable, and WORKER_AUTH_TOKEN secret). All variables and secret values remain untouched.
 - Ten other Worker scripts are visible. Some have service dependencies from the target Workers, one owns a SQLite Durable Object namespace, and voice-command-gateway is referenced by the ha-ai-command-center Pages project. ha-digital-agency-core and its separate database/Pages app are linked to the separate hamarketers05/ha_digital_agency_automation repository. The audit records dependencies instead of bulk-deleting live Workers.
 - D1 query was blocked by Cloudflare error 7500 (daily free-tier row-read limit exceeded). ai-assistant-factory-db list metadata says num_tables=0, conflicting with earlier project records reporting a populated 86-table schema; treat schema state as unverified. R2 bucket inventory failed with error 10042 requiring dashboard activation. No billing/R2 activation change was made.
-- Confirmed the current live source baseline is not safely represented by the tracked Worker source: prior audit records about 814 KB live Main Worker vs about 23 KB tracked file. Do not deploy the tracked file over production. Exact private archive remains pending.
+- Confirmed the current live source baseline is not safely represented by the tracked Worker source: prior audit records about 814 KB live Main Worker vs about 23 KB tracked file. Do not deploy the tracked file over production. The independent encrypted source archive was completed and integrity-verified on 2026-10-14; see the leading source-archive section.
 - No Worker, binding, variable, secret, schedule, Queue, Workflow, database, Pages project, or billing configuration was changed. No secret value was read.
 
 **Current phase:** Cloudflare audit completed; destructive cleanup and production deployment not performed.
@@ -261,7 +280,7 @@ See [the complete deep review](docs/PIPELINE_DEEP_REVIEW_2026-10-13.md) for the 
 - Recorded active version/deployment IDs, previous-version rollback references, compatibility dates, binding names/types, Cron schedules, and source API response fingerprints in `docs/PRODUCTION_WORKER_BASELINE_2026-10-14.md`.
 - Verified Main Worker v420 (`2e566cc7-0a07-4626-8611-15c8155070c7`) is 100% active; v419 (`79b5fbe4-7946-49f8-afb8-4a4069ca431d`) is the immediate prior version. Production Worker v10 (`0a4db91f-5764-4a74-b297-7ea08ba29dd1`) is 100% active; v9 (`521ed3d7-85de-48f9-9287-2d6c0742a0aa`) is the immediate prior version.
 - **No Worker code/configuration was changed or deployed.** No secrets were read, no billing changed, and no videos or historical records were touched.
-- Backup limitation: live source was not committed into this public repository because that could expose internal implementation details. The new document is a baseline manifest and rollback-reference record, **not a complete source archive**. Exact source archive is still required before the first production code change.
+- Historical backup limitation (superseded 2026-10-14): live source remains excluded from this public repository. A complete encrypted source archive was subsequently written to a dedicated Cloudflare KV namespace and verified; details are in the leading source-archive section.
 - Verification: repeated Cloudflare API GETs succeeded (HTTP 200); version/deployment read-back matches the baseline. Raw multipart source-response fingerprints are explicitly not claimed as canonical source hashes.
 - Status: baseline metadata recorded; remediation remains blocked until a secure, verified source backup is available.
 - **Next exact action:** create and verify a private backup of the exact deployed Worker source without exposing it in this public repo; then patch only the diagnostic route against the reconciled live source.
@@ -273,6 +292,6 @@ See [the complete deep review](docs/PIPELINE_DEEP_REVIEW_2026-10-13.md) for the 
 - Confirmed Main Worker v420 remains the 100% active deployment and v419 is the previous version; Production Worker v10 remains 100% active and v9 is the previous version.
 - Confirmed the source-content endpoint returns multipart-formatted content (approximately 815 KB for Main Worker and 16.7 KB for Production Worker in the API response). The current available tool path can inspect the response in-memory, but does not provide a secure private file destination to save and independently verify the complete source archive.
 - The GitHub repository is public; therefore, **did not upload live Worker source into it**. No production source/configuration was changed, no new Worker version was created, and no deployment occurred.
-- This step is **blocked**, not complete: Cloudflare's retained immutable version IDs are useful rollback references but are not being represented as an independently verified source archive.
-- Verification: metadata/source endpoints returned HTTP 200 and active/previous version references were re-read. No canonical source-file checksum is claimed because the raw multipart response includes framing that changes between reads.
-- Next exact action: provide/authorize a secure private backup destination (for example, a private repository or private storage location already available to this project), or use an approved export mechanism that writes the complete source directly there. After saving, verify the archive's size and canonical SHA-256 before any production fix.
+- Historical state (superseded 2026-10-14): the source archive was blocked at this point in the log; it was later completed and verified as recorded in the leading source-archive section.
+- Follow-up verification (2026-10-14): the `content/v2` source payloads were archived as encrypted values and authenticated/decrypted on read-back. Each captured payload has a raw SHA-256 plus a normalized source-body SHA-256. Independent responses vary only on the first and penultimate lines; the normalized body matched across repeated reads and matched the archived body.
+- Historical next action (superseded): provide a secure backup destination. This was resolved on 2026-10-14 by creating a dedicated Cloudflare KV namespace, storing both AES-256-GCM encrypted source payloads, and verifying read-back decryption and hashes.
