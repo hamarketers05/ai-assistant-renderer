@@ -177,7 +177,7 @@ async function authenticate(request: Request, env: Env, requestId: string): Prom
 
   const authorization = request.headers.get("authorization") || "";
   const match = /^Bearer ([^\s]+)$/i.exec(authorization);
-  if (!match || !(await constantTimeTokenMatch(match[1], expectedToken))) {
+  if (!match || !(await constantTimeTokenMatch(match[1]!, expectedToken))) {
     return errorResponse(
       401,
       "UNAUTHORIZED",
@@ -233,7 +233,7 @@ async function parseJsonRequest(
   request: Request,
   requestId: string,
 ): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
-  const mediaType = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  const mediaType = (request.headers.get("content-type") || "").split(";")[0]?.trim().toLowerCase() ?? "";
   if (mediaType !== "application/json") {
     return {
       ok: false,
@@ -701,19 +701,19 @@ export default {
       const transitionMatch = /^\/v1\/jobs\/([^/]+)\/transitions$/.exec(path);
       if (transitionMatch) {
         if (request.method !== "POST") return methodNotAllowed(requestId, "POST");
-        return await transitionJob(request, env, requestId, transitionMatch[1]);
+        return await transitionJob(request, env, requestId, transitionMatch[1]!);
       }
 
       const heartbeatMatch = /^\/v1\/jobs\/([^/]+)\/heartbeat$/.exec(path);
       if (heartbeatMatch) {
         if (request.method !== "POST") return methodNotAllowed(requestId, "POST");
-        return await heartbeatJob(request, env, requestId, heartbeatMatch[1]);
+        return await heartbeatJob(request, env, requestId, heartbeatMatch[1]!);
       }
 
       const jobMatch = /^\/v1\/jobs\/([^/]+)$/.exec(path);
       if (jobMatch) {
         if (request.method !== "GET") return methodNotAllowed(requestId, "GET");
-        return await getJob(request, env, requestId, jobMatch[1]);
+        return await getJob(request, env, requestId, jobMatch[1]!);
       }
 
       return errorResponse(404, "NOT_FOUND", "Route not found.", requestId);

@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
-import { createExecutionContext } from "cloudflare:test";
 import worker from "../src/index";
 
 const TEST_TOKEN = "local-w0-control-test-token-0123456789";
-const testEnv: Env = { ...env, W0_AUTH_TOKEN: TEST_TOKEN, APP_ENV: "test", APP_VERSION: "test" };
+const testEnv = { ...env, W0_AUTH_TOKEN: TEST_TOKEN, APP_ENV: "test", APP_VERSION: "test" } as unknown as Env;
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {
@@ -25,19 +24,18 @@ function request(
   const headers = new Headers();
   if (options.token !== null) headers.set("authorization", "Bearer " + (options.token ?? TEST_TOKEN));
   if (options.body !== undefined) headers.set("content-type", options.contentType ?? "application/json");
-  return new Request("https://w0.test" + path, {
+  const init: RequestInit = {
     method: options.method ?? (options.body === undefined ? "GET" : "POST"),
     headers,
-    body: options.body === undefined
-      ? undefined
-      : typeof options.body === "string"
-        ? options.body
-        : JSON.stringify(options.body),
-  });
+  };
+  if (options.body !== undefined) {
+    init.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+  }
+  return new Request("https://w0.test" + path, init);
 }
 
 async function invoke(req: Request, runtimeEnv: Env = testEnv): Promise<Response> {
-  return worker.fetch(req, runtimeEnv, createExecutionContext());
+  return worker.fetch(req, runtimeEnv);
 }
 
 async function createValidJob(overrides: Record<string, unknown> = {}) {
@@ -47,7 +45,7 @@ async function createValidJob(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(async () => {
-  await env.DB.prepare("DELETE FROM w0_jobs").run();
+  await (testEnv as unknown as Env).DB.prepare("DELETE FROM w0_jobs").run();
 });
 
 describe("W0 Control API", () => {
@@ -66,7 +64,7 @@ describe("W0 Control API", () => {
   it("fails closed when the authentication secret is missing", async () => {
     const response = await invoke(
       request("/v1/jobs", { body: payload() }),
-      { ...testEnv, W0_AUTH_TOKEN: undefined },
+      { ...testEnv, W0_AUTH_TOKEN: undefined } as unknown as Env,
     );
     expect(response.status).toBe(503);
     expect((await response.json() as { error: { code: string } }).error.code).toBe("AUTH_NOT_CONFIGURED");
