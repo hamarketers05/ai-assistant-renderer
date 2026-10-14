@@ -239,3 +239,14 @@ See [the complete deep review](docs/PIPELINE_DEEP_REVIEW_2026-10-13.md) for the 
 - Verification: repeated Cloudflare API GETs succeeded (HTTP 200); version/deployment read-back matches the baseline. Raw multipart source-response fingerprints are explicitly not claimed as canonical source hashes.
 - Status: baseline metadata recorded; remediation remains blocked until a secure, verified source backup is available.
 - **Next exact action:** create and verify a private backup of the exact deployed Worker source without exposing it in this public repo; then patch only the diagnostic route against the reconciled live source.
+
+
+## 2026-10-14 — Step 1.1: secure source backup attempt (blocked safely)
+
+- Re-read Cloudflare source-content, settings, versions, deployments, and schedules for both Workers; all requested API endpoints returned HTTP 200.
+- Confirmed Main Worker v420 remains the 100% active deployment and v419 is the previous version; Production Worker v10 remains 100% active and v9 is the previous version.
+- Confirmed the source-content endpoint returns multipart-formatted content (approximately 815 KB for Main Worker and 16.7 KB for Production Worker in the API response). The current available tool path can inspect the response in-memory, but does not provide a secure private file destination to save and independently verify the complete source archive.
+- The GitHub repository is public; therefore, **did not upload live Worker source into it**. No production source/configuration was changed, no new Worker version was created, and no deployment occurred.
+- This step is **blocked**, not complete: Cloudflare's retained immutable version IDs are useful rollback references but are not being represented as an independently verified source archive.
+- Verification: metadata/source endpoints returned HTTP 200 and active/previous version references were re-read. No canonical source-file checksum is claimed because the raw multipart response includes framing that changes between reads.
+- Next exact action: provide/authorize a secure private backup destination (for example, a private repository or private storage location already available to this project), or use an approved export mechanism that writes the complete source directly there. After saving, verify the archive's size and canonical SHA-256 before any production fix.
