@@ -1,13 +1,16 @@
-## 2026-10-14 — ML pipeline knowledge grounding (PR preparation; not CI-verified yet)
+## 2026-10-14 — ML diagnostics merged; scheduled monitoring and retraining verified
 
-- Added `pipeline_catalog_summary()` and `ground_incident_knowledge()` in `tools/self_healing_ml.py`. An accepted incident label can now be linked to the exact catalog route, pipeline stages, tool roles and workflows; unknown labels do not infer a route.
-- The saved training/evaluation report includes catalog version and counts (14 stages, 21 workflows, 40 tools, 30 incident routes) while explicitly marking that this is static repository knowledge, not runtime health proof or knowledge learned by classifier weights.
-- Extended holdout evaluation with per-class precision/recall/F1, macro precision/recall/F1 and a confusion matrix. Existing accuracy/coverage gates remain in place; model predictions remain advisory-only.
-- Integrated catalog context into `tools/self_healing_agent.py` diagnostics and extended `tools/test_self_healing_ml.py` for known/unknown route grounding and metric bounds.
-- **Verification status:** changes are on `feat/ml-pipeline-grounded-diagnostics-20261014`; local execution has not been claimed. PR CI and the actual Python training/test output are pending.
-- **Safety:** no extra retry/patch/deploy/publish authority was granted. Pipeline catalog entries remain a versioned lookup, not proof a listed external tool works. Production end-to-end/video publication status is unchanged and remains blocked.
+- **Merged PR #14** as `ccaef460ab74bcdd8196bb1bc12f0079b122049c`. The change links accepted ML incident labels to the checked-in pipeline catalog and adds per-class precision/recall/F1, macro metrics and a confusion matrix. Unknown labels remain fail-closed; model diagnostics do not grant repair/release authority.
+- **Exact PR-head CI passed before merge:** CI Workflow Guard [38503670985](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38503670985) and Renderer Static Validation [38503670945](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38503670945).
+- **Post-merge controller verified:** Autonomous Self-Healing Agent run [38504326775](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38504326775) succeeded on merge commit. The run retrained the classifier from 240 labelled examples, evaluated the separate 80-example holdout, and passed ML regression tests for catalog grounding and unknown-route fail-closed behavior. Holdout: accuracy **93.75%**, macro precision **95.83%**, macro recall **94.44%**, macro-F1 **94.41%**, 30 incident classes. These metrics describe the curated holdout, not every future failure.
+- The same controller run reported four configured Worker probes as HTTP 200, `unresolved=[]`, and the sanitized D1 report stored successfully (`stored=True`, no duplicate). This verifies those probes and report write for that run only, not full video generation or publishing.
+- **Activation:** `.github/workflows/ai-self-healing-agent.yml` and `.github/workflows/self-healing-watchdog.yml` have scheduled `*/15 * * * *` triggers, and the agent subscribes to selected workflow failures. Each controller run retrains/evaluates from the versioned dataset. GitHub Actions cron is best-effort, not a persistent 24/7 process or uptime guarantee. Automated recovery remains bounded and allowlisted; credentials, billing, QA gates, deployment, uploads and publication cannot be blindly changed by the classifier.
+- **Release remains BLOCKED:** the full live trend-to-script-to-Kokoro-to-rendered-MP4-to-Short-to-YouTube scheduling chain still lacks current end-to-end verification. Historical Groq 429 / Workers AI free-quota / D1 limits are infrastructure constraints; no paid service or QA bypass was enabled. No video was published by this change.
+- **Post-merge validation still running at this status update:** CI Workflow Guard run 38504326800 status `completed` (conclusion: `success`); Renderer Static Validation run 38504326789 status `in_progress` (conclusion: `null`). Update this checkpoint after the exact merge-commit checks finish.
 
-**Next exact action:** open PR #14, require CI Workflow Guard and Renderer Static Validation, review Self-Healing Agent/E2E results, then record only observed evaluation metrics and test outputs.
+**Next exact action:** verify the final conclusions for post-merge CI Workflow Guard and Renderer Static Validation on commit `ccaef460ab74bcdd8196bb1bc12f0079b122049c`; resolve evidence-backed failures only.
+
+---
 
 ## 2026-10-14 — Pipeline knowledge catalog and static integrity gate (PR #13 merged)
 
@@ -20,9 +23,12 @@
 
 **Next exact action:** finish post-merge CI checks, then wire catalog-grounded stage/tool/workflow context into ML diagnostic reports and verify those reports remain advisory-only.
  
+
+---
+
 # PROJECT_STATUS.md - AI Tech Lab
 
-**Updated:** 2026-10-14 (PKT)  
+**Updated:** 2026-10-14 (PKT; PR #14 merge checkpoint)  
 **Repository:** https://github.com/hamarketers05/ai-assistant-renderer  
 **Branch:** main  
 **Reviewed code commit:** 8b3cfc17aded1fef1c45e644cac07e3896bde80d  
