@@ -16,7 +16,7 @@ import io, json, os, re, subprocess, sys, time, urllib.error, urllib.request, zi
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from self_healing_ml import SAFE_ADVISORIES, train_and_save
+from self_healing_ml import SAFE_ADVISORIES, ground_incident_knowledge, train_and_save
 
 API = "https://api.github.com"
 REPO = os.getenv("GITHUB_REPOSITORY", "hamarketers05/ai-assistant-renderer")
@@ -531,6 +531,10 @@ def initialize_ml_model():
             "holdout_examples": metrics["evaluation_count"],
             "holdout_accuracy": metrics["accuracy"],
             "holdout_macro_accuracy": metrics.get("macro_accuracy"),
+            "holdout_macro_precision": metrics.get("macro_precision"),
+            "holdout_macro_recall": metrics.get("macro_recall"),
+            "holdout_macro_f1": metrics.get("macro_f1"),
+            "pipeline_knowledge": metrics.get("pipeline_knowledge"),
             "classification_coverage": metrics.get("classification_coverage"),
             "selective_accuracy": metrics.get("selective_accuracy"),
             "unclassified_predictions": metrics.get("unclassified_count"),
@@ -563,6 +567,15 @@ def record_ml_diagnosis(run, log):
     if ML_CLASSIFIER is None:
         return None
     prediction = ML_CLASSIFIER.predict(str(run.get("name") or "") + "\n" + str(log or ""))
+    pipeline_knowledge = (
+        ground_incident_knowledge(prediction.label)
+        if prediction.accepted else {
+            "catalog_status": "NOT_APPLIED",
+            "route_found": False,
+            "knowledge_scope": "model prediction was not accepted; no incident route inferred",
+            "runtime_health_proven": False,
+        }
+    )
     item = {
         "run_id": run.get("id"),
         "workflow": run.get("name"),
@@ -572,6 +585,7 @@ def record_ml_diagnosis(run, log):
         "margin": prediction.margin,
         "second_choice": prediction.second_label,
         "advisory": SAFE_ADVISORIES.get(prediction.label) if prediction.accepted else None,
+        "pipeline_knowledge": pipeline_knowledge,
         "decision_policy": "advisory_only_no_model_authorized_retry_patch_upload_or_release",
     }
     REPORT["ml_diagnostics"].append(item)
