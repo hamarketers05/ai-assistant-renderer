@@ -24,12 +24,12 @@ type JobStatus = (typeof JOB_STATUSES)[number];
 interface JobInput {
   schema_version: "1.0";
   run_id: string;
-  trace_id?: string;
+  trace_id: string | undefined;
   idempotency_key: string;
   job_type: JobType;
-  category_id?: string;
-  input_ref?: string;
-  callback_ref?: string;
+  category_id: string | undefined;
+  input_ref: string | undefined;
+  callback_ref: string | undefined;
 }
 
 interface TransitionInput {
@@ -37,7 +37,7 @@ interface TransitionInput {
   expected_status: JobStatus;
   next_status: JobStatus;
   worker_id: string;
-  error_code?: string;
+  error_code: string | undefined;
 }
 
 interface HeartbeatInput {
@@ -86,13 +86,6 @@ const ALLOWED_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
   BLOCKED_APPROVAL: [],
   CANCELLED: [],
 };
-
-const TERMINAL_STATUSES: readonly JobStatus[] = [
-  "SUCCEEDED",
-  "FAILED_PERMANENT",
-  "BLOCKED_APPROVAL",
-  "CANCELLED",
-];
 
 class PayloadTooLargeError extends Error {}
 class InvalidUtf8Error extends Error {}

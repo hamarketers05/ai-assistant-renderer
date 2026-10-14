@@ -42,7 +42,7 @@ async function invoke(req: Request, runtimeEnv: Env = testEnv): Promise<Response
 
 async function createValidJob(overrides: Record<string, unknown> = {}) {
   const response = await invoke(request("/v1/jobs", { body: payload(overrides) }));
-  const body = await response.json() as { job: { job_id: string; status: string; attempt: number } };
+  const body = await response.json() as { job: { job_id: string; status: string; attempt: number }; duplicate?: boolean };
   return { response, body };
 }
 
@@ -126,7 +126,7 @@ describe("W0 Control API", () => {
     expect(first.response.status).toBe(202);
     expect(duplicate.response.status).toBe(200);
     expect(duplicate.body.job.job_id).toBe(first.body.job.job_id);
-    expect((await duplicate.response.json() as { duplicate: boolean }).duplicate).toBe(true);
+    expect(duplicate.body.duplicate).toBe(true);
   });
 
   it("rejects reuse of an idempotency key with a different payload", async () => {
