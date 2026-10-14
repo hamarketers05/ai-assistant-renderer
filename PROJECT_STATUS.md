@@ -1,3 +1,18 @@
+## 2026-10-14 — Cloudflare account-wide audit for Architecture Playbook rebuild
+
+- Created branch rebuild/architecture-v1 from main before recording rebuild changes.
+- Added docs/CLOUDFLARE_RESOURCE_AUDIT_2026-10-14.md with a read-only inventory of all 12 Workers, bindings/secret counts, cron schedules, D1, KV, Queues, Workflow, Durable Objects, Worker domains, zones, and Cloudflare Pages dependencies. No secret values or KV/D1 application data were read.
+- Confirmed the requested keepers: Main Worker dark-sunset-a2a1 (24 bindings, including 19 secret-text bindings, D1/KV/Queue/service bindings, and two Cron schedules) and ai-production-worker (Workers AI, MAIN_WORKER_URL plain-text variable, and WORKER_AUTH_TOKEN secret). All variables and secret values remain untouched.
+- Ten other Worker scripts are visible. Some have service dependencies from the target Workers, one owns a SQLite Durable Object namespace, and voice-command-gateway is referenced by the ha-ai-command-center Pages project. ha-digital-agency-core and its separate database/Pages app are linked to the separate hamarketers05/ha_digital_agency_automation repository. The audit records dependencies instead of bulk-deleting live Workers.
+- D1 query was blocked by Cloudflare error 7500 (daily free-tier row-read limit exceeded). ai-assistant-factory-db list metadata says num_tables=0, conflicting with earlier project records reporting a populated 86-table schema; treat schema state as unverified. R2 bucket inventory failed with error 10042 requiring dashboard activation. No billing/R2 activation change was made.
+- Confirmed the current live source baseline is not safely represented by the tracked Worker source: prior audit records about 814 KB live Main Worker vs about 23 KB tracked file. Do not deploy the tracked file over production. Exact private archive remains pending.
+- No Worker, binding, variable, secret, schedule, Queue, Workflow, database, Pages project, or billing configuration was changed. No secret value was read.
+
+**Current phase:** Cloudflare audit completed; destructive cleanup and production deployment not performed.
+
+**Next exact action:** privately archive and verify the exact deployed source for both keepers without altering bindings, then map the ten retire candidates against the target W0–W4 design and test replacements in staging before any live deletion.
+---
+
 ## 2026-10-14 — Scoped live pipeline audit (Main Worker + Production Worker + renderer repo)
 
 - Added [scoped pipeline audit](docs/PIPELINE_AUDIT_2026-10-14.md). Scope stayed limited to Cloudflare `dark-sunset-a2a1`, `ai-production-worker`, and this repository.
