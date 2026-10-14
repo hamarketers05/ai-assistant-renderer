@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import worker from "../src/index";
+import migration from "../migrations/0001_w0_jobs.sql?raw";
 
 const TEST_TOKEN = "local-w0-control-test-token-0123456789";
 const testEnv = { ...env, W0_AUTH_TOKEN: TEST_TOKEN, APP_ENV: "test", APP_VERSION: "test" } as unknown as Env;
@@ -43,6 +44,10 @@ async function createValidJob(overrides: Record<string, unknown> = {}) {
   const body = await response.json() as { job: { job_id: string; status: string; attempt: number }; duplicate?: boolean };
   return { response, body };
 }
+
+beforeAll(async () => {
+  await (testEnv as unknown as Env).DB.exec(migration);
+});
 
 beforeEach(async () => {
   await (testEnv as unknown as Env).DB.prepare("DELETE FROM w0_jobs").run();
