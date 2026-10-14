@@ -46,7 +46,10 @@ async function createValidJob(overrides: Record<string, unknown> = {}) {
 }
 
 beforeAll(async () => {
-  await (testEnv as unknown as Env).DB.exec(migration.replace(/^--.*(?:\r?\n|$)/gm, ""));
+  const statements = migration.replace(/^--.*(?:\r?\n|$)/gm, "").split(";").map((statement) => statement.trim()).filter(Boolean);
+  for (const statement of statements) {
+    await (testEnv as unknown as Env).DB.prepare(statement).run();
+  }
 });
 
 beforeEach(async () => {
