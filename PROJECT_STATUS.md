@@ -1,3 +1,14 @@
+## 2026-10-14 — Revised channel requirements and next rebuild step
+
+- User clarified the target channel is **AI Tech Lab**, aimed at a USA audience and focused on AI, AI tools, AI technology, robotics science, AI tech news, and future technology.
+- Publishing target: exactly one approximately 6-minute long-form video and one separate Short per day, each scheduled at a different time for the USA audience. Exact schedule slots and the U.S. timezone (default recommendation: America/New_York) must be finalized before scheduling is enabled.
+- The generic seven-category editorial examples in the Architecture Playbook are not to be treated as the final channel strategy; topic/category rules must be tuned to AI Tech Lab.
+- User wants current retained Workers repurposed from scratch, while preserving all existing variables/secrets on `dark-sunset-a2a1` and not changing their values. `ai-production-worker` is also to be preserved.
+- **Next exact step:** create and verify a secure, private archive of the exact deployed source/baseline for both retained Workers, while preserving secret values in place and recording names/bindings/schedules/dependencies. Do not empty, overwrite, delete, or redeploy either Worker until that recovery point is verified. After that, implement the minimal new AI Tech Lab architecture and validate it in staging.
+- No Cloudflare configuration, Worker source, secret, schedule, billing setting, or deployment was changed for this clarification.
+
+---
+
 ## 2026-10-14 — Cloudflare account-wide audit for Architecture Playbook rebuild
 
 - Created branch rebuild/architecture-v1 from main before recording rebuild changes.
