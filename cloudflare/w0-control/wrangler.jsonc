@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-tech-lab-w0-control-staging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-14",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_ENV": "staging",
+    "APP_VERSION": "0.1.0"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ai-tech-lab-w0-control-staging",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

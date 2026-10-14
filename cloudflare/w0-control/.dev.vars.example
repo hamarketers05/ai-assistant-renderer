@@ -1,0 +1,3 @@
+# Local development only. Replace this with a random 32+ character token before running locally.
+# Copy to .dev.vars; never commit .dev.vars or a real token.
+W0_AUTH_TOKEN=replace-this-with-a-random-32-character-or-longer-token
