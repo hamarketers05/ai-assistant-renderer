@@ -93,6 +93,73 @@ def read_jsonl(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+DEFAULT_CATALOG = BASE / "pipeline_catalog.json"
+
+
+def pipeline_catalog_summary(catalog_path: Path | None = None) -> dict:
+    """Return versioned knowledge-map coverage; this is not live health evidence."""
+    path = Path(catalog_path) if catalog_path is not None else DEFAULT_CATALOG
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(catalog, dict):
+            raise ValueError("catalog root must be an object")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"catalog_status": "UNKNOWN", "source": "tools/pipeline_catalog.json",
+                "runtime_health_proven": False}
+    return {
+        "catalog_status": "PRESENT",
+        "source": "tools/pipeline_catalog.json",
+        "schema_version": catalog.get("schema_version"),
+        "stage_count": len(catalog.get("stages", [])),
+        "workflow_count": len(catalog.get("workflows", [])),
+        "tool_count": len(catalog.get("tools", [])),
+        "incident_route_count": len(catalog.get("incident_routes", [])),
+        "knowledge_mode": "repository retrieval; not learned by classifier weights",
+        "runtime_health_proven": False,
+    }
+
+
+def ground_incident_knowledge(label: str, catalog_path: Path | None = None) -> dict:
+    """Attach matching route, stages, tools and workflows from the checked-in catalog."""
+    path = Path(catalog_path) if catalog_path is not None else DEFAULT_CATALOG
+    base = {"source": "tools/pipeline_catalog.json",
+            "knowledge_scope": "static repository mapping; not live runtime evidence",
+            "runtime_health_proven": False, "incident_label": str(label)}
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(catalog, dict):
+            raise ValueError("catalog root must be an object")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {**base, "catalog_status": "UNKNOWN", "route_found": False}
+    route = next((item for item in catalog.get("incident_routes", [])
+                  if isinstance(item, dict) and (item.get("label") or item.get("code")) == label), None)
+    result = {**base, "catalog_status": "PRESENT",
+              "schema_version": catalog.get("schema_version"), "route_found": route is not None}
+    if route is None:
+        return result
+    stage_ids = set(route.get("stage_ids", []))
+    stages = [stage for stage in catalog.get("stages", [])
+              if isinstance(stage, dict) and stage.get("id") in stage_ids]
+    tools = [item for item in catalog.get("tools", [])
+             if isinstance(item, dict) and stage_ids.intersection(item.get("stage_ids", []))]
+    workflows = [item for item in catalog.get("workflows", [])
+                 if isinstance(item, dict) and stage_ids.intersection(item.get("stage_ids", []))]
+    return {
+        **result,
+        "stage_ids": sorted(stage_ids),
+        "stages": [{key: item.get(key) for key in ("id", "name", "purpose", "state")}
+                   for item in stages[:8]],
+        "tools": [{key: item.get(key) for key in ("path", "role", "tool_type", "stage_ids")}
+                  for item in tools[:12]],
+        "workflows": [{key: item.get(key) for key in ("path", "purpose", "role", "publication_capable", "stage_ids")}
+                      for item in workflows[:12]],
+        "permitted_recovery": route.get("permitted_recovery"),
+        "recovery_mode": route.get("recovery_mode"),
+        "must_fail_closed": route.get("must_fail_closed", True),
+        "ml_authority": route.get("ml_authority", "diagnostic_only"),
+    }
+
+
 @dataclass
 class Prediction:
     label: str
