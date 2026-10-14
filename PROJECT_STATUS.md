@@ -1,13 +1,24 @@
-## 2026-10-14 — Pipeline knowledge catalog and static integrity gate (PR pending)
+## 2026-10-14 — ML pipeline knowledge grounding (PR preparation; not CI-verified yet)
+
+- Added `pipeline_catalog_summary()` and `ground_incident_knowledge()` in `tools/self_healing_ml.py`. An accepted incident label can now be linked to the exact catalog route, pipeline stages, tool roles and workflows; unknown labels do not infer a route.
+- The saved training/evaluation report includes catalog version and counts (14 stages, 21 workflows, 40 tools, 30 incident routes) while explicitly marking that this is static repository knowledge, not runtime health proof or knowledge learned by classifier weights.
+- Extended holdout evaluation with per-class precision/recall/F1, macro precision/recall/F1 and a confusion matrix. Existing accuracy/coverage gates remain in place; model predictions remain advisory-only.
+- Integrated catalog context into `tools/self_healing_agent.py` diagnostics and extended `tools/test_self_healing_ml.py` for known/unknown route grounding and metric bounds.
+- **Verification status:** changes are on `feat/ml-pipeline-grounded-diagnostics-20261014`; local execution has not been claimed. PR CI and the actual Python training/test output are pending.
+- **Safety:** no extra retry/patch/deploy/publish authority was granted. Pipeline catalog entries remain a versioned lookup, not proof a listed external tool works. Production end-to-end/video publication status is unchanged and remains blocked.
+
+**Next exact action:** open PR #14, require CI Workflow Guard and Renderer Static Validation, review Self-Healing Agent/E2E results, then record only observed evaluation metrics and test outputs.
+
+## 2026-10-14 — Pipeline knowledge catalog and static integrity gate (PR #13 merged)
 
 - Added `tools/pipeline_catalog.json` (14 stages, 21 workflow entries, 40 tool entries and 30 incident routes) to map intended stage responsibilities, evidence boundaries, quality gates and protected operations. This catalog is configuration knowledge, not proof those stages work end-to-end.
-- Added `tools/pipeline_health_check.py`, a read-only validator for required catalog structure, duplicate stage IDs/paths, repository file references, incident recovery fields, required safety protections, and the explicit distinction between static status and runtime proof.
-- Added offline regression tests for valid catalog, duplicate IDs, missing references, missing safety protections, false runtime claims, invalid uptime guarantees and path traversal.
-- Wired the catalog validator/tests into CI Workflow Guard and added catalog/checker/test paths to the existing self-healing workflow triggers.
-- **Verification status:** GitHub Actions checks have not yet run on this change. Do not mark the validator as CI-verified until the PR's exact-head checks pass. No production runtime, rendered MP4, upload or publication was touched.
-- **Current release status remains BLOCKED:** provider quota, D1 persistence/dedup, full rendered-video QA, and YouTube schedule read-back remain unverified. Cron remains best-effort and is not guaranteed 24/7.
+- Added `tools/pipeline_health_check.py` and `tools/self_healing_pipeline_health.py`, read-only validators for catalog structure, repository references, safety invariants and bounded GitHub Actions freshness evidence.
+- Added offline regression tests and wired health validation into CI Workflow Guard and self-healing workflows.
+- **Verification:** PR [#13](https://github.com/hamarketers05/ai-assistant-renderer/pull/13) merged as `8625192a89f596398c74e3645b4a3d8672083703` after CI Workflow Guard [38467682297](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38467682297) and Renderer Static Validation [38467682194](https://github.com/hamarketers05/ai-assistant-renderer/actions/runs/38467682194) passed on its exact head.
+- **Post-merge verification pending:** CI, renderer static validation, self-healing controller and watchdog were triggered for merge commit `8625192a89f596398c74e3645b4a3d8672083703`; their first check showed runs in progress.
+- **Current release status remains BLOCKED:** provider quotas, D1 state persistence/dedup, real rendered MP4 QA, narration verification, and YouTube upload/schedule read-back remain unverified. GitHub Actions cron is best-effort, not guaranteed 24/7.
 
-**Next exact action:** run CI Workflow Guard and Renderer Static Validation on the PR head, fix only evidence-backed failures, then merge only after both required checks pass.
+**Next exact action:** finish post-merge CI checks, then wire catalog-grounded stage/tool/workflow context into ML diagnostic reports and verify those reports remain advisory-only.
  
 # PROJECT_STATUS.md - AI Tech Lab
 

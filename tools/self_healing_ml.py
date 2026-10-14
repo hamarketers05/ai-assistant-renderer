@@ -93,6 +93,73 @@ def read_jsonl(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+DEFAULT_CATALOG = BASE / "pipeline_catalog.json"
+
+
+def pipeline_catalog_summary(catalog_path: Path | None = None) -> dict:
+    """Return versioned knowledge-map coverage; this is not live health evidence."""
+    path = Path(catalog_path) if catalog_path is not None else DEFAULT_CATALOG
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(catalog, dict):
+            raise ValueError("catalog root must be an object")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"catalog_status": "UNKNOWN", "source": "tools/pipeline_catalog.json",
+                "runtime_health_proven": False}
+    return {
+        "catalog_status": "PRESENT",
+        "source": "tools/pipeline_catalog.json",
+        "schema_version": catalog.get("schema_version"),
+        "stage_count": len(catalog.get("stages", [])),
+        "workflow_count": len(catalog.get("workflows", [])),
+        "tool_count": len(catalog.get("tools", [])),
+        "incident_route_count": len(catalog.get("incident_routes", [])),
+        "knowledge_mode": "repository retrieval; not learned by classifier weights",
+        "runtime_health_proven": False,
+    }
+
+
+def ground_incident_knowledge(label: str, catalog_path: Path | None = None) -> dict:
+    """Attach matching route, stages, tools and workflows from the checked-in catalog."""
+    path = Path(catalog_path) if catalog_path is not None else DEFAULT_CATALOG
+    base = {"source": "tools/pipeline_catalog.json",
+            "knowledge_scope": "static repository mapping; not live runtime evidence",
+            "runtime_health_proven": False, "incident_label": str(label)}
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(catalog, dict):
+            raise ValueError("catalog root must be an object")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {**base, "catalog_status": "UNKNOWN", "route_found": False}
+    route = next((item for item in catalog.get("incident_routes", [])
+                  if isinstance(item, dict) and (item.get("label") or item.get("code")) == label), None)
+    result = {**base, "catalog_status": "PRESENT",
+              "schema_version": catalog.get("schema_version"), "route_found": route is not None}
+    if route is None:
+        return result
+    stage_ids = set(route.get("stage_ids", []))
+    stages = [stage for stage in catalog.get("stages", [])
+              if isinstance(stage, dict) and stage.get("id") in stage_ids]
+    tools = [item for item in catalog.get("tools", [])
+             if isinstance(item, dict) and stage_ids.intersection(item.get("stage_ids", []))]
+    workflows = [item for item in catalog.get("workflows", [])
+                 if isinstance(item, dict) and stage_ids.intersection(item.get("stage_ids", []))]
+    return {
+        **result,
+        "stage_ids": sorted(stage_ids),
+        "stages": [{key: item.get(key) for key in ("id", "name", "purpose", "state")}
+                   for item in stages[:8]],
+        "tools": [{key: item.get(key) for key in ("path", "role", "tool_type", "stage_ids")}
+                  for item in tools[:12]],
+        "workflows": [{key: item.get(key) for key in ("path", "purpose", "role", "publication_capable", "stage_ids")}
+                      for item in workflows[:12]],
+        "permitted_recovery": route.get("permitted_recovery"),
+        "recovery_mode": route.get("recovery_mode"),
+        "must_fail_closed": route.get("must_fail_closed", True),
+        "ml_authority": route.get("ml_authority", "diagnostic_only"),
+    }
+
+
 @dataclass
 class Prediction:
     label: str
@@ -267,17 +334,40 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
             "known_feature_ratio": prediction.known_feature_ratio,
             "was_classified": prediction.label != "LOW_CONFIDENCE_UNCLASSIFIED",
         })
-    per_class = {
-        label: {
-            "support": per_class_counts[label],
-            "correct_count": per_class_correct[label],
-            "accuracy": round(per_class_correct[label] / per_class_counts[label], 4)
+    predicted_counts: Counter[str] = Counter(row["predicted"] for row in results)
+    prediction_labels = sorted(set(expected_labels) | set(predicted_counts))
+    confusion_matrix = {actual: {predicted: 0 for predicted in prediction_labels}
+                        for actual in expected_labels}
+    for row in results:
+        confusion_matrix[row["expected"]][row["predicted"]] += 1
+    per_class = {}
+    for label in expected_labels:
+        support = per_class_counts[label]
+        true_positive = per_class_correct[label]
+        precision = true_positive / predicted_counts[label] if predicted_counts[label] else 0.0
+        recall = true_positive / support if support else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        per_class[label] = {
+            "support": support, "predicted_count": predicted_counts[label],
+            "correct_count": true_positive, "accuracy": round(recall, 4),
+            "precision": round(precision, 4), "recall": round(recall, 4),
+            "f1": round(f1, 4),
         }
-        for label in expected_labels
-    }
     accuracy = correct / len(rows) if rows else 0.0
     macro_accuracy = (
         sum(per_class[label]["accuracy"] for label in expected_labels) / len(expected_labels)
+        if expected_labels else 0.0
+    )
+    macro_precision = (
+        sum(per_class[label]["precision"] for label in expected_labels) / len(expected_labels)
+        if expected_labels else 0.0
+    )
+    macro_recall = (
+        sum(per_class[label]["recall"] for label in expected_labels) / len(expected_labels)
+        if expected_labels else 0.0
+    )
+    macro_f1 = (
+        sum(per_class[label]["f1"] for label in expected_labels) / len(expected_labels)
         if expected_labels else 0.0
     )
     classified_results = [row for row in results if row["was_classified"]]
@@ -293,6 +383,10 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
         "correct_count": correct,
         "accuracy": round(accuracy, 4),
         "macro_accuracy": round(macro_accuracy, 4),
+        "macro_precision": round(macro_precision, 4),
+        "macro_recall": round(macro_recall, 4),
+        "macro_f1": round(macro_f1, 4),
+        "confusion_matrix": confusion_matrix,
         "unclassified_count": unclassified_count,
         "classified_count": classified_count,
         "classification_coverage": round(classification_coverage, 4),
@@ -313,11 +407,14 @@ def train_and_save(train_path: Path = DEFAULT_TRAIN, eval_path: Path = DEFAULT_E
     model = IncidentNaiveBayes().fit(training)
     metrics = evaluate(model, holdout)
     metrics["split_diagnostics"] = split_diagnostics
+    knowledge_summary = pipeline_catalog_summary()
+    metrics["pipeline_knowledge"] = knowledge_summary
     model_path.parent.mkdir(parents=True, exist_ok=True)
     evaluation_path.parent.mkdir(parents=True, exist_ok=True)
     payload = model.to_dict()
     payload["training_data_file"] = train_path.as_posix()
     payload["holdout_data_file"] = eval_path.as_posix()
+    payload["pipeline_knowledge"] = knowledge_summary
     payload["holdout_accuracy"] = metrics["accuracy"]
     payload["holdout_count"] = metrics["evaluation_count"]
     payload["holdout_passed"] = metrics["passed"]
@@ -375,8 +472,14 @@ def run_self_test() -> dict:
         "training_count": model.training_count, "labels": model.labels,
         "holdout_accuracy": metrics["accuracy"],
         "holdout_count": metrics["evaluation_count"], "passed": metrics["passed"],
-        "macro_accuracy": metrics["macro_accuracy"], "class_count": len(model.labels),
+        "macro_accuracy": metrics["macro_accuracy"],
+        "macro_precision": metrics["macro_precision"],
+        "macro_recall": metrics["macro_recall"],
+        "macro_f1": metrics["macro_f1"],
+        "class_count": len(model.labels),
         "classification_coverage": metrics["classification_coverage"],
+        "pipeline_knowledge": metrics["pipeline_knowledge"],
+        "confusion_matrix": metrics["confusion_matrix"],
         "selective_accuracy": metrics["selective_accuracy"],
         "misclassified_holdout": [
             {key: row[key] for key in ("expected", "predicted", "text", "confidence", "margin", "second_label")}
