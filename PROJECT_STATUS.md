@@ -227,3 +227,15 @@ See [the complete deep review](docs/PIPELINE_DEEP_REVIEW_2026-10-13.md) for the 
 - **Not yet verified:** the new tests have not yet run in GitHub Actions or a local checkout in this session; the PR and its CI results must be checked before merge. The runtime API freshness probe is read-only and bounded to the most recent 100 runs. Cron remains best-effort and does not guarantee continuous 24/7 monitoring.
 - **Release blockers remain:** live research/script generation has had provider quota/rate-limit failures; no full final MP4 review or verified YouTube long/Short scheduled-publication readback is established here. Do not publish or bypass QA.
 - **NEXT ACTION:** run CI on this branch, inspect test output and path-contract failures, fix any exact issue, and merge only after required checks pass.
+
+
+## 2026-10-14 — Step 1: read-only production baseline capture
+
+- Queried Cloudflare live source-content endpoint, settings/bindings, versions, deployments, and Cron schedules for `dark-sunset-a2a1` and `ai-production-worker`; all requested endpoints returned HTTP 200.
+- Recorded active version/deployment IDs, previous-version rollback references, compatibility dates, binding names/types, Cron schedules, and source API response fingerprints in `docs/PRODUCTION_WORKER_BASELINE_2026-10-14.md`.
+- Verified Main Worker v420 (`2e566cc7-0a07-4626-8611-15c8155070c7`) is 100% active; v419 (`79b5fbe4-7946-49f8-afb8-4a4069ca431d`) is the immediate prior version. Production Worker v10 (`0a4db91f-5764-4a74-b297-7ea08ba29dd1`) is 100% active; v9 (`521ed3d7-85de-48f9-9287-2d6c0742a0aa`) is the immediate prior version.
+- **No Worker code/configuration was changed or deployed.** No secrets were read, no billing changed, and no videos or historical records were touched.
+- Backup limitation: live source was not committed into this public repository because that could expose internal implementation details. The new document is a baseline manifest and rollback-reference record, **not a complete source archive**. Exact source archive is still required before the first production code change.
+- Verification: repeated Cloudflare API GETs succeeded (HTTP 200); version/deployment read-back matches the baseline. Raw multipart source-response fingerprints are explicitly not claimed as canonical source hashes.
+- Status: baseline metadata recorded; remediation remains blocked until a secure, verified source backup is available.
+- **Next exact action:** create and verify a private backup of the exact deployed Worker source without exposing it in this public repo; then patch only the diagnostic route against the reconciled live source.
