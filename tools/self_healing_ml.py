@@ -334,17 +334,40 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
             "known_feature_ratio": prediction.known_feature_ratio,
             "was_classified": prediction.label != "LOW_CONFIDENCE_UNCLASSIFIED",
         })
-    per_class = {
-        label: {
-            "support": per_class_counts[label],
-            "correct_count": per_class_correct[label],
-            "accuracy": round(per_class_correct[label] / per_class_counts[label], 4)
+    predicted_counts: Counter[str] = Counter(row["predicted"] for row in results)
+    prediction_labels = sorted(set(expected_labels) | set(predicted_counts))
+    confusion_matrix = {actual: {predicted: 0 for predicted in prediction_labels}
+                        for actual in expected_labels}
+    for row in results:
+        confusion_matrix[row["expected"]][row["predicted"]] += 1
+    per_class = {}
+    for label in expected_labels:
+        support = per_class_counts[label]
+        true_positive = per_class_correct[label]
+        precision = true_positive / predicted_counts[label] if predicted_counts[label] else 0.0
+        recall = true_positive / support if support else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        per_class[label] = {
+            "support": support, "predicted_count": predicted_counts[label],
+            "correct_count": true_positive, "accuracy": round(recall, 4),
+            "precision": round(precision, 4), "recall": round(recall, 4),
+            "f1": round(f1, 4),
         }
-        for label in expected_labels
-    }
     accuracy = correct / len(rows) if rows else 0.0
     macro_accuracy = (
         sum(per_class[label]["accuracy"] for label in expected_labels) / len(expected_labels)
+        if expected_labels else 0.0
+    )
+    macro_precision = (
+        sum(per_class[label]["precision"] for label in expected_labels) / len(expected_labels)
+        if expected_labels else 0.0
+    )
+    macro_recall = (
+        sum(per_class[label]["recall"] for label in expected_labels) / len(expected_labels)
+        if expected_labels else 0.0
+    )
+    macro_f1 = (
+        sum(per_class[label]["f1"] for label in expected_labels) / len(expected_labels)
         if expected_labels else 0.0
     )
     classified_results = [row for row in results if row["was_classified"]]
@@ -360,6 +383,10 @@ def evaluate(model: IncidentNaiveBayes, rows: list[dict[str, str]]) -> dict:
         "correct_count": correct,
         "accuracy": round(accuracy, 4),
         "macro_accuracy": round(macro_accuracy, 4),
+        "macro_precision": round(macro_precision, 4),
+        "macro_recall": round(macro_recall, 4),
+        "macro_f1": round(macro_f1, 4),
+        "confusion_matrix": confusion_matrix,
         "unclassified_count": unclassified_count,
         "classified_count": classified_count,
         "classification_coverage": round(classification_coverage, 4),
@@ -380,11 +407,14 @@ def train_and_save(train_path: Path = DEFAULT_TRAIN, eval_path: Path = DEFAULT_E
     model = IncidentNaiveBayes().fit(training)
     metrics = evaluate(model, holdout)
     metrics["split_diagnostics"] = split_diagnostics
+    knowledge_summary = pipeline_catalog_summary()
+    metrics["pipeline_knowledge"] = knowledge_summary
     model_path.parent.mkdir(parents=True, exist_ok=True)
     evaluation_path.parent.mkdir(parents=True, exist_ok=True)
     payload = model.to_dict()
     payload["training_data_file"] = train_path.as_posix()
     payload["holdout_data_file"] = eval_path.as_posix()
+    payload["pipeline_knowledge"] = knowledge_summary
     payload["holdout_accuracy"] = metrics["accuracy"]
     payload["holdout_count"] = metrics["evaluation_count"]
     payload["holdout_passed"] = metrics["passed"]
@@ -442,8 +472,13 @@ def run_self_test() -> dict:
         "training_count": model.training_count, "labels": model.labels,
         "holdout_accuracy": metrics["accuracy"],
         "holdout_count": metrics["evaluation_count"], "passed": metrics["passed"],
-        "macro_accuracy": metrics["macro_accuracy"], "class_count": len(model.labels),
+        "macro_accuracy": metrics["macro_accuracy"],
+        "macro_precision": metrics["macro_precision"],
+        "macro_recall": metrics["macro_recall"],
+        "macro_f1": metrics["macro_f1"],
+        "class_count": len(model.labels),
         "classification_coverage": metrics["classification_coverage"],
+        "pipeline_knowledge": metrics["pipeline_knowledge"],
         "selective_accuracy": metrics["selective_accuracy"],
         "misclassified_holdout": [
             {key: row[key] for key in ("expected", "predicted", "text", "confidence", "margin", "second_label")}
