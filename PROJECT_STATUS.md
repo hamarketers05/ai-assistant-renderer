@@ -1,3 +1,16 @@
+## 2026-10-14 — Scoped live pipeline audit (Main Worker + Production Worker + renderer repo)
+
+- Added [scoped pipeline audit](docs/PIPELINE_AUDIT_2026-10-14.md). Scope stayed limited to Cloudflare `dark-sunset-a2a1`, `ai-production-worker`, and this repository.
+- Read-only Cloudflare API inspection confirmed the live Main Worker source is ~814 KB while tracked `cloudflare/main-worker/worker.js` is ~23 KB and lacks the deployed `/editorial/trend-script` route. The Production Worker deployed source also needs an exact checked-in counterpart. **Do not deploy the smaller tracked Main Worker file over production.**
+- Current D1 snapshot shows IDs 23/24 still `SCRIPTED`, audio `PENDING`, no YouTube ID or schedule; `shorts`, `short_segments`, `render_manifests`, `render_scenes`, and `qa_checks` each have zero rows.
+- Confirmed critical existing duplicate: content IDs 18/19 have identical script and description, same title and `2026-10-14T22:00:00Z` schedule, but different YouTube video IDs. Older IDs 6/21 also have past timestamps while D1 still labels them `SCHEDULED`. No video was changed; platform read-back is required before any correction.
+- The D1 publishing target times/flags conflict with the handoff times and GitHub auto-dispatch configuration. Resolve the single scheduler/configuration owner before trusting unattended production.
+- Repository/controller checks recorded as passing remain limited to static CI and self-healing evidence. No current real MP4, Long/Short production pair, or YouTube schedule read-back was verified in this audit. Current release status remains **BLOCKED**; no app code, Worker, secrets, billing, uploads, or production settings changed.
+
+**Next exact action:** read back YouTube video resources for the duplicate/past-due records and reconcile D1 before initiating any new renderer/upload run.
+
+---
+
 ## 2026-10-14 — ML diagnostics merged; scheduled monitoring and retraining verified
 
 - **Merged PR #14** as `ccaef460ab74bcdd8196bb1bc12f0079b122049c`. The change links accepted ML incident labels to the checked-in pipeline catalog and adds per-class precision/recall/F1, macro metrics and a confusion matrix. Unknown labels remain fail-closed; model diagnostics do not grant repair/release authority.
