@@ -1,3 +1,14 @@
+## 2026-10-14 — ML pipeline knowledge grounding (PR preparation; not CI-verified yet)
+
+- Added `pipeline_catalog_summary()` and `ground_incident_knowledge()` in `tools/self_healing_ml.py`. An accepted incident label can now be linked to the exact catalog route, pipeline stages, tool roles and workflows; unknown labels do not infer a route.
+- The saved training/evaluation report includes catalog version and counts (14 stages, 21 workflows, 40 tools, 30 incident routes) while explicitly marking that this is static repository knowledge, not runtime health proof or knowledge learned by classifier weights.
+- Extended holdout evaluation with per-class precision/recall/F1, macro precision/recall/F1 and a confusion matrix. Existing accuracy/coverage gates remain in place; model predictions remain advisory-only.
+- Integrated catalog context into `tools/self_healing_agent.py` diagnostics and extended `tools/test_self_healing_ml.py` for known/unknown route grounding and metric bounds.
+- **Verification status:** changes are on `feat/ml-pipeline-grounded-diagnostics-20261014`; local execution has not been claimed. PR CI and the actual Python training/test output are pending.
+- **Safety:** no extra retry/patch/deploy/publish authority was granted. Pipeline catalog entries remain a versioned lookup, not proof a listed external tool works. Production end-to-end/video publication status is unchanged and remains blocked.
+
+**Next exact action:** open PR #14, require CI Workflow Guard and Renderer Static Validation, review Self-Healing Agent/E2E results, then record only observed evaluation metrics and test outputs.
+
 ## 2026-10-14 — Pipeline knowledge catalog and static integrity gate (PR #13 merged)
 
 - Added `tools/pipeline_catalog.json` (14 stages, 21 workflow entries, 40 tool entries and 30 incident routes) to map intended stage responsibilities, evidence boundaries, quality gates and protected operations. This catalog is configuration knowledge, not proof those stages work end-to-end.
